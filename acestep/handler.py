@@ -1902,6 +1902,8 @@ class AceStepHandler:
         logger.info("[service_generate] Generating audio...")
         with self._load_model_context("model"):
             outputs = self.model.generate_audio(**generate_kwargs)
+        
+        outputs['actural_texts'] = text_inputs
         return outputs
 
     def tiled_decode(self, latents, chunk_size=512, overlap=64):
@@ -2143,6 +2145,7 @@ class AceStepHandler:
             )
             
             logger.info("[generate_music] Model generation completed. Decoding latents...")
+            actural_texts = outputs["actural_texts"]
             pred_latents = outputs["target_latents"]  # [batch, latent_length, latent_dim]
             time_costs = outputs["time_costs"]
             time_costs["offload_time_cost"] = self.current_offload_cost
@@ -2232,6 +2235,7 @@ class AceStepHandler:
                 generation_info,
                 status_message,
                 seed_value_for_ui,
+                actural_texts,
                 align_score_1,
                 align_text_1,
                 align_plot_1,

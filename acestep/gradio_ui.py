@@ -1068,7 +1068,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         )
         
         # Extract results
-        first_audio, second_audio, all_audio_paths, generation_info, status_message, seed_value_for_ui, \
+        first_audio, second_audio, all_audio_paths, generation_info, status_message, seed_value_for_ui, actural_texts, \
             align_score_1, align_text_1, align_plot_1, align_score_2, align_text_2, align_plot_2 = result
         
         # Append LM-generated metadata to generation_info if available

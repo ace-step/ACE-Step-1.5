@@ -467,10 +467,15 @@ def create_ui(handler):
                         label="Generated Audio",
                         type="filepath"
                     )
+                    actural_texts = gr.Textbox(
+                        label="actural_texts_input",
+                        interactive=False
+                    )
                     audio_generation_status = gr.Textbox(
                         label="Status",
                         interactive=False
                     )
+
         
         # =================================================================
         # Event Handlers
@@ -601,7 +606,7 @@ def create_ui(handler):
                 ace_bpm, ace_key_scale, ace_time_signature, vocal_language,
                 use_adg, cfg_interval_start, cfg_interval_end, audio_format, use_tiled_decode
             ],
-            outputs=[audio_output, audio_generation_status]
+            outputs=[audio_output, audio_generation_status, actural_texts]
         )
     
     return demo

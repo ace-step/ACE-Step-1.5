@@ -7,6 +7,7 @@ Supports training from preprocessed tensor files for optimal performance.
 
 import os
 import time
+from contextlib import nullcontext
 from typing import Optional, List, Dict, Any, Tuple, Generator
 from loguru import logger
 
@@ -134,8 +135,16 @@ class PreprocessedLoRAModule(nn.Module):
         Returns:
             Loss tensor (float32 for stable backward)
         """
-        # Use autocast for bf16 mixed precision training
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        # Use autocast for mixed precision training on supported devices
+        device_type = self.device.type if isinstance(self.device, torch.device) else str(self.device)
+        if device_type in ["cuda", "xpu"]:
+            autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.bfloat16)
+        elif device_type == "mps":
+            autocast_ctx = torch.autocast(device_type=device_type, dtype=torch.float16)
+        else:
+            autocast_ctx = nullcontext()
+
+        with autocast_ctx:
             # Get tensors from batch (already on device from Fabric dataloader)
             target_latents = batch["target_latents"].to(self.device)  # x0
             attention_mask = batch["attention_mask"].to(self.device)

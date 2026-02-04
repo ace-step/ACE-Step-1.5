@@ -835,10 +835,23 @@ class MusicLyricScorer:
             AlignmentScore object containing individual metrics and final score.
         """
         # Ensure Inputs are Tensors on the correct device
-        if not isinstance(energy_matrix, torch.Tensor):
-            energy_matrix = torch.tensor(energy_matrix, device='cuda', dtype=torch.float32)
+        if isinstance(energy_matrix, torch.Tensor):
+            device = energy_matrix.device
+        elif isinstance(type_mask, torch.Tensor):
+            device = type_mask.device
+        elif isinstance(path_coords, torch.Tensor):
+            device = path_coords.device
+        else:
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = torch.device("mps")
+            elif torch.cuda.is_available():
+                device = torch.device("cuda")
+            else:
+                device = torch.device("cpu")
+            energy_matrix = torch.tensor(energy_matrix, device=device, dtype=torch.float32)
 
-        device = energy_matrix.device
+        if not isinstance(energy_matrix, torch.Tensor):
+            energy_matrix = torch.tensor(energy_matrix, device=device, dtype=torch.float32)
 
         if not isinstance(type_mask, torch.Tensor):
             type_mask = torch.tensor(type_mask, device=device, dtype=torch.long)

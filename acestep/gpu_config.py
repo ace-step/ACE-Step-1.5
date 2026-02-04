@@ -137,8 +137,10 @@ def get_gpu_memory_gb() -> float:
             total_memory = torch.cuda.get_device_properties(0).total_memory
             memory_gb = total_memory / (1024**3)  # Convert bytes to GB
             return memory_gb
-        else:
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            logger.warning("MPS detected but total VRAM is not available; set MAX_CUDA_VRAM to override.")
             return 0
+        return 0
     except Exception as e:
         logger.warning(f"Failed to detect GPU memory: {e}")
         return 0

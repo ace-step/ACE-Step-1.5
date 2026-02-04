@@ -53,6 +53,31 @@ class LLMHandler:
         # Shared HuggingFace model for perplexity calculation
         self._hf_model_for_scoring = None
 
+    def _device_type(self, device) -> str:
+        """Normalize device string/type to a torch device type."""
+        if isinstance(device, torch.device):
+            return device.type
+        try:
+            return torch.device(device).type
+        except Exception:
+            return str(device)
+
+    def _sync_device(self, device=None) -> None:
+        """Synchronize device work for accurate timing/transfers."""
+        device_type = self._device_type(device or self.device)
+        if device_type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
+        elif device_type == "mps" and hasattr(torch, "mps") and torch.backends.mps.is_available():
+            torch.mps.synchronize()
+
+    def _empty_device_cache(self, device=None) -> None:
+        """Best-effort device cache cleanup."""
+        device_type = self._device_type(device or self.device)
+        if device_type == "cuda" and torch.cuda.is_available():
+            self._empty_device_cache("cuda")
+        elif device_type == "mps" and hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+            torch.mps.empty_cache()
+
     def _get_checkpoint_dir(self) -> str:
         """Get checkpoint directory, prioritizing persistent storage"""
         if self.persistent_storage_path:
@@ -89,6 +114,8 @@ class LLMHandler:
             Tuple of (gpu_memory_utilization_ratio, low_gpu_memory_mode)
         """
         try:
+            if not torch.cuda.is_available():
+                return 0.9, False
             device = torch.device("cuda:0")
             total_gpu_mem_bytes = torch.cuda.get_device_properties(device).total_memory
             total_gpu = total_gpu_mem_bytes / 1024**3
@@ -324,7 +351,7 @@ class LLMHandler:
             checkpoint_dir: Checkpoint directory path
             lm_model_path: LM model path (relative to checkpoint_dir)
             backend: Backend type ("vllm" or "pt")
-            device: Device type ("auto", "cuda", or "cpu")
+            device: Device type ("auto", "cuda", "mps", or "cpu")
             offload_to_cpu: Whether to offload to CPU
             dtype: Data type (if None, auto-detect based on device)
         
@@ -333,11 +360,18 @@ class LLMHandler:
         """
         try:
             if device == "auto":
-                device = "cuda" if torch.cuda.is_available() else "cpu"
+                if hasattr(torch, 'xpu') and torch.xpu.is_available():
+                    device = "xpu"
+                elif torch.cuda.is_available():
+                    device = "cuda"
+                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    device = "mps"
+                else:
+                    device = "cpu"
 
             self.device = device
             self.offload_to_cpu = offload_to_cpu
-            # Set dtype based on device: bfloat16 for cuda, float32 for cpu
+            # Set dtype based on device: bfloat16 for cuda/xpu, float32 for cpu/mps
             if dtype is None:
                 self.dtype = torch.bfloat16 if device in ["cuda", "xpu"] else torch.float32
             else:
@@ -729,7 +763,7 @@ class LLMHandler:
         generated_ids = generated_ids[input_length:]
         
         # Move to CPU for decoding
-        if generated_ids.is_cuda:
+        if generated_ids.device.type != "cpu":
             generated_ids = generated_ids.cpu()
         
         output_text = self.llm_tokenizer.decode(generated_ids, skip_special_tokens=False)
@@ -774,8 +808,11 @@ class LLMHandler:
                 # Set seed for this item if provided
                 if seeds and i < len(seeds):
                     torch.manual_seed(seeds[i])
-                    if torch.cuda.is_available():
+                    device_type = self._device_type(self.device)
+                    if device_type == "cuda" and torch.cuda.is_available():
                         torch.cuda.manual_seed_all(seeds[i])
+                    elif device_type == "mps" and hasattr(torch, "mps") and hasattr(torch.mps, "manual_seed"):
+                        torch.mps.manual_seed(seeds[i])
                 
                 # Generate using single-item method with batch-mode defaults
                 output_text = self._run_pt_single(
@@ -2001,10 +2038,9 @@ class LLMHandler:
                         self.llm.reset()
                 except Exception:
                     pass  # Ignore errors during cleanup
-            # Clear CUDA cache to release any corrupted memory
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
+            # Clear device cache to release any corrupted memory
+            self._empty_device_cache()
+            self._sync_device()
             return "", f"❌ Error generating from formatted prompt: {e}"
     
     def _generate_with_constrained_decoding(
@@ -2376,7 +2412,7 @@ class LLMHandler:
             start_time = time.time()
             if hasattr(model, "to"):
                 model.to("cpu")
-            torch.cuda.empty_cache()
+            self._empty_device_cache()
             offload_time = time.time() - start_time
             logger.info(f"Offloaded LLM to CPU in {offload_time:.4f}s")
     

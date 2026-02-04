@@ -56,7 +56,7 @@ The Gradio interface consists of several main sections:
 |---------|-------------|
 | **Checkpoint File** | Select a trained model checkpoint (if available) |
 | **Main Model Path** | Choose the DiT model configuration (e.g., `acestep-v15-turbo`, `acestep-v15-turbo-shift3`) |
-| **Device** | Processing device: `auto` (recommended), `cuda`, or `cpu` |
+| **Device** | Processing device: `auto` (recommended), `cuda`, `mps`, or `cpu` |
 
 ### 5Hz LM Configuration
 

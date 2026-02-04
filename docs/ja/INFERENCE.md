@@ -36,14 +36,14 @@ llm_handler = LLMHandler()
 dit_handler.initialize_service(
     project_root="/path/to/project",
     config_path="acestep-v15-turbo",
-    device="cuda"
+    device="auto"
 )
 
 llm_handler.initialize(
     checkpoint_dir="/path/to/checkpoints",
     lm_model_path="acestep-5Hz-lm-0.6B",
     backend="vllm",
-    device="cuda"
+    device="auto"
 )
 
 # 生成パラメータの設定

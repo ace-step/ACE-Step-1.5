@@ -80,8 +80,12 @@ class PreciseTimer:
         
     def sync(self):
         """Synchronize CUDA operations for accurate timing"""
-        if self.enabled and self.device.startswith("cuda") and torch.cuda.is_available():
+        if not self.enabled:
+            return
+        if self.device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.synchronize()
+        elif self.device == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.synchronize()
     
     @contextmanager
     def time(self, name: str):

@@ -16,8 +16,9 @@ from typing import Optional, List, Dict, Tuple
 from loguru import logger
 
 
-# Environment variable for debugging/testing different GPU memory configurations
+# Environment variables for debugging/testing different GPU memory configurations
 DEBUG_MAX_CUDA_VRAM_ENV = "MAX_CUDA_VRAM"
+DEBUG_MAX_MPS_VRAM_ENV = "MAX_MPS_VRAM"
 
 
 @dataclass
@@ -110,13 +111,46 @@ GPU_TIER_CONFIGS = {
 }
 
 
+def _get_mps_memory_gb() -> float:
+    """
+    Estimate available GPU memory for Apple Silicon (MPS).
+    Uses a conservative heuristic based on system RAM and allows override via env var.
+    """
+    debug_vram = os.environ.get(DEBUG_MAX_MPS_VRAM_ENV)
+    if debug_vram is not None:
+        try:
+            simulated_gb = float(debug_vram)
+            logger.warning(f"⚠️ DEBUG MODE: Simulating MPS memory as {simulated_gb:.1f}GB (set via {DEBUG_MAX_MPS_VRAM_ENV} environment variable)")
+            return simulated_gb
+        except ValueError:
+            logger.warning(f"Invalid {DEBUG_MAX_MPS_VRAM_ENV} value: {debug_vram}, ignoring")
+
+    # Heuristic: quarter of system RAM, clamped to [8, 24] GB
+    try:
+        import psutil
+        total_gb = psutil.virtual_memory().total / (1024**3)
+        estimated_gb = max(8.0, min(24.0, total_gb / 4.0))
+        logger.warning(
+            f"⚠️ MPS detected: estimating available GPU memory as {estimated_gb:.1f}GB "
+            f"(set {DEBUG_MAX_MPS_VRAM_ENV} to override)"
+        )
+        return estimated_gb
+    except Exception as e:
+        logger.warning(f"Failed to estimate MPS memory: {e}")
+        # Fallback to a safe default
+        return 8.0
+
+
 def get_gpu_memory_gb() -> float:
     """
     Get GPU memory in GB. Returns 0 if no GPU is available.
     
     Debug Mode:
-        Set environment variable MAX_CUDA_VRAM to override the detected GPU memory.
+        Set environment variable MAX_CUDA_VRAM to override the detected CUDA GPU memory.
         Example: MAX_CUDA_VRAM=8 python acestep  # Simulates 8GB GPU
+
+        For Apple Silicon (MPS), set MAX_MPS_VRAM to override the estimated memory.
+        Example: MAX_MPS_VRAM=12 python acestep  # Simulates 12GB MPS memory
         
         This allows testing different GPU tier configurations on high-end hardware.
     """
@@ -137,6 +171,8 @@ def get_gpu_memory_gb() -> float:
             total_memory = torch.cuda.get_device_properties(0).total_memory
             memory_gb = total_memory / (1024**3)  # Convert bytes to GB
             return memory_gb
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return _get_mps_memory_gb()
         else:
             return 0
     except Exception as e:

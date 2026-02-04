@@ -36,7 +36,8 @@ dependencies = [
     "torchcodec>=0.9.1; sys_platform != 'darwin'",
     # Local third-party packages
     "nano-vllm; sys_platform != 'darwin'",
-    "modelscope"
+    "modelscope",
+    "torchao>=0.15.0",
 ]
 
 [[tool.uv.index]]

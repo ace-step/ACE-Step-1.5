@@ -1963,7 +1963,7 @@ def navigate_to_previous_batch(current_batch_index, batch_queue):
     """
     if current_batch_index <= 0:
         gr.Warning(t("messages.at_first_batch"))
-        yield tuple([gr.update()] * 48)  # 8 audio + 2 batch files/info + 1 index + 1 indicator + 2 btns + 1 status + 8 scores + 8 codes + 8 lrc + 8 accordions + 1 restore
+        yield tuple([gr.skip()] * 48)  # 8 audio + 2 batch files/info + 1 index + 1 indicator + 2 btns + 1 status + 8 scores + 8 codes + 8 lrc + 8 accordions + 1 restore
         return
     
     # Move to previous batch
@@ -1972,7 +1972,7 @@ def navigate_to_previous_batch(current_batch_index, batch_queue):
     # Load batch data from queue
     if new_batch_index not in batch_queue:
         gr.Warning(t("messages.batch_not_found", n=new_batch_index + 1))
-        yield tuple([gr.update()] * 48)
+        yield tuple([gr.skip()] * 48)
         return
     
     batch_data = batch_queue[new_batch_index]
@@ -2086,7 +2086,7 @@ def navigate_to_next_batch(autogen_enabled, current_batch_index, total_batches, 
     """
     if current_batch_index >= total_batches - 1:
         gr.Warning(t("messages.at_last_batch"))
-        yield tuple([gr.update()] * 49)  # 8 audio + 2 batch files/info + 1 index + 1 indicator + 2 btns + 1 status + 1 next_status + 8 scores + 8 codes + 8 lrc + 8 accordions + 1 restore
+        yield tuple([gr.skip()] * 49)  # 8 audio + 2 batch files/info + 1 index + 1 indicator + 2 btns + 1 status + 1 next_status + 8 scores + 8 codes + 8 lrc + 8 accordions + 1 restore
         return
     
     # Move to next batch
@@ -2095,7 +2095,7 @@ def navigate_to_next_batch(autogen_enabled, current_batch_index, total_batches, 
     # Load batch data from queue
     if new_batch_index not in batch_queue:
         gr.Warning(t("messages.batch_not_found", n=new_batch_index + 1))
-        yield tuple([gr.update()] * 49)
+        yield tuple([gr.skip()] * 49)
         return
     
     batch_data = batch_queue[new_batch_index]

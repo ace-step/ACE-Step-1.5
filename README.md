@@ -195,7 +195,7 @@ Currently, we support Intel GPUs.
 
 ## �📥 Model Download
 
-Models are automatically downloaded from [HuggingFace]https://huggingface.co/ACE-Step/Ace-Step1.5) or [ModelScope](https://modelscope.cn/organization/ACE-Step) on first run. You can also manually download models using the CLI or `huggingface-cli`.
+Models are automatically downloaded from [HuggingFace](https://huggingface.co/ACE-Step/Ace-Step1.5) or [ModelScope](https://modelscope.cn/organization/ACE-Step) on first run. You can also manually download models using the CLI or `huggingface-cli`.
 
 ### Automatic Download
 

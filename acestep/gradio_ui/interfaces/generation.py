@@ -262,6 +262,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                                 src_audio = gr.Audio(
                                     label=t("generation.source_audio"),
                                     type="filepath",
+                                    elem_id="src_audio_player",
                                 )
                             with gr.Column(scale=1, min_width=80):
                                 convert_src_to_codes_btn = gr.Button(
@@ -290,17 +291,29 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     # Repainting controls
                     with gr.Group(visible=False) as repainting_group:
                         gr.HTML(f"<h5>{t('generation.repainting_controls')}</h5>")
-                        with gr.Row():
+                        with gr.Row(equal_height=True):
                             repainting_start = gr.Number(
                                 label=t("generation.repainting_start"),
                                 value=0.0,
                                 step=0.1,
+                                scale=2,
+                            )
+                            set_start_btn = gr.Button(
+                                t("generation.set_start_btn"),
+                                size="sm",
+                                scale=1,
                             )
                             repainting_end = gr.Number(
                                 label=t("generation.repainting_end"),
                                 value=-1,
                                 minimum=-1,
                                 step=0.1,
+                                scale=2,
+                            )
+                            set_end_btn = gr.Button(
+                                t("generation.set_end_btn"),
+                                size="sm",
+                                scale=1,
                             )
                     
                     # Simple/Custom Mode Toggle
@@ -745,7 +758,9 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
         "use_cot_language": use_cot_language,
         "repainting_group": repainting_group,
         "repainting_start": repainting_start,
+        "set_start_btn": set_start_btn,
         "repainting_end": repainting_end,
+        "set_end_btn": set_end_btn,
         "audio_cover_strength": audio_cover_strength,
         # Simple/Custom Mode Components
         "generation_mode": generation_mode,

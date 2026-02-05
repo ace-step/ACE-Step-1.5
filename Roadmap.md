@@ -39,9 +39,9 @@
 ## 6. Inpainting Range Selector
 **Problem:** Currently, inpainting ranges are set manually via text boxes, which is difficult.
 **Solution:**
-- [ ] Add "Set Start" and "Set End" buttons next to the source audio player.
-- [ ] Bind these buttons to capture the current playback position from the audio player (requires JS).
-- [ ] Auto-fill the `repainting_start` and `repainting_end` inputs.
+- [x] Add "Set Start" and "Set End" buttons next to the source audio player.
+- [x] Bind these buttons to capture the current playback position from the audio player (requires JS).
+- [x] Auto-fill the `repainting_start` and `repainting_end` inputs.
 
 ## 7. Fix Batch Size UI (High Priority)
 **Problem:** Changing batch size (e.g., between 1-8) causes UI breakage, layout shifts, and makes elements like download buttons unclickable.

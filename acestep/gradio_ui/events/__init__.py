@@ -165,6 +165,21 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         inputs=[generation_section["src_audio"]],
         outputs=[generation_section["text2music_audio_code_string"]]
     )
+
+    # ========== Repainting Start/End Handlers ==========
+    generation_section["set_start_btn"].click(
+        fn=None,
+        inputs=[],
+        outputs=[generation_section["repainting_start"]],
+        js="() => { const a = document.querySelector('#src_audio_player audio'); return a ? a.currentTime : 0.0; }"
+    )
+
+    generation_section["set_end_btn"].click(
+        fn=None,
+        inputs=[],
+        outputs=[generation_section["repainting_end"]],
+        js="() => { const a = document.querySelector('#src_audio_player audio'); return a ? a.currentTime : -1.0; }"
+    )
     
     # ========== Instruction UI Updates ==========
     for trigger in [generation_section["task_type"], generation_section["track_name"], generation_section["complete_track_classes"]]:

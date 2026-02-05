@@ -2,7 +2,7 @@
 <h1 align="center">Pushing the Boundaries of Open-Source Music Generation</h1>
 <p align="center">
     <a href="https://ace-step.github.io/ace-step-v1.5.github.io/">Project</a> |
-    <a href="https://huggingface.co/collections/ACE-Step/ace-step-15">Hugging Face</a> |
+    <a href="https://huggingface.co/ACE-Step/Ace-Step1.5">Hugging Face</a> |
     <a href="https://modelscope.cn/models/ACE-Step/Ace-Step1.5">ModelScope</a> |
     <a href="https://huggingface.co/spaces/ACE-Step/Ace-Step-v1.5">Space Demo</a> |
     <a href="https://discord.gg/PeWDxrkdj7">Discord</a> |
@@ -75,6 +75,141 @@ Star ACE-Step on GitHub and be instantly notified of new releases
 
 > **Requirements:** Python 3.11, CUDA GPU recommended (works on CPU/MPS but slower)
 
+### 🪟 Windows Portable Package (Recommended for Windows)
+
+For Windows users, we provide a portable package with pre-installed dependencies:
+
+1. Download and extract: [ACE-Step-1.5.7z](https://files.acemusic.ai/acemusic/win/ACE-Step-1.5.7z)
+2. The package includes `python_embeded` with all dependencies pre-installed
+3. **Requirements:** CUDA 12.8
+
+#### 🚀 Quick Start Scripts
+
+The portable package includes convenient batch scripts for easy operation:
+
+| Script | Description | Usage |
+|--------|-------------|-------|
+| **start_gradio_ui.bat** | Launch Gradio Web UI | Double-click or run from terminal |
+| **start_api_server.bat** | Launch REST API Server | Double-click or run from terminal |
+
+**Basic Usage:**
+
+```bash
+# Launch Gradio Web UI (Recommended)
+start_gradio_ui.bat
+
+# Launch REST API Server
+start_api_server.bat
+```
+
+Both scripts support:
+- ✅ Auto environment detection (`python_embeded` or `uv`)
+- ✅ Auto install `uv` if needed (via winget or PowerShell)
+- ✅ Configurable download source (HuggingFace/ModelScope)
+- ✅ Optional Git update check before startup
+- ✅ Customizable language, models, and parameters
+
+#### 📝 Configuration
+
+Edit the scripts to customize settings:
+
+**start_gradio_ui.bat:**
+```batch
+REM UI language (en, zh, ja)
+set LANGUAGE=zh
+
+REM Download source (auto, huggingface, modelscope)
+set DOWNLOAD_SOURCE=--download-source modelscope
+
+REM Git update check (true/false) - requires PortableGit
+set CHECK_UPDATE=true
+
+REM Model configuration
+set CONFIG_PATH=--config_path acestep-v15-turbo
+set LM_MODEL_PATH=--lm_model_path acestep-5Hz-lm-1.7B
+```
+
+#### 🔄 Update & Maintenance Tools
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| **check_update.bat** | Check and update from GitHub | When you want to update to the latest version |
+| **merge_config.bat** | Merge backed-up configurations | After updating when config conflicts occur |
+| **install_uv.bat** | Install uv package manager | If uv installation failed during startup |
+| **quick_test.bat** | Test environment setup | To verify your environment is working |
+| **test_git_update.bat** | Test Git update functionality | To verify PortableGit is working correctly |
+
+**Update Workflow:**
+
+```bash
+# 1. Check for updates (requires PortableGit/)
+check_update.bat
+
+# 2. If conflicts occur, your changes are backed up automatically
+# 3. After update, merge your settings back
+merge_config.bat
+
+# Options:
+# - Compare backup with current files (side-by-side in Notepad)
+# - Restore files from backup
+# - List all backed-up files
+# - Delete old backups
+```
+
+**Environment Testing:**
+
+```bash
+# Test your setup
+quick_test.bat
+
+# This checks:
+# - Python installation (python_embeded or system Python)
+# - uv installation and PATH
+# - GPU availability (CUDA/ROCm)
+# - Basic imports
+```
+
+#### 📦 Portable Git Support
+
+If you have `PortableGit/` folder in your package, you can:
+
+1. **Enable Auto-Updates:** Edit `start_gradio_ui.bat` or `start_api_server.bat`
+   ```batch
+   set CHECK_UPDATE=true
+   ```
+
+2. **Manual Update Check:**
+   ```bash
+   check_update.bat
+   ```
+
+3. **Conflict Handling:** When your modified files conflict with GitHub updates:
+   - Files are automatically backed up to `.update_backup_YYYYMMDD_HHMMSS/`
+   - Use `merge_config.bat` to compare and merge changes
+   - Supports all file types: `.bat`, `.py`, `.yaml`, `.json`, etc.
+
+**Update Features:**
+- ⏱️ 10-second timeout protection (won't block startup if GitHub is unreachable)
+- 💾 Smart conflict detection and backup
+- 🔄 Automatic rollback on failure
+- 📁 Preserves directory structure in backups
+
+#### 🛠️ Advanced Options
+
+**Environment Detection Priority:**
+1. `python_embeded\python.exe` (if exists)
+2. `uv run acestep` (if uv is installed)
+3. Auto-install uv via winget or PowerShell
+
+**Download Source:**
+- `auto`: Auto-detect best source (checks Google accessibility)
+- `huggingface`: Use HuggingFace Hub
+- `modelscope`: Use ModelScope
+
+---
+
+### Standard Installation (All Platforms)
+
 ### 1. Install uv (Package Manager)
 
 ```bash
@@ -97,16 +232,46 @@ uv sync
 
 #### 🖥️ Gradio Web UI (Recommended)
 
+**Using uv:**
 ```bash
 uv run acestep
+```
+
+**Using Python directly:**
+
+> **Note:** Make sure to activate your Python environment first:
+> - **Windows portable package**: Use `python_embeded\python.exe` instead of `python`
+> - **Conda environment**: Run `conda activate your_env_name` first
+> - **venv**: Run `source venv/bin/activate` (Linux/Mac) or `venv\Scripts\activate` (Windows) first
+> - **System Python**: Use `python` or `python3` directly
+
+```bash
+# Windows portable package
+python_embeded\python.exe acestep\acestep_v15_pipeline.py
+
+# Conda/venv/system Python
+python acestep/acestep_v15_pipeline.py
 ```
 
 Open http://localhost:7860 in your browser. Models will be downloaded automatically on first run.
 
 #### 🌐 REST API Server
 
+**Using uv:**
 ```bash
 uv run acestep-api
+```
+
+**Using Python directly:**
+
+> **Note:** Make sure to activate your Python environment first (see note above).
+
+```bash
+# Windows portable package
+python_embeded\python.exe acestep\api_server.py
+
+# Conda/venv/system Python
+python acestep/api_server.py
 ```
 
 API runs at http://localhost:8001. See [API Documentation](./docs/en/API.md) for endpoints.
@@ -125,6 +290,7 @@ API runs at http://localhost:8001. See [API Documentation](./docs/en/API.md) for
 | `--config_path` | auto | DiT model (e.g., `acestep-v15-turbo`, `acestep-v15-turbo-shift3`) |
 | `--lm_model_path` | auto | LM model (e.g., `acestep-5Hz-lm-0.6B`, `acestep-5Hz-lm-1.7B`) |
 | `--offload_to_cpu` | auto | CPU offload (auto-enabled if VRAM < 16GB) |
+| `--download-source` | auto | Model download source: `auto`, `huggingface`, or `modelscope` |
 | `--enable-api` | false | Enable REST API endpoints alongside Gradio UI |
 | `--api-key` | none | API key for API endpoints authentication |
 | `--auth-username` | none | Username for Gradio authentication |
@@ -132,18 +298,42 @@ API runs at http://localhost:8001. See [API Documentation](./docs/en/API.md) for
 
 **Examples:**
 
+> **Note for Python users:** Replace `python` with your environment's Python executable:
+> - Windows portable package: `python_embeded\python.exe`
+> - Conda: Activate environment first, then use `python`
+> - venv: Activate environment first, then use `python`
+> - System: Use `python` or `python3`
+
 ```bash
 # Public access with Chinese UI
 uv run acestep --server-name 0.0.0.0 --share --language zh
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --server-name 0.0.0.0 --share --language zh
 
 # Pre-initialize models on startup
 uv run acestep --init_service true --config_path acestep-v15-turbo
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --init_service true --config_path acestep-v15-turbo
 
 # Enable API endpoints with authentication
 uv run acestep --enable-api --api-key sk-your-secret-key --port 8001
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --enable-api --api-key sk-your-secret-key --port 8001
 
 # Enable both Gradio auth and API auth
 uv run acestep --enable-api --api-key sk-123456 --auth-username admin --auth-password password
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --enable-api --api-key sk-123456 --auth-username admin --auth-password password
+
+# Use ModelScope as download source
+uv run acestep --download-source modelscope
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --download-source modelscope
+
+# Use HuggingFace Hub as download source
+uv run acestep --download-source huggingface
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --download-source huggingface
 ```
 
 ### Development
@@ -157,24 +347,108 @@ uv add --dev package-name
 uv sync --upgrade
 ```
 
+## 🎮 Other GPU Support
+
+### Intel GPU
+Currently, we support Intel GPUs.
+- **Tested Device**: Windows laptop with Ultra 9 285H integrated graphics.
+- **Settings**:
+  - `offload` is disabled by default.
+  - `compile` and `quantization` are enabled by default.
+- **Capabilities**: LLM inference is supported (tested with `acestep-5Hz-lm-0.6B`).
+  - *Note*: LLM inference speed might decrease when generating audio longer than 2 minutes.
+  - *Note*: `nanovllm` acceleration for LLM inference is currently NOT supported on Intel GPUs.
+- **Test Environment**: PyTorch 2.8.0 from [Intel Extension for PyTorch](https://pytorch-extension.intel.com/?request=platform).
+- **Intel Discrete GPUs**: Expected to work, but not tested yet as the developer does not have available devices. Waiting for community feedback.
+
 ## 📥 Model Download
 
-Models are automatically downloaded from [HuggingFace](https://huggingface.co/collections/ACE-Step/ace-step-15) or [ModelScope](https://modelscope.cn/organization/ACE-Step) on first run. You can also manually download models using the CLI or `huggingface-cli`.
+Models are automatically downloaded from [HuggingFace](https://huggingface.co/ACE-Step/Ace-Step1.5) or [ModelScope](https://modelscope.cn/organization/ACE-Step) on first run. You can also manually download models using the CLI or `huggingface-cli`.
+
+### Download Source Configuration
+
+ACE-Step supports multiple download sources with automatic fallback:
+
+| Source | Description | Configuration |
+|--------|-------------|---------------|
+| **auto** (default) | Automatic detection based on network, selects best source | `--download-source auto` or omit |
+| **modelscope** | Use ModelScope as download source | `--download-source modelscope` |
+| **huggingface** | Use HuggingFace Hub as download source | `--download-source huggingface` |
+
+**How it works:**
+- **Auto mode** (default): Tests Google connectivity. If accessible → HuggingFace Hub; if not → ModelScope
+- **Manual mode**: Uses your specified source, with automatic fallback to alternate source on failure
+- **Fallback protection**: If primary source fails, automatically tries the other source
+
+**Examples:**
+
+> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
+
+```bash
+# Use ModelScope
+uv run acestep --download-source modelscope
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --download-source modelscope
+
+# Use HuggingFace Hub
+uv run acestep --download-source huggingface
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --download-source huggingface
+
+# Auto-detect (default, no configuration needed)
+uv run acestep
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py
+```
+
+**For Windows portable package users**, edit `start_gradio_ui.bat` or `start_api_server.bat`:
+
+```batch
+REM Use ModelScope
+set DOWNLOAD_SOURCE=--download-source modelscope
+
+REM Use HuggingFace Hub
+set DOWNLOAD_SOURCE=--download-source huggingface
+
+REM Auto-detect (default)
+set DOWNLOAD_SOURCE=
+```
+
+**For command line users:**
+
+> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
+
+```bash
+# Using uv
+uv run acestep --download-source modelscope
+
+# Using Python directly
+python acestep/acestep_v15_pipeline.py --download-source modelscope
+```
 
 ### Automatic Download
 
 When you run `acestep` or `acestep-api`, the system will:
 1. Check if the required models exist in `./checkpoints`
-2. If not found, automatically download them from HuggingFace
+2. If not found, automatically download them using the configured source (or auto-detect)
 
 ### Manual Download with CLI
 
+> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
+
+**Using uv:**
 ```bash
 # Download main model (includes everything needed to run)
 uv run acestep-download
 
 # Download all available models (including optional variants)
 uv run acestep-download --all
+
+# Download from ModelScope
+uv run acestep-download --download-source modelscope
+
+# Download from HuggingFace Hub
+uv run acestep-download --download-source huggingface
 
 # Download a specific model
 uv run acestep-download --model acestep-v15-sft
@@ -184,6 +458,30 @@ uv run acestep-download --list
 
 # Download to a custom directory
 uv run acestep-download --dir /path/to/checkpoints
+```
+
+**Using Python directly:**
+```bash
+# Download main model (includes everything needed to run)
+python -m acestep.model_downloader
+
+# Download all available models (including optional variants)
+python -m acestep.model_downloader --all
+
+# Download from ModelScope
+python -m acestep.model_downloader --download-source modelscope
+
+# Download from HuggingFace Hub
+python -m acestep.model_downloader --download-source huggingface
+
+# Download a specific model
+python -m acestep.model_downloader --model acestep-v15-sft
+
+# List all available models
+python -m acestep.model_downloader --list
+
+# Download to a custom directory
+python -m acestep.model_downloader --dir /path/to/checkpoints
 ```
 
 ### Manual Download with huggingface-cli
@@ -293,7 +591,7 @@ See the **LoRA Training** tab in Gradio UI for one-click training, or check [Gra
 |----------|---------------|:------------:|:---:|:--:|:---------:|:-------------:|:-------------------:|:----------------------:|:-----------:|--------------|
 | `acestep-5Hz-lm-0.6B` | Qwen3-0.6B | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Medium | Weak | ✅ |
 | `acestep-5Hz-lm-1.7B` | Qwen3-1.7B | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Medium | Medium | ✅ |
-| `acestep-5Hz-lm-4B` | Qwen3-4B | ✅ | ✅ | ✅ | ✅ | ✅ | Strong | Strong | Strong | To be released |
+| `acestep-5Hz-lm-4B` | Qwen3-4B | ✅ | ✅ | ✅ | ✅ | ✅ | Strong | Strong | Strong | ✅ |
 
 ## 📜 License & Disclaimer
 

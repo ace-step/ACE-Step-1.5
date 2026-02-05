@@ -47,6 +47,17 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
     default_batch_size = min(2, max_batch_size)  # Default to 2 or max if lower
     init_lm_default = gpu_config.init_lm_default
     
+    # Determine default offload setting
+    # If XPU is detected, default offload to False (keep models on device)
+    # Otherwise default to True (offload to CPU to save VRAM)
+    default_offload = True
+    try:
+        import torch
+        if hasattr(torch, 'xpu') and torch.xpu.is_available():
+            default_offload = False
+    except ImportError:
+        pass
+    
     with gr.Group():
         # Service Configuration - collapse if pre-initialized, hide if in service mode
         accordion_open = not service_pre_initialized
@@ -96,7 +107,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                 # Set device value from init_params if pre-initialized
                 device_value = init_params.get('device', 'auto') if service_pre_initialized else 'auto'
                 device = gr.Dropdown(
-                    choices=["auto", "cuda", "mps", "cpu"],
+                    choices=["auto", "cuda", "mps", "xpu", "cpu"],
                     value=device_value,
                     label=t("service.device_label"),
                     info=t("service.device_info")
@@ -144,14 +155,14 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     info=t("service.flash_attention_info_enabled") if flash_attn_available else t("service.flash_attention_info_disabled")
                 )
                 # Set offload_to_cpu value from init_params if pre-initialized (default True)
-                offload_to_cpu_value = init_params.get('offload_to_cpu', True) if service_pre_initialized else True
+                offload_to_cpu_value = init_params.get('offload_to_cpu', default_offload) if service_pre_initialized else default_offload
                 offload_to_cpu_checkbox = gr.Checkbox(
                     label=t("service.offload_cpu_label"),
                     value=offload_to_cpu_value,
                     info=t("service.offload_cpu_info")
                 )
                 # Set offload_dit_to_cpu value from init_params if pre-initialized (default True)
-                offload_dit_to_cpu_value = init_params.get('offload_dit_to_cpu', True) if service_pre_initialized else True
+                offload_dit_to_cpu_value = init_params.get('offload_dit_to_cpu', default_offload) if service_pre_initialized else default_offload
                 offload_dit_to_cpu_checkbox = gr.Checkbox(
                     label=t("service.offload_dit_cpu_label"),
                     value=offload_dit_to_cpu_value,

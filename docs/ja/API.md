@@ -7,45 +7,115 @@
 本サービスはHTTPベースの非同期音楽生成APIを提供します。
 
 **基本的なワークフロー**：
-1. `POST /v1/music/generate` を呼び出してタスクを送信し、`job_id` を取得します。
-2. `GET /v1/jobs/{job_id}` を呼び出してタスクステータスをポーリングし、`status` が `succeeded` または `failed` になるまで待ちます。
+1. `POST /release_task` を呼び出してタスクを送信し、`task_id` を取得します。
+2. `POST /query_result` を呼び出してタスクステータスを一括クエリし、`status` が `1`（成功）または `2`（失敗）になるまで待ちます。
 3. 結果で返された `GET /v1/audio?path=...` URL から音声ファイルをダウンロードします。
 
 ---
 
 ## 目次
 
-- [タスクステータスの説明](#1-タスクステータスの説明)
-- [生成タスクの作成](#2-生成タスクの作成)
-- [タスク結果の照会](#3-タスク結果の照会)
-- [ランダムサンプル生成](#4-ランダムサンプル生成)
-- [利用可能なモデルの一覧](#5-利用可能なモデルの一覧)
-- [音声ファイルのダウンロード](#6-音声ファイルのダウンロード)
-- [ヘルスチェック](#7-ヘルスチェック)
-- [環境変数](#8-環境変数)
+- [認証](#1-認証)
+- [レスポンス形式](#2-レスポンス形式)
+- [タスクステータスの説明](#3-タスクステータスの説明)
+- [生成タスクの作成](#4-生成タスクの作成)
+- [タスク結果の一括クエリ](#5-タスク結果の一括クエリ)
+- [入力のフォーマット](#6-入力のフォーマット)
+- [ランダムサンプルの取得](#7-ラ���ダムサンプルの取得)
+- [利用可能なモデルの一覧](#8-利用可能なモデルの一覧)
+- [サーバー統計](#9-サーバー統計)
+- [音声ファイルのダウンロード](#10-音声ファイルのダウンロード)
+- [ヘルスチェック](#11-ヘルスチェック)
+- [環境変数](#12-環境変数)
 
 ---
 
-## 1. タスクステータスの説明
+## 1. 認証
 
-タスクステータス（`status`）には以下の種類があります：
+APIはオプションのAPIキー認証をサポートしています。有効にすると、リクエストに有効なキーを提供する必要があります。
 
-- `queued`：タスクがキューに入り、実行待ちです。この時点で `queue_position` と `eta_seconds` を確認できます。
-- `running`：生成が進行中です。
-- `succeeded`：生成が成功し、結果は `result` フィールドにあります。
-- `failed`：生成が失敗し、エラー情報は `error` フィールドにあります。
+### 認証方法
+
+2つの認証方法をサポート：
+
+**方法 A：リクエストボディの ai_token**
+
+```json
+{
+  "ai_token": "your-api-key",
+  "prompt": "アップビートなポップソング",
+  ...
+}
+```
+
+**方法 B：Authorization ヘッダー**
+
+```bash
+curl -X POST http://localhost:8001/release_task \
+  -H 'Authorization: Bearer your-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "アップビートなポップソング"}'
+```
+
+### APIキーの設定
+
+環境変数またはコマンドライン引数で設定：
+
+```bash
+# 環境変数
+export ACESTEP_API_KEY=your-secret-key
+
+# またはコマンドライン引数
+python -m acestep.api_server --api-key your-secret-key
+```
 
 ---
 
-## 2. 生成タスクの作成
+## 2. レスポンス形式
 
-### 2.1 API 定義
+すべてのAPIレスポンスは統一されたラッパー形式を使用します：
 
-- **URL**：`/v1/music/generate`
+```json
+{
+  "data": { ... },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+| フィールド | 型 | 説明 |
+| :--- | :--- | :--- |
+| `data` | any | 実際のレスポンスデータ |
+| `code` | int | ステータスコード（200=成功）|
+| `error` | string | エラーメッセージ（成功時はnull）|
+| `timestamp` | int | レスポンスタイムスタンプ（ミリ秒）|
+| `extra` | any | 追加情報���通常はnull）|
+
+---
+
+## 3. タスクステータスの説明
+
+タスクステータス（`status`）は整数で表されます：
+
+| ステータスコード | ステータス名 | 説明 |
+| :--- | :--- | :--- |
+| `0` | queued/running | タスクがキュー中または実行中 |
+| `1` | succeeded | 生成成功、結果が準備完了 |
+| `2` | failed | 生成失敗 |
+
+---
+
+## 4. 生成タスクの作成
+
+### 4.1 API 定義
+
+- **URL**：`/release_task`
 - **メソッド**：`POST`
 - **Content-Type**：`application/json`、`multipart/form-data`、または `application/x-www-form-urlencoded`
 
-### 2.2 リクエストパラメータ
+### 4.2 リクエストパラメータ
 
 #### パラメータ命名規則
 
@@ -66,7 +136,7 @@ APIはほとんどのパラメータで **snake_case** と **camelCase** の両�
 
 | パラメータ名 | 型 | デフォルト | 説明 |
 | :--- | :--- | :--- | :--- |
-| `caption` | string | `""` | 音楽の説明プロンプト |
+| `prompt` | string | `""` | 音楽の説明プロンプト（別名：`caption`）|
 | `lyrics` | string | `""` | 歌詞の内容 |
 | `thinking` | bool | `false` | 5Hz LMを使用してオーディオコードを生成するかどうか（lm-dit動作）|
 | `vocal_language` | string | `"en"` | 歌詞の言語（en、zh、jaなど）|
@@ -165,6 +235,7 @@ APIはほとんどのパラメータで **snake_case** と **camelCase** の両�
 | `use_cot_language` | bool | `true` | LMにCoTでボーカル言語を検出させる。別名：`cot_language`、`cot-language` |
 | `constrained_decoding` | bool | `true` | 構造化されたLM出力のためのFSMベースの制約付きデコーディングを有効にする。別名：`constrainedDecoding`、`constrained` |
 | `constrained_decoding_debug` | bool | `false` | 制約付きデコーディングのデバッグログを有効にする |
+| `allow_lm_batch` | bool | `true` | 効率向上のためにLMバッチ処理を許可 |
 
 **編集/参照オーディオパラメータ**（サーバー上の絶対パスが必要）：
 
@@ -184,30 +255,36 @@ APIはほとんどのパラメータで **snake_case** と **camelCase** の両�
 
 上記のすべてのフィールドをフォームフィールドとしてサポートすることに加えて、以下のファイルフィールドもサポートしています：
 
-- `reference_audio`：（ファイル）参照オーディオファイルをアップロード
-- `src_audio`：（ファイル）ソースオーディオファイルをアップロード
+- `reference_audio` または `ref_audio`：（ファイル）参照オーディオファイルをアップロード
+- `src_audio` または `ctx_audio`：（ファイル）ソースオーディオファイルをアップロード
 
 > **注意**：ファイルをアップロードすると、対応する `_path` パラメータは自動的に無視され、システムはアップロード後の一時ファイルパスを使用します。
 
-### 2.3 レスポンス例
+### 4.3 レスポンス例
 
 ```json
 {
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "queued",
-  "queue_position": 1
+  "data": {
+    "task_id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "queued",
+    "queue_position": 1
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
 }
 ```
 
-### 2.4 使用例（cURL）
+### 4.4 使用例（cURL）
 
 **基本的なJSONメソッド**：
 
 ```bash
-curl -X POST http://localhost:8001/v1/music/generate \
+curl -X POST http://localhost:8001/release_task \
   -H 'Content-Type: application/json' \
   -d '{
-    "caption": "アップビートなポップソング",
+    "prompt": "アップビートなポップソング",
     "lyrics": "Hello world",
     "inference_steps": 8
   }'
@@ -216,10 +293,10 @@ curl -X POST http://localhost:8001/v1/music/generate \
 **thinking=trueの場合（LMがコードを生成 + 欠落メタを補完）**：
 
 ```bash
-curl -X POST http://localhost:8001/v1/music/generate \
+curl -X POST http://localhost:8001/release_task \
   -H 'Content-Type: application/json' \
   -d '{
-    "caption": "アップビートなポップソング",
+    "prompt": "アップビートなポップソング",
     "lyrics": "Hello world",
     "thinking": true,
     "lm_temperature": 0.85,
@@ -230,7 +307,7 @@ curl -X POST http://localhost:8001/v1/music/generate \
 **説明駆動型生成（sample_query）**：
 
 ```bash
-curl -X POST http://localhost:8001/v1/music/generate \
+curl -X POST http://localhost:8001/release_task \
   -H 'Content-Type: application/json' \
   -d '{
     "sample_query": "静かな夜のための柔らかいベンガルのラブソング",
@@ -241,10 +318,10 @@ curl -X POST http://localhost:8001/v1/music/generate \
 **フォーマット強化（use_format=true）**：
 
 ```bash
-curl -X POST http://localhost:8001/v1/music/generate \
+curl -X POST http://localhost:8001/release_task \
   -H 'Content-Type: application/json' \
   -d '{
-    "caption": "ポップロック",
+    "prompt": "ポップロック",
     "lyrics": "[Verse 1]\n街を歩いて...",
     "use_format": true,
     "thinking": true
@@ -254,10 +331,10 @@ curl -X POST http://localhost:8001/v1/music/generate \
 **特定のモデルを選択**：
 
 ```bash
-curl -X POST http://localhost:8001/v1/music/generate \
+curl -X POST http://localhost:8001/release_task \
   -H 'Content-Type: application/json' \
   -d '{
-    "caption": "エレクトロニックダンスミュージック",
+    "prompt": "エレクトロニックダンスミュージック",
     "model": "acestep-v15-turbo",
     "thinking": true
   }'
@@ -266,194 +343,218 @@ curl -X POST http://localhost:8001/v1/music/generate \
 **カスタムタイムステップを使用**：
 
 ```bash
-curl -X POST http://localhost:8001/v1/music/generate \
+curl -X POST http://localhost:8001/release_task \
   -H 'Content-Type: application/json' \
   -d '{
-    "caption": "ジャズピアノトリオ",
+    "prompt": "ジャズピアノトリオ",
     "timesteps": "0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0",
     "thinking": true
-  }'
-```
-
-**thinking=falseの場合（DiTのみ、ただし欠落メタを補完）**：
-
-```bash
-curl -X POST http://localhost:8001/v1/music/generate \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "caption": "ゆっくりとした感情的なバラード",
-    "lyrics": "...",
-    "thinking": false,
-    "bpm": 72
   }'
 ```
 
 **ファイルアップロードメソッド**：
 
 ```bash
-curl -X POST http://localhost:8001/v1/music/generate \
-  -F "caption=この曲をリミックス" \
+curl -X POST http://localhost:8001/release_task \
+  -F "prompt=この曲をリミックス" \
   -F "src_audio=@/path/to/local/song.mp3" \
   -F "task_type=repaint"
 ```
 
 ---
 
-## 3. タスク結果の照会
+## 5. タスク結果の一括クエリ
 
-### 3.1 API 定義
+### 5.1 API 定義
 
-- **URL**：`/v1/jobs/{job_id}`
-- **メソッド**：`GET`
+- **URL**：`/query_result`
+- **メソッド**：`POST`
+- **Content-Type**：`application/json` または `application/x-www-form-urlencoded`
 
-### 3.2 レスポンスパラメータ
+### 5.2 リクエストパラメータ
 
-レスポンスには基本的なタスク情報、キューステータス、最終結果が含まれます。
+| パラメータ名 | 型 | 説明 |
+| :--- | :--- | :--- |
+| `task_id_list` | string (JSON array) または array | クエリするタスクIDのリスト |
 
-**主要フィールド**：
-
-- `status`：現在のステータス
-- `queue_position`：現在のキュー位置（0は実行中または完了を意味）
-- `eta_seconds`：推定残り待ち時間（秒）
-- `avg_job_seconds`：平均ジョブ時間（ETA推定用）
-- `result`：成功時の結果オブジェクト
-  - `audio_paths`：生成されたオーディオファイルURLのリスト（`/v1/audio` エンドポイントと併用）
-  - `first_audio_path`：最初のオーディオパス（URL）
-  - `second_audio_path`：2番目のオーディオパス（URL、batch_size >= 2の場合）
-  - `generation_info`：生成パラメータの詳細
-  - `status_message`：簡潔な結果説明
-  - `seed_value`：使用されたシード値（カンマ区切り）
-  - `metas`：完全なメタデータ辞書
-  - `bpm`：検出/使用されたBPM
-  - `duration`：検出/使用された長さ
-  - `keyscale`：検出/使用されたキー
-  - `timesignature`：検出/使用された拍子
-  - `genres`：検出されたジャンル（利用可能な場合）
-  - `lm_model`：使用されたLMモデルの名前
-  - `dit_model`：使用されたDiTモデルの名前
-- `error`：失敗時のエラー情報
-
-### 3.3 レスポンス例
-
-**キュー中**：
+### 5.3 レスポンス例
 
 ```json
 {
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "queued",
-  "created_at": 1700000000.0,
-  "queue_position": 5,
-  "eta_seconds": 25.0,
-  "avg_job_seconds": 5.0,
-  "result": null,
-  "error": null
+  "data": [
+    {
+      "task_id": "550e8400-e29b-41d4-a716-446655440000",
+      "status": 1,
+      "result": "[{\"file\": \"/v1/audio?path=...\", \"wave\": \"\", \"status\": 1, \"create_time\": 1700000000, \"env\": \"development\", \"prompt\": \"アップビートなポップソング\", \"lyrics\": \"Hello world\", \"metas\": {\"bpm\": 120, \"duration\": 30, \"genres\": \"\", \"keyscale\": \"C Major\", \"timesignature\": \"4\"}, \"generation_info\": \"...\", \"seed_value\": \"12345,67890\", \"lm_model\": \"acestep-5Hz-lm-0.6B\", \"dit_model\": \"acestep-v15-turbo\"}]"
+    }
+  ],
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
 }
 ```
 
-**実行成功**：
+**結果フィールドの説明**（resultはJSON文字列、パース後に含まれる）：
 
-```json
-{
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "succeeded",
-  "created_at": 1700000000.0,
-  "started_at": 1700000001.0,
-  "finished_at": 1700000010.0,
-  "queue_position": 0,
-  "result": {
-    "first_audio_path": "/v1/audio?path=%2Ftmp%2Fapi_audio%2Fabc123.mp3",
-    "second_audio_path": "/v1/audio?path=%2Ftmp%2Fapi_audio%2Fdef456.mp3",
-    "audio_paths": [
-      "/v1/audio?path=%2Ftmp%2Fapi_audio%2Fabc123.mp3",
-      "/v1/audio?path=%2Ftmp%2Fapi_audio%2Fdef456.mp3"
-    ],
-    "generation_info": "🎵 2つのオーディオを生成\n⏱️ 合計：8.5s\n🎲 シード：12345,67890",
-    "status_message": "✅ 生成が正常に完了しました！",
-    "seed_value": "12345,67890",
-    "metas": {
-      "bpm": 120,
-      "duration": 30,
-      "keyscale": "C Major",
-      "timesignature": "4",
-      "caption": "キャッチーなメロディのアップビートなポップソング"
-    },
-    "bpm": 120,
-    "duration": 30,
-    "keyscale": "C Major",
-    "timesignature": "4",
-    "genres": null,
-    "lm_model": "acestep-5Hz-lm-0.6B",
-    "dit_model": "acestep-v15-turbo"
-  },
-  "error": null
-}
+| フィールド | 型 | 説明 |
+| :--- | :--- | :--- |
+| `file` | string | オーディオファイルURL（`/v1/audio` エンドポイントと併用）|
+| `wave` | string | 波形データ（通常は空）|
+| `status` | int | ステータスコード（0=進行中、1=成功、2=失敗）|
+| `create_time` | int | 作成時間（Unixタイムスタンプ）|
+| `env` | string | 環境識別子 |
+| `prompt` | string | 使用されたプロンプト |
+| `lyrics` | string | 使用された歌詞 |
+| `metas` | object | メタデータ（bpm、duration、genres、keyscale、timesignature）|
+| `generation_info` | string | 生成情報の概要 |
+| `seed_value` | string | 使用されたシード値（カンマ区切り）|
+| `lm_model` | string | 使用されたLMモデル名 |
+| `dit_model` | string | 使用されたDiTモデル名 |
+
+### 5.4 使用例
+
+```bash
+curl -X POST http://localhost:8001/query_result \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "task_id_list": ["550e8400-e29b-41d4-a716-446655440000"]
+  }'
 ```
 
 ---
 
-## 4. ランダムサンプル生成
+## 6. 入力のフォーマット
 
-### 4.1 API 定義
+### 6.1 API 定義
 
-- **URL**：`/v1/music/random`
+- **URL**：`/format_input`
 - **メソッド**：`POST`
 
-このエンドポイントは5Hz LM経由でcaption、lyrics、メタデータを自動生成するサンプルモードジョブを作成します。
+このエンドポイントはLLMを使用してユーザー提供のcaptionとlyricsを強化・フォーマットします。
 
-### 4.2 リクエストパラメータ
+### 6.2 リクエストパラメータ
 
 | パラメータ名 | 型 | デフォルト | 説明 |
 | :--- | :--- | :--- | :--- |
-| `thinking` | bool | `true` | LM経由でオーディオコードも生成するかどうか |
+| `prompt` | string | `""` | 音楽の説明プロンプト |
+| `lyrics` | string | `""` | 歌詞の内容 |
+| `temperature` | float | `0.85` | LMサンプリング温度 |
+| `param_obj` | string (JSON) | `"{}"` | メタデータを含むJSONオブジェクト（duration、bpm、key、time_signature、language）|
 
-### 4.3 レスポンス例
+### 6.3 レスポンス例
 
 ```json
 {
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "queued",
-  "queue_position": 1
+  "data": {
+    "caption": "強化された音楽の説明",
+    "lyrics": "フォーマットされた歌詞...",
+    "bpm": 120,
+    "key_scale": "C Major",
+    "time_signature": "4",
+    "duration": 180,
+    "vocal_language": "ja"
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
 }
 ```
 
-### 4.4 使用例
+### 6.4 使用例
 
 ```bash
-curl -X POST http://localhost:8001/v1/music/random \
+curl -X POST http://localhost:8001/format_input \
   -H 'Content-Type: application/json' \
-  -d '{"thinking": true}'
+  -d '{
+    "prompt": "ポップロック",
+    "lyrics": "街を歩いて",
+    "param_obj": "{\"duration\": 180, \"language\": \"ja\"}"
+  }'
 ```
 
 ---
 
-## 5. 利用可能なモデルの一覧
+## 7. ランダムサンプルの取得
 
-### 5.1 API 定義
+### 7.1 API 定義
+
+- **URL**：`/create_random_sample`
+- **メソッド**：`POST`
+
+このエンドポイントは事前にロードされたサンプルデータからランダムなサンプルパラメータを返します。フォーム入力に使用します。
+
+### 7.2 リクエストパラメータ
+
+| パラメータ名 | 型 | デフォルト | 説明 |
+| :--- | :--- | :--- | :--- |
+| `sample_type` | string | `"simple_mode"` | サンプルタイプ：`"simple_mode"` または `"custom_mode"` |
+
+### 7.3 レスポンス例
+
+```json
+{
+  "data": {
+    "caption": "ギター伴奏のある軽快なポップソング",
+    "lyrics": "[Verse 1]\n陽の光が顔に...",
+    "bpm": 120,
+    "key_scale": "G Major",
+    "time_signature": "4",
+    "duration": 180,
+    "vocal_language": "ja"
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+### 7.4 使用例
+
+```bash
+curl -X POST http://localhost:8001/create_random_sample \
+  -H 'Content-Type: application/json' \
+  -d '{"sample_type": "simple_mode"}'
+```
+
+---
+
+## 8. 利用可能なモデルの一覧
+
+### 8.1 API 定義
 
 - **URL**：`/v1/models`
 - **メソッド**：`GET`
 
 サーバーにロードされている利用可能なDiTモデルのリストを返します。
 
-### 5.2 レスポンス例
+### 8.2 レスポンス例
 
 ```json
 {
-  "models": [
-    {
-      "name": "acestep-v15-turbo",
-      "is_default": true
-    },
-    {
-      "name": "acestep-v15-turbo-shift3",
-      "is_default": false
-    }
-  ],
-  "default_model": "acestep-v15-turbo"
+  "data": {
+    "models": [
+      {
+        "name": "acestep-v15-turbo",
+        "is_default": true
+      },
+      {
+        "name": "acestep-v15-turbo-shift3",
+        "is_default": false
+      }
+    ],
+    "default_model": "acestep-v15-turbo"
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
 }
 ```
 
-### 5.3 使用例
+### 8.3 使用例
 
 ```bash
 curl http://localhost:8001/v1/models
@@ -461,59 +562,114 @@ curl http://localhost:8001/v1/models
 
 ---
 
-## 6. 音声ファイルのダウンロード
+## 9. サーバー統計
 
-### 6.1 API 定義
+### 9.1 API 定義
+
+- **URL**：`/v1/stats`
+- **メソッド**：`GET`
+
+サーバーの実���統計情報を返します。
+
+### 9.2 レスポンス例
+
+```json
+{
+  "data": {
+    "jobs": {
+      "total": 100,
+      "queued": 5,
+      "running": 1,
+      "succeeded": 90,
+      "failed": 4
+    },
+    "queue_size": 5,
+    "queue_maxsize": 200,
+    "avg_job_seconds": 8.5
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+### 9.3 使用例
+
+```bash
+curl http://localhost:8001/v1/stats
+```
+
+---
+
+## 10. 音声ファイルのダウンロード
+
+### 10.1 API 定義
 
 - **URL**：`/v1/audio`
 - **メソッド**：`GET`
 
 パスで生成されたオーディオファイルをダウンロードします。
 
-### 6.2 リクエストパラメータ
+### 10.2 リクエストパラメータ
 
 | パラメータ名 | 型 | 説明 |
 | :--- | :--- | :--- |
 | `path` | string | URLエンコードされたオーディオファイルパス |
 
-### 6.3 使用例
+### 10.3 使用例
 
 ```bash
-# ジョブ結果のURLを使用してダウンロード
+# タスク結果のURLを使用してダウンロード
 curl "http://localhost:8001/v1/audio?path=%2Ftmp%2Fapi_audio%2Fabc123.mp3" -o output.mp3
 ```
 
 ---
 
-## 7. ヘルスチェック
+## 11. ヘルスチェック
 
-### 7.1 API 定義
+### 11.1 API 定義
 
 - **URL**：`/health`
 - **メソッド**：`GET`
 
 サービスのヘルスステータスを返します。
 
-### 7.2 レスポンス例
+### 11.2 レスポンス例
 
 ```json
 {
-  "status": "ok",
-  "service": "ACE-Step API",
-  "version": "1.0"
+  "data": {
+    "status": "ok",
+    "service": "ACE-Step API",
+    "version": "1.0"
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
 }
 ```
 
 ---
 
-## 8. 環境変数
+## 12. 環境変数
 
 APIサーバーは環境変数で設定できます：
+
+### サーバー設定
 
 | 変数 | デフォルト | 説明 |
 | :--- | :--- | :--- |
 | `ACESTEP_API_HOST` | `127.0.0.1` | サーバーバインドホスト |
 | `ACESTEP_API_PORT` | `8001` | サーバーバインドポート |
+| `ACESTEP_API_KEY` | （空）| API認証キー（空の場合は認証無効）|
+| `ACESTEP_API_WORKERS` | `1` | APIワーカースレッド数 |
+
+### モデル設定
+
+| 変数 | デフォルト | 説明 |
+| :--- | :--- | :--- |
 | `ACESTEP_CONFIG_PATH` | `acestep-v15-turbo` | プライマリDiTモデルパス |
 | `ACESTEP_CONFIG_PATH2` | （空）| セカンダリDiTモデルパス（オプション）|
 | `ACESTEP_CONFIG_PATH3` | （空）| 3番目のDiTモデルパス（オプション）|
@@ -521,14 +677,33 @@ APIサーバーは環境変数で設定できます：
 | `ACESTEP_USE_FLASH_ATTENTION` | `true` | flash attentionを有効化 |
 | `ACESTEP_OFFLOAD_TO_CPU` | `false` | アイドル時にモデルをCPUにオフロード |
 | `ACESTEP_OFFLOAD_DIT_TO_CPU` | `false` | DiTを特にCPUにオフロード |
+
+### LM設定
+
+| 変数 | デフォルト | 説明 |
+| :--- | :--- | :--- |
+| `ACESTEP_INIT_LLM` | auto | 起動時にLMを初期化するかどうか（autoはGPUに基づいて自動決定）|
 | `ACESTEP_LM_MODEL_PATH` | `acestep-5Hz-lm-0.6B` | デフォルト5Hz LMモデル |
 | `ACESTEP_LM_BACKEND` | `vllm` | LMバックエンド（vllmまたはpt）|
 | `ACESTEP_LM_DEVICE` | （ACESTEP_DEVICEと同じ）| LMデバイス |
 | `ACESTEP_LM_OFFLOAD_TO_CPU` | `false` | LMをCPUにオフロード |
+
+### キュー設定
+
+| 変数 | デフォルト | 説明 |
+| :--- | :--- | :--- |
 | `ACESTEP_QUEUE_MAXSIZE` | `200` | 最大キューサイズ |
 | `ACESTEP_QUEUE_WORKERS` | `1` | キューワーカー数 |
 | `ACESTEP_AVG_JOB_SECONDS` | `5.0` | 初期平均ジョブ時間推定 |
+| `ACESTEP_AVG_WINDOW` | `50` | 平均ジョブ時間計算ウィンドウ |
+
+### キャッシュ設定
+
+| 変数 | デフォルト | 説明 |
+| :--- | :--- | :--- |
 | `ACESTEP_TMPDIR` | `.cache/acestep/tmp` | 一時ファイルディレクトリ |
+| `TRITON_CACHE_DIR` | `.cache/acestep/triton` | Tritonキャッシュディレクトリ |
+| `TORCHINDUCTOR_CACHE_DIR` | `.cache/acestep/torchinductor` | TorchInductorキャッシュディレクトリ |
 
 ---
 
@@ -538,7 +713,8 @@ APIサーバーは環境変数で設定できます：
 
 - `200`：成功
 - `400`：無効なリクエスト（不正なJSON、フィールドの欠落）
-- `404`：ジョブが見つからない
+- `401`：未認証（APIキーがないか無効）
+- `404`：リソースが見つからない
 - `415`：サポートされていないContent-Type
 - `429`：サーバービジー（キューが満杯）
 - `500`：内部サーバーエラー
@@ -561,10 +737,12 @@ APIサーバーは環境変数で設定できます：
 
 3. **`use_format=true` を使用** してcaption/lyricsがあるがLMに強化してもらいたい場合。
 
-4. **ジョブステータスのポーリング** は適切な間隔（例：1-2秒ごと）で行い、サーバーの過負荷を避ける。
+4. **タスクステータスの一括クエリ** `/query_result` エンドポイントを使用して複数のタスクを一度にクエリ。
 
-5. **`avg_job_seconds` を確認** してレスポンスで待ち時間を推定。
+5. **`/v1/stats` を確認** してサーバーの負荷と平均ジョブ時間を把握。
 
 6. **マルチモデルサポートを使用** するには `ACESTEP_CONFIG_PATH2` と `ACESTEP_CONFIG_PATH3` 環境変数を設定し、`model` パラメータで選択。
 
-7. **本番環境** では常に適切なContent-Typeヘッダーを設定して415エラーを回避。
+7. **本番環境** では `ACESTEP_API_KEY` を設定して認証を有効にし、APIを保護。
+
+8. **低VRAM環境** では `ACESTEP_OFFLOAD_TO_CPU=true` を有効にして、より長いオーディオ生成をサポート。

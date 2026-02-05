@@ -170,11 +170,22 @@ def _ensure_model_downloaded(model_name: str, checkpoint_dir: str) -> str:
 
     print(f"[Model Download] Model {model_name} not found, checking network...")
 
+    # Check for user preference
+    prefer_source = os.environ.get("ACESTEP_DOWNLOAD_SOURCE", "").lower()
+
     # Determine download source
-    use_huggingface = _can_access_google()
+    if prefer_source == "huggingface":
+        use_huggingface = True
+        print("[Model Download] User preference: HuggingFace Hub")
+    elif prefer_source == "modelscope":
+        use_huggingface = False
+        print("[Model Download] User preference: ModelScope")
+    else:
+        use_huggingface = _can_access_google()
+        print(f"[Model Download] Auto-detected: {'HuggingFace Hub' if use_huggingface else 'ModelScope'}")
 
     if use_huggingface:
-        print("[Model Download] Google accessible, using HuggingFace Hub...")
+        print("[Model Download] Using HuggingFace Hub...")
         try:
             return _download_from_huggingface(repo_id, checkpoint_dir, model_name)
         except Exception as e:
@@ -182,7 +193,7 @@ def _ensure_model_downloaded(model_name: str, checkpoint_dir: str) -> str:
             print("[Model Download] Falling back to ModelScope...")
             return _download_from_modelscope(repo_id, checkpoint_dir, model_name)
     else:
-        print("[Model Download] Google not accessible, using ModelScope...")
+        print("[Model Download] Using ModelScope...")
         try:
             return _download_from_modelscope(repo_id, checkpoint_dir, model_name)
         except Exception as e:
@@ -2285,11 +2296,23 @@ def main() -> None:
         default=os.getenv("ACESTEP_API_KEY", None),
         help="API key for authentication (default from ACESTEP_API_KEY)",
     )
+    parser.add_argument(
+        "--download-source",
+        type=str,
+        choices=["huggingface", "modelscope", "auto"],
+        default=os.getenv("ACESTEP_DOWNLOAD_SOURCE", "auto"),
+        help="Preferred model download source: auto (default), huggingface, or modelscope",
+    )
     args = parser.parse_args()
 
     # Set API key from command line argument
     if args.api_key:
         os.environ["ACESTEP_API_KEY"] = args.api_key
+
+    # Set download source preference
+    if args.download_source and args.download_source != "auto":
+        os.environ["ACESTEP_DOWNLOAD_SOURCE"] = args.download_source
+        print(f"Using preferred download source: {args.download_source}")
 
     # IMPORTANT: in-memory queue/store -> workers MUST be 1
     uvicorn.run(

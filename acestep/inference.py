@@ -251,7 +251,7 @@ def _update_metadata_from_lm(
     vocal_language: str,
     caption: str,
     lyrics: str,
-) -> Tuple[Optional[int], str, str, Optional[float]]:
+) -> Tuple[Optional[int], str, str, Optional[float], str, str, str]:
     """Update metadata fields from LM output if not provided by user."""
 
     if bpm is None and metadata.get('bpm'):
@@ -347,10 +347,20 @@ def generate_music(
         # Use config.seed if provided, otherwise fallback to params.seed
         # Convert config.seed (None, int, or List[int]) to format that prepare_seeds accepts
         seed_for_generation = ""
-        if config.seeds is not None and len(config.seeds) > 0:
-            if isinstance(config.seeds, list):
+        # Original code (commented out because it crashes on int seeds):
+        # if config.seeds is not None and len(config.seeds) > 0:
+        #     if isinstance(config.seeds, list):
+        #         # Convert List[int] to comma-separated string
+        #         seed_for_generation = ",".join(str(s) for s in config.seeds)
+
+        if config.seeds is not None:
+            if isinstance(config.seeds, list) and len(config.seeds) > 0:
                 # Convert List[int] to comma-separated string
                 seed_for_generation = ",".join(str(s) for s in config.seeds)
+            elif isinstance(config.seeds, int):
+                # Fix: Explicitly handle single integer seeds by converting to string.
+                # Previously, this would crash because 'len()' was called on an int.
+                seed_for_generation = str(config.seeds)
 
         # Use dit_handler.prepare_seeds to handle seed list generation and padding
         # This will handle all the logic: padding with random seeds if needed, etc.
@@ -368,7 +378,7 @@ def generate_music(
         # 3. use_cot_language=True: detect vocal language via CoT
         # 4. use_cot_metas=True: fill missing metadata via CoT
         need_lm_for_cot = params.use_cot_caption or params.use_cot_language or params.use_cot_metas
-        use_lm = (params.thinking or need_lm_for_cot) and llm_handler.llm_initialized and params.task_type not in skip_lm_tasks
+        use_lm = (params.thinking or need_lm_for_cot) and llm_handler is not None and llm_handler.llm_initialized and params.task_type not in skip_lm_tasks
         lm_status = []
         
         if params.task_type in skip_lm_tasks:

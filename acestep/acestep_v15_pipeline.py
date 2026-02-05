@@ -129,13 +129,14 @@ def main():
     parser.add_argument("--init_service", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Initialize service on startup (default: False)")
     parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint file path (optional, for display purposes)")
     parser.add_argument("--config_path", type=str, default=None, help="Main model path (e.g., 'acestep-v15-turbo')")
-    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"], help="Processing device (default: auto)")
+    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "xpu", "cpu"], help="Processing device (default: auto)")
     parser.add_argument("--init_llm", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Initialize 5Hz LM (default: auto based on GPU memory)")
     parser.add_argument("--lm_model_path", type=str, default=None, help="5Hz LM model path (e.g., 'acestep-5Hz-lm-0.6B')")
     parser.add_argument("--backend", type=str, default="vllm", choices=["vllm", "pt"], help="5Hz LM backend (default: vllm)")
     parser.add_argument("--use_flash_attention", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Use flash attention (default: auto-detect)")
     parser.add_argument("--offload_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=auto_offload, help=f"Offload models to CPU (default: {'True' if auto_offload else 'False'}, auto-detected based on GPU VRAM)")
     parser.add_argument("--offload_dit_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Offload DiT to CPU (default: False)")
+    parser.add_argument("--download-source", type=str, default=None, choices=["huggingface", "modelscope", "auto"], help="Preferred model download source (default: auto-detect based on network)")
 
     # API mode argument
     parser.add_argument("--enable-api", action="store_true", help="Enable API endpoints (default: False)")
@@ -212,7 +213,13 @@ def main():
             use_flash_attention = args.use_flash_attention
             if use_flash_attention is None:
                 use_flash_attention = dit_handler.is_flash_attention_available()
-            
+
+            # Determine download source preference
+            prefer_source = None
+            if args.download_source and args.download_source != "auto":
+                prefer_source = args.download_source
+                print(f"Using preferred download source: {prefer_source}")
+
             # Initialize DiT handler
             print(f"Initializing DiT model: {args.config_path} on {args.device}...")
             init_status, enable_generate = dit_handler.initialize_service(
@@ -222,7 +229,8 @@ def main():
                 use_flash_attention=use_flash_attention,
                 compile_model=False,
                 offload_to_cpu=args.offload_to_cpu,
-                offload_dit_to_cpu=args.offload_dit_to_cpu
+                offload_dit_to_cpu=args.offload_dit_to_cpu,
+                prefer_source=prefer_source
             )
             
             if not enable_generate:

@@ -1,7 +1,5 @@
 # ACE-Step API Client Documentation
 
-**Language / 语言 / 言語:** [English](API.md) | [中文](../zh/API.md) | [日本語](../ja/API.md)
-
 ---
 
 This service provides an HTTP-based asynchronous music generation API.

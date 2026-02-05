@@ -306,7 +306,7 @@ class AceStepHandler:
         }
     
     def initialize_service(
-        self, 
+        self,
         project_root: str,
         config_path: str,
         device: str = "auto",
@@ -315,10 +315,11 @@ class AceStepHandler:
         offload_to_cpu: bool = False,
         offload_dit_to_cpu: bool = False,
         quantization: Optional[str] = None,
+        prefer_source: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Initialize DiT model service
-        
+
         Args:
             project_root: Project root path (may be checkpoints directory, will be handled automatically)
             config_path: Model config directory name (e.g., "acestep-v15-turbo")
@@ -327,7 +328,8 @@ class AceStepHandler:
             compile_model: Whether to use torch.compile to optimize the model
             offload_to_cpu: Whether to offload models to CPU when not in use
             offload_dit_to_cpu: Whether to offload DiT model to CPU when not in use (only effective if offload_to_cpu is True)
-        
+            prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
         Returns:
             (status_message, enable_generate_button)
         """
@@ -369,15 +371,15 @@ class AceStepHandler:
             # Check and download main model components (vae, text_encoder, default DiT)
             if not check_main_model_exists(checkpoint_path):
                 logger.info("[initialize_service] Main model not found, starting auto-download...")
-                success, msg = ensure_main_model(checkpoint_path)
+                success, msg = ensure_main_model(checkpoint_path, prefer_source=prefer_source)
                 if not success:
                     return f"❌ Failed to download main model: {msg}", False
                 logger.info(f"[initialize_service] {msg}")
-            
+
             # Check and download the requested DiT model
             if not check_model_exists(config_path, checkpoint_path):
                 logger.info(f"[initialize_service] DiT model '{config_path}' not found, starting auto-download...")
-                success, msg = ensure_dit_model(config_path, checkpoint_path)
+                success, msg = ensure_dit_model(config_path, checkpoint_path, prefer_source=prefer_source)
                 if not success:
                     return f"❌ Failed to download DiT model '{config_path}': {msg}", False
                 logger.info(f"[initialize_service] {msg}")
@@ -429,6 +431,15 @@ class AceStepHandler:
                 self.model.eval()
                 
                 if compile_model:
+                    # Add __len__ method to model to support torch.compile
+                    # torch.compile's dynamo requires this method for introspection
+                    # Note: This modifies the model class, affecting all instances
+                    if not hasattr(self.model.__class__, '__len__'):
+                        def _model_len(model_self):
+                            """Return 0 as default length for torch.compile compatibility"""
+                            return 0
+                        self.model.__class__.__len__ = _model_len
+                    
                     self.model = torch.compile(self.model)
                     
                     if self.quantization is not None:
@@ -475,6 +486,14 @@ class AceStepHandler:
                 raise FileNotFoundError(f"VAE checkpoint not found at {vae_checkpoint_path}")
 
             if compile_model:
+                # Add __len__ method to VAE to support torch.compile if needed
+                # Note: This modifies the VAE class, affecting all instances
+                if not hasattr(self.vae.__class__, '__len__'):
+                    def _vae_len(vae_self):
+                        """Return 0 as default length for torch.compile compatibility"""
+                        return 0
+                    self.vae.__class__.__len__ = _vae_len
+                
                 self.vae = torch.compile(self.vae)
             
             # 3. Load text encoder and tokenizer
@@ -709,11 +728,26 @@ class AceStepHandler:
             return None
     
     def _parse_audio_code_string(self, code_str: str) -> List[int]:
-        """Extract integer audio codes from prompt tokens like <|audio_code_123|>."""
+        """Extract integer audio codes from prompt tokens like <|audio_code_123|>.
+        Code values are clamped to valid range [0, 63999] (codebook size = 64000).
+        """
         if not code_str:
             return []
         try:
-            return [int(x) for x in re.findall(r"<\|audio_code_(\d+)\|>", code_str)]
+            MAX_AUDIO_CODE = 63999  # Maximum valid audio code value (codebook size = 64000)
+            codes = []
+            clamped_count = 0
+            for x in re.findall(r"<\|audio_code_(\d+)\|>", code_str):
+                code_value = int(x)
+                # Clamp code value to valid range [0, MAX_AUDIO_CODE]
+                clamped_value = max(0, min(code_value, MAX_AUDIO_CODE))
+                if clamped_value != code_value:
+                    clamped_count += 1
+                    logger.warning(f"[_parse_audio_code_string] Clamped audio code value from {code_value} to {clamped_value}")
+                codes.append(clamped_value)
+            if clamped_count > 0:
+                logger.warning(f"[_parse_audio_code_string] Clamped {clamped_count} audio code value(s) to valid range [0, {MAX_AUDIO_CODE}]")
+            return codes
         except Exception as e:
             logger.debug(f"[_parse_audio_code_string] Failed to parse audio code string: {e}")
             return []
@@ -721,8 +755,11 @@ class AceStepHandler:
     def _decode_audio_codes_to_latents(self, code_str: str) -> Optional[torch.Tensor]:
         """
         Convert serialized audio code string into 25Hz latents using model quantizer/detokenizer.
+        
+        Note: Code values are already clamped to valid range [0, 63999] by _parse_audio_code_string(),
+        ensuring indices are within the quantizer's codebook size (64000).
         """
-        if not self.model or not hasattr(self.model, 'tokenizer') or not hasattr(self.model, 'detokenizer'):
+        if self.model is None or not hasattr(self.model, 'tokenizer') or not hasattr(self.model, 'detokenizer'):
             return None
         
         code_ids = self._parse_audio_code_string(code_str)
@@ -735,6 +772,7 @@ class AceStepHandler:
             
             num_quantizers = getattr(quantizer, "num_quantizers", 1)
             # Create indices tensor: [T_5Hz]
+            # Note: code_ids are already clamped to [0, 63999] by _parse_audio_code_string()
             indices = torch.tensor(code_ids, device=self.device, dtype=torch.long)  # [T_5Hz]
             
             indices = indices.unsqueeze(0).unsqueeze(-1)  # [1, T_5Hz, 1]

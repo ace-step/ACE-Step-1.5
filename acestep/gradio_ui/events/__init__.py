@@ -171,14 +171,14 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         fn=None,
         inputs=[],
         outputs=[generation_section["repainting_start"]],
-        js="() => { const el = document.querySelector('#src_audio_player audio'); if (el) { console.log('Found audio element, current time:', el.currentTime); return el.currentTime; } console.warn('Could not find #src_audio_player audio element'); return 0.0; }"
+        js="() => { const waveformDiv = document.querySelector('#src_audio_player #waveform > div'); if (waveformDiv && waveformDiv.shadowRoot) { const audio = waveformDiv.shadowRoot.querySelector('audio'); if (audio) { return audio.currentTime; } } const el = document.querySelector('#src_audio_player audio'); if (el) { return el.currentTime; } return 0.0; }"
     )
 
     generation_section["set_end_btn"].click(
         fn=None,
         inputs=[],
         outputs=[generation_section["repainting_end"]],
-        js="() => { const el = document.querySelector('#src_audio_player audio'); if (el) { console.log('Found audio element, current time:', el.currentTime); return el.currentTime; } console.warn('Could not find #src_audio_player audio element'); return -1.0; }"
+        js="() => { const waveformDiv = document.querySelector('#src_audio_player #waveform > div'); if (waveformDiv && waveformDiv.shadowRoot) { const audio = waveformDiv.shadowRoot.querySelector('audio'); if (audio) { return audio.currentTime; } } const el = document.querySelector('#src_audio_player audio'); if (el) { return el.currentTime; } return -1.0; }"
     )
     
     # ========== Instruction UI Updates ==========

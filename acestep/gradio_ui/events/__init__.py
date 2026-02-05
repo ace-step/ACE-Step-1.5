@@ -171,14 +171,14 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         fn=None,
         inputs=[],
         outputs=[generation_section["repainting_start"]],
-        js="() => { const a = document.querySelector('#src_audio_player audio'); return a ? a.currentTime : 0.0; }"
+        js="() => { const el = document.querySelector('#src_audio_player audio'); if (el) { console.log('Found audio element, current time:', el.currentTime); return el.currentTime; } console.warn('Could not find #src_audio_player audio element'); return 0.0; }"
     )
 
     generation_section["set_end_btn"].click(
         fn=None,
         inputs=[],
         outputs=[generation_section["repainting_end"]],
-        js="() => { const a = document.querySelector('#src_audio_player audio'); return a ? a.currentTime : -1.0; }"
+        js="() => { const el = document.querySelector('#src_audio_player audio'); if (el) { console.log('Found audio element, current time:', el.currentTime); return el.currentTime; } console.warn('Could not find #src_audio_player audio element'); return -1.0; }"
     )
     
     # ========== Instruction UI Updates ==========

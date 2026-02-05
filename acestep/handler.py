@@ -2410,24 +2410,37 @@ class AceStepHandler:
             generate_kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32)
         logger.info("[service_generate] Generating audio...")
         with self._load_model_context("model"):
-            # Prepare condition tensors first (for LRC timestamp generation)
-            encoder_hidden_states, encoder_attention_mask, context_latents = self.model.prepare_condition(
-                text_hidden_states=text_hidden_states,
-                text_attention_mask=text_attention_mask,
-                lyric_hidden_states=lyric_hidden_states,
-                lyric_attention_mask=lyric_attention_mask,
-                refer_audio_acoustic_hidden_states_packed=refer_audio_acoustic_hidden_states_packed,
-                refer_audio_order_mask=refer_audio_order_mask,
-                hidden_states=src_latents,
-                attention_mask=torch.ones(src_latents.shape[0], src_latents.shape[1], device=src_latents.device, dtype=src_latents.dtype),
-                silence_latent=self.silence_latent,
-                src_latents=src_latents,
-                chunk_masks=chunk_mask,
-                is_covers=is_covers,
-                precomputed_lm_hints_25Hz=precomputed_lm_hints_25Hz,
-            )
-            
-            outputs = self.model.generate_audio(**generate_kwargs)
+            try:
+                # Prepare condition tensors first (for LRC timestamp generation)
+                encoder_hidden_states, encoder_attention_mask, context_latents = self.model.prepare_condition(
+                    text_hidden_states=text_hidden_states,
+                    text_attention_mask=text_attention_mask,
+                    lyric_hidden_states=lyric_hidden_states,
+                    lyric_attention_mask=lyric_attention_mask,
+                    refer_audio_acoustic_hidden_states_packed=refer_audio_acoustic_hidden_states_packed,
+                    refer_audio_order_mask=refer_audio_order_mask,
+                    hidden_states=src_latents,
+                    attention_mask=torch.ones(src_latents.shape[0], src_latents.shape[1], device=src_latents.device, dtype=src_latents.dtype),
+                    silence_latent=self.silence_latent,
+                    src_latents=src_latents,
+                    chunk_masks=chunk_mask,
+                    is_covers=is_covers,
+                    precomputed_lm_hints_25Hz=precomputed_lm_hints_25Hz,
+                )
+
+                outputs = self.model.generate_audio(**generate_kwargs)
+            except RuntimeError as e:
+                error_str = str(e)
+                if "flash_attn" in error_str or "flash_api" in error_str or "k must have shape" in error_str:
+                    logger.error(f"[service_generate] Flash Attention crash detected: {e}")
+                    return {
+                        "audios": [],
+                        "status_message": "❌ Flash Attention crashed. Please uncheck 'Use Flash Attention' in the Service Configuration and Initialize again.",
+                        "extra_outputs": {},
+                        "success": False,
+                        "error": "Flash Attention crash. Please disable it in settings.",
+                    }
+                raise e
         
         # Add intermediate information to outputs for extra_outputs
         outputs["src_latents"] = src_latents

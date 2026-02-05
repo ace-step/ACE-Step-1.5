@@ -35,3 +35,46 @@
 - [ ] Review the overall layout and spacing.
 - [ ] Group related parameters more logically if needed.
 - [ ] Improve labels and help text for clarity.
+
+## 6. Inpainting Range Selector
+**Problem:** Currently, inpainting ranges are set manually via text boxes, which is difficult.
+**Solution:**
+- [ ] Add "Set Start" and "Set End" buttons next to the source audio player.
+- [ ] Bind these buttons to capture the current playback position from the audio player (requires JS).
+- [ ] Auto-fill the `repainting_start` and `repainting_end` inputs.
+
+## 7. Fix Batch Size UI (High Priority)
+**Problem:** Changing batch size (e.g., between 1-8) causes UI breakage, layout shifts, and makes elements like download buttons unclickable.
+**Solution:**
+- [ ] Audit `update_audio_components_visibility` logic and the corresponding `gr.Row`/`gr.Column` layout in `results.py`.
+- [ ] Ensure proper visibility toggling of rows/columns.
+- [ ] Fix any z-index or overlay issues causing unclickability.
+- [ ] Ensure event listeners are correctly mapped to all batch slots (1-8).
+
+## 8. File Naming Convention
+**Problem:** Output files lack descriptive names (currently using UUIDs/Hashes).
+**Solution:**
+- [ ] Add a "Track Name" input field.
+- [ ] Implement naming convention: `Name_V1.1-inpaint_start{sec}:end{sec}`.
+- [ ] Ensure versioning (V1, V2...) or timestamps are used to prevent overwrites.
+
+## 9. History Tab Improvements
+**Problem:** History tab functionality is basic.
+**Solution:**
+- [ ] "Reload a section into the UI": Load project JSON settings (seed, prompt, etc.).
+- [ ] "Set src audio": Button to send generated audio to "Source Audio" input.
+- [ ] "Add to Reference": Button to send generated audio to "Reference Audio" input.
+- [ ] Delete functionality (single and bulk).
+
+## 10. Song Building Mode
+**Problem:** Need a mode for generating next/previous parts with auto-stitching/crossfading.
+**Solution:**
+- [ ] Create a new "Song Builder" mode or tab.
+- [ ] Implement "Generate Next" and "Generate Previous" logic.
+- [ ] Automate the stitching/crossfading of the new part with the existing source.
+- [ ] Allow "Add Intro" and "Add Outro".
+
+## 11. Scratchpad
+**Problem:** No place to store lyrics or descriptions.
+**Solution:**
+- [ ] Add a "Scratchpad" area (text area) for storing text snippets/presets.

@@ -254,8 +254,8 @@ def create_results_section(dit_handler) -> dict:
                     )
         
         # Second row for batch size 5-8 (initially hidden)
-        with gr.Row(visible=False) as audio_row_5_8:
-            with gr.Column() as audio_col_5:
+        with gr.Row(visible=True) as audio_row_5_8:
+            with gr.Column(visible=False) as audio_col_5:
                 generated_audio_5 = gr.Audio(
                     label=t("results.generated_music", n=5),
                     type="filepath",
@@ -292,7 +292,7 @@ def create_results_section(dit_handler) -> dict:
                         max_lines=8,
                         visible=True
                     )
-            with gr.Column() as audio_col_6:
+            with gr.Column(visible=False) as audio_col_6:
                 generated_audio_6 = gr.Audio(
                     label=t("results.generated_music", n=6),
                     type="filepath",
@@ -329,7 +329,7 @@ def create_results_section(dit_handler) -> dict:
                         max_lines=8,
                         visible=True
                     )
-            with gr.Column() as audio_col_7:
+            with gr.Column(visible=False) as audio_col_7:
                 generated_audio_7 = gr.Audio(
                     label=t("results.generated_music", n=7),
                     type="filepath",
@@ -366,7 +366,7 @@ def create_results_section(dit_handler) -> dict:
                         max_lines=8,
                         visible=True
                     )
-            with gr.Column() as audio_col_8:
+            with gr.Column(visible=False) as audio_col_8:
                 generated_audio_8 = gr.Audio(
                     label=t("results.generated_music", n=8),
                     type="filepath",

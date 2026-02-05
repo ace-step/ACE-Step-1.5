@@ -712,9 +712,10 @@ def update_audio_components_visibility(batch_size):
     )
     
     # Row 2 container and columns (5-8)
-    show_row_5_8 = batch_size >= 5
+    # Always keep row container visible to prevent layout thrashing/overlay issues
+    # Rely on column visibility to manage layout
     updates_row2 = (
-        gr.update(visible=show_row_5_8),  # audio_row_5_8 (container)
+        gr.update(visible=True),  # audio_row_5_8 (container)
         gr.update(visible=batch_size >= 5),  # audio_col_5
         gr.update(visible=batch_size >= 6),  # audio_col_6
         gr.update(visible=batch_size >= 7),  # audio_col_7

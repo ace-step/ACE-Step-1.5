@@ -990,10 +990,31 @@ class DatasetBuilder:
                 
                 # Step 2: VAE encode audio to get target_latents
                 with torch.no_grad():
+
+                    # Determine the device where the VAE is currently located
+                    model_device = next(vae.parameters()).device
+
+                    # Move audio to match model device if needed
+                    if audio.device != model_device:
+                        audio = audio.to(model_device)
+
                     latent = vae.encode(audio).latent_dist.sample()
-                    # [1, 64, T_latent] -> [1, T_latent, 64]
                     target_latents = latent.transpose(1, 2).to(dtype)
-                
+
+                # Now handle text encoding
+                if 'text_input_ids' in locals() and text_input_ids is not None:
+
+                    # Determine text encoder device
+                    text_dev = next(text_encoder.parameters()).device
+
+                    # Move ids to match text encoder device as needed
+                    if text_input_ids.device != text_dev:
+                        text_input_ids = text_input_ids.to(text_dev)
+
+                    text_outputs = text_encoder(text_input_ids)
+                else:
+                    text_outputs = None
+
                 latent_length = target_latents.shape[1]
                 
                 # Step 3: Create attention mask (all ones for valid audio)

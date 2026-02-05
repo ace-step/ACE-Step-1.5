@@ -1,4 +1,4 @@
-"""
+﻿"""
 Event Handlers for Training Tab
 
 Contains all event handler functions for the dataset builder and training UI.
@@ -18,6 +18,14 @@ def create_dataset_builder() -> DatasetBuilder:
     return DatasetBuilder()
 
 
+def _safe_slider(max_value: int, value: int = 0, visible: Optional[bool] = None) -> gr.Slider:
+    """Create a slider with a non-zero range to avoid Gradio math errors."""
+    max_value = max(1, int(max_value))
+    kwargs = {"maximum": max_value, "value": min(int(value), max_value)}
+    if visible is not None:
+        kwargs["visible"] = visible
+    return gr.Slider(**kwargs)
+
 def scan_directory(
     audio_dir: str,
     dataset_name: str,
@@ -32,7 +40,7 @@ def scan_directory(
         Tuple of (table_data, status, slider_update, builder_state)
     """
     if not audio_dir or not audio_dir.strip():
-        return [], "❌ Please enter a directory path", gr.Slider(maximum=0, value=0), builder_state
+        return [], "âŒ Please enter a directory path", _safe_slider(0, value=0, visible=False), builder_state
     
     # Create or use existing builder
     builder = builder_state if builder_state else DatasetBuilder()
@@ -47,7 +55,7 @@ def scan_directory(
     samples, status = builder.scan_directory(audio_dir.strip())
     
     if not samples:
-        return [], status, gr.Slider(maximum=0, value=0), builder
+        return [], status, _safe_slider(0, value=0, visible=False), builder
     
     # Set instrumental and tag for all samples
     builder.set_all_instrumental(all_instrumental)
@@ -60,7 +68,7 @@ def scan_directory(
     # Calculate slider max and return as Slider update
     slider_max = max(0, len(samples) - 1)
     
-    return table_data, status, gr.Slider(maximum=slider_max, value=0), builder
+    return table_data, status, _safe_slider(slider_max, value=0, visible=len(samples) > 1), builder
 
 
 def auto_label_all(
@@ -89,17 +97,17 @@ def auto_label_all(
         Tuple of (table_data, status, builder_state)
     """
     if builder_state is None:
-        return [], "❌ Please scan a directory first", builder_state
+        return [], "âŒ Please scan a directory first", builder_state
 
     if not builder_state.samples:
-        return [], "❌ No samples to label. Please scan a directory first.", builder_state
+        return [], "âŒ No samples to label. Please scan a directory first.", builder_state
 
     # Check if handlers are initialized
     if dit_handler is None or dit_handler.model is None:
-        return builder_state.get_samples_dataframe_data(), "❌ Model not initialized. Please initialize the service first.", builder_state
+        return builder_state.get_samples_dataframe_data(), "âŒ Model not initialized. Please initialize the service first.", builder_state
 
     if llm_handler is None or not llm_handler.llm_initialized:
-        return builder_state.get_samples_dataframe_data(), "❌ LLM not initialized. Please initialize the service with LLM enabled.", builder_state
+        return builder_state.get_samples_dataframe_data(), "âŒ LLM not initialized. Please initialize the service with LLM enabled.", builder_state
 
     def progress_callback(msg):
         if progress:
@@ -194,7 +202,7 @@ def save_sample_edit(
         Tuple of (table_data, status, builder_state)
     """
     if builder_state is None:
-        return [], "❌ No dataset loaded", builder_state
+        return [], "âŒ No dataset loaded", builder_state
 
     idx = int(sample_idx)
 
@@ -262,18 +270,18 @@ def save_dataset(
         Status message
     """
     if builder_state is None:
-        return "❌ No dataset to save. Please scan a directory first."
+        return "âŒ No dataset to save. Please scan a directory first."
     
     if not builder_state.samples:
-        return "❌ No samples in dataset."
+        return "âŒ No samples in dataset."
     
     if not save_path or not save_path.strip():
-        return "❌ Please enter a save path."
+        return "âŒ Please enter a save path."
     
     # Check if any samples are labeled
     labeled_count = builder_state.get_labeled_count()
     if labeled_count == 0:
-        return "⚠️ Warning: No samples have been labeled. Consider auto-labeling first.\nSaving anyway..."
+        return "âš ï¸ Warning: No samples have been labeled. Consider auto-labeling first.\nSaving anyway..."
     
     return builder_state.save_dataset(save_path.strip(), dataset_name)
 
@@ -297,12 +305,12 @@ def load_existing_dataset_for_preprocess(
     empty_preview = (None, "", "", "", "Use Global Ratio", "", None, "", "", 0.0, "instrumental", True, "", False)
 
     if not dataset_path or not dataset_path.strip():
-        return ("❌ Please enter a dataset path", [], gr.Slider(maximum=0, value=0), builder_state) + empty_preview
+        return ("âŒ Please enter a dataset path", [], _safe_slider(0, value=0, visible=False), builder_state) + empty_preview
 
     dataset_path = dataset_path.strip()
 
     if not os.path.exists(dataset_path):
-        return (f"❌ Dataset not found: {dataset_path}", [], gr.Slider(maximum=0, value=0), builder_state) + empty_preview
+        return (f"âŒ Dataset not found: {dataset_path}", [], _safe_slider(0, value=0, visible=False), builder_state) + empty_preview
 
     # Create new builder (don't reuse old state when loading a file)
     builder = DatasetBuilder()
@@ -311,7 +319,7 @@ def load_existing_dataset_for_preprocess(
     samples, status = builder.load_dataset(dataset_path)
 
     if not samples:
-        return (status, [], gr.Slider(maximum=0, value=0), builder) + empty_preview
+        return (status, [], _safe_slider(0, value=0, visible=False), builder) + empty_preview
 
     # Get table data
     table_data = builder.get_samples_dataframe_data()
@@ -321,10 +329,10 @@ def load_existing_dataset_for_preprocess(
 
     # Create info text
     labeled_count = builder.get_labeled_count()
-    info = f"✅ Loaded dataset: {builder.metadata.name}\n"
-    info += f"📊 Samples: {len(samples)} ({labeled_count} labeled)\n"
-    info += f"🏷️ Custom Tag: {builder.metadata.custom_tag or '(none)'}\n"
-    info += "📝 Ready for preprocessing! You can also edit samples below."
+    info = f"âœ… Loaded dataset: {builder.metadata.name}\n"
+    info += f"ðŸ“Š Samples: {len(samples)} ({labeled_count} labeled)\n"
+    info += f"ðŸ·ï¸ Custom Tag: {builder.metadata.custom_tag or '(none)'}\n"
+    info += "ðŸ“ Ready for preprocessing! You can also edit samples below."
 
     # Get first sample preview
     first_sample = builder.samples[0]
@@ -355,7 +363,7 @@ def load_existing_dataset_for_preprocess(
         has_raw,
     )
 
-    return (info, table_data, gr.Slider(maximum=slider_max, value=0), builder) + preview
+    return (info, table_data, _safe_slider(slider_max, value=0, visible=len(samples) > 1), builder) + preview
 
 
 def preprocess_dataset(
@@ -372,20 +380,20 @@ def preprocess_dataset(
         Status message
     """
     if builder_state is None:
-        return "❌ No dataset loaded. Please scan a directory first."
+        return "âŒ No dataset loaded. Please scan a directory first."
     
     if not builder_state.samples:
-        return "❌ No samples in dataset."
+        return "âŒ No samples in dataset."
     
     labeled_count = builder_state.get_labeled_count()
     if labeled_count == 0:
-        return "❌ No labeled samples. Please auto-label or manually label samples first."
+        return "âŒ No labeled samples. Please auto-label or manually label samples first."
     
     if not output_dir or not output_dir.strip():
-        return "❌ Please enter an output directory."
+        return "âŒ Please enter an output directory."
     
     if dit_handler is None or dit_handler.model is None:
-        return "❌ Model not initialized. Please initialize the service first."
+        return "âŒ Model not initialized. Please initialize the service first."
     
     def progress_callback(msg):
         if progress:
@@ -413,15 +421,15 @@ def load_training_dataset(
         Info text about the dataset
     """
     if not tensor_dir or not tensor_dir.strip():
-        return "❌ Please enter a tensor directory path"
+        return "âŒ Please enter a tensor directory path"
     
     tensor_dir = tensor_dir.strip()
     
     if not os.path.exists(tensor_dir):
-        return f"❌ Directory not found: {tensor_dir}"
+        return f"âŒ Directory not found: {tensor_dir}"
     
     if not os.path.isdir(tensor_dir):
-        return f"❌ Not a directory: {tensor_dir}"
+        return f"âŒ Not a directory: {tensor_dir}"
     
     # Check for manifest
     manifest_path = os.path.join(tensor_dir, "manifest.json")
@@ -435,9 +443,9 @@ def load_training_dataset(
             name = metadata.get("name", "Unknown")
             custom_tag = metadata.get("custom_tag", "")
             
-            info = f"✅ Loaded preprocessed dataset: {name}\n"
-            info += f"📊 Samples: {num_samples} preprocessed tensors\n"
-            info += f"🏷️ Custom Tag: {custom_tag or '(none)'}"
+            info = f"âœ… Loaded preprocessed dataset: {name}\n"
+            info += f"ðŸ“Š Samples: {num_samples} preprocessed tensors\n"
+            info += f"ðŸ·ï¸ Custom Tag: {custom_tag or '(none)'}"
             
             return info
         except Exception as e:
@@ -447,10 +455,10 @@ def load_training_dataset(
     pt_files = [f for f in os.listdir(tensor_dir) if f.endswith('.pt')]
     
     if not pt_files:
-        return f"❌ No .pt tensor files found in {tensor_dir}"
+        return f"âŒ No .pt tensor files found in {tensor_dir}"
     
-    info = f"✅ Found {len(pt_files)} tensor files in {tensor_dir}\n"
-    info += "⚠️ No manifest.json found - using all .pt files"
+    info = f"âœ… Found {len(pt_files)} tensor files in {tensor_dir}\n"
+    info += "âš ï¸ No manifest.json found - using all .pt files"
     
     return info
 
@@ -494,17 +502,17 @@ def start_training(
     This is a generator function that yields progress updates.
     """
     if not tensor_dir or not tensor_dir.strip():
-        yield "❌ Please enter a tensor directory path", "", None, training_state
+        yield "âŒ Please enter a tensor directory path", "", None, training_state
         return
     
     tensor_dir = tensor_dir.strip()
     
     if not os.path.exists(tensor_dir):
-        yield f"❌ Tensor directory not found: {tensor_dir}", "", None, training_state
+        yield f"âŒ Tensor directory not found: {tensor_dir}", "", None, training_state
         return
     
     if dit_handler is None or dit_handler.model is None:
-        yield "❌ Model not initialized. Please initialize the service first.", "", None, training_state
+        yield "âŒ Model not initialized. Please initialize the service first.", "", None, training_state
         return
     
     # Check for required training dependencies
@@ -512,7 +520,7 @@ def start_training(
         from lightning.fabric import Fabric
         from peft import get_peft_model, LoraConfig
     except ImportError as e:
-        yield f"❌ Missing required packages: {e}\nPlease install: pip install peft lightning", "", None, training_state
+        yield f"âŒ Missing required packages: {e}\nPlease install: pip install peft lightning", "", None, training_state
         return
     
     training_state["is_training"] = True
@@ -549,7 +557,7 @@ def start_training(
         # Start timer
         start_time = time.time()
         
-        yield f"🚀 Starting training from {tensor_dir}...", "", loss_data, training_state
+        yield f"ðŸš€ Starting training from {tensor_dir}...", "", loss_data, training_state
         
         # Create trainer
         trainer = LoRATrainer(
@@ -566,7 +574,7 @@ def start_training(
         for step, loss, status in trainer.train_from_preprocessed(tensor_dir, training_state):
             # Calculate elapsed time and ETA
             elapsed_seconds = time.time() - start_time
-            time_info = f"⏱️ Elapsed: {_format_duration(elapsed_seconds)}"
+            time_info = f"â±ï¸ Elapsed: {_format_duration(elapsed_seconds)}"
             
             # Parse "Epoch x/y" from status to calculate ETA
             match = re.search(r"Epoch\s+(\d+)/(\d+)", str(status))
@@ -599,14 +607,14 @@ def start_training(
             yield display_status, log_text, loss_data, training_state
             
             if training_state.get("should_stop", False):
-                logger.info("⏹️ Training stopped by user")
-                log_lines.append("⏹️ Training stopped by user")
-                yield f"⏹️ Stopped ({time_info})", "\n".join(log_lines[-15:]), loss_data, training_state
+                logger.info("â¹ï¸ Training stopped by user")
+                log_lines.append("â¹ï¸ Training stopped by user")
+                yield f"â¹ï¸ Stopped ({time_info})", "\n".join(log_lines[-15:]), loss_data, training_state
                 break
         
         total_time = time.time() - start_time
         training_state["is_training"] = False
-        completion_msg = f"✅ Training completed! Total time: {_format_duration(total_time)}"
+        completion_msg = f"âœ… Training completed! Total time: {_format_duration(total_time)}"
         
         logger.info(completion_msg)
         log_lines.append(completion_msg)
@@ -618,7 +626,7 @@ def start_training(
         training_state["is_training"] = False
         import pandas as pd
         empty_df = pd.DataFrame({"step": [], "loss": []})
-        yield f"❌ Error: {str(e)}", str(e), empty_df, training_state
+        yield f"âŒ Error: {str(e)}", str(e), empty_df, training_state
 
 
 def stop_training(training_state: Dict) -> Tuple[str, Dict]:
@@ -628,10 +636,10 @@ def stop_training(training_state: Dict) -> Tuple[str, Dict]:
         Tuple of (status, training_state)
     """
     if not training_state.get("is_training", False):
-        return "⚠️ No training in progress", training_state
+        return "âš ï¸ No training in progress", training_state
     
     training_state["should_stop"] = True
-    return "⏹️ Stopping training...", training_state
+    return "â¹ï¸ Stopping training...", training_state
 
 
 def export_lora(
@@ -644,7 +652,7 @@ def export_lora(
         Status message
     """
     if not export_path or not export_path.strip():
-        return "❌ Please enter an export path"
+        return "âŒ Please enter an export path"
     
     # Check if there's a trained model to export
     final_dir = os.path.join(lora_output_dir, "final")
@@ -657,13 +665,13 @@ def export_lora(
         # Find the latest checkpoint
         checkpoints = [d for d in os.listdir(checkpoint_dir) if d.startswith("epoch_")]
         if not checkpoints:
-            return "❌ No checkpoints found"
+            return "âŒ No checkpoints found"
         
         checkpoints.sort(key=lambda x: int(x.split("_")[1]))
         latest = checkpoints[-1]
         source_path = os.path.join(checkpoint_dir, latest)
     else:
-        return f"❌ No trained model found in {lora_output_dir}"
+        return f"âŒ No trained model found in {lora_output_dir}"
     
     try:
         import shutil
@@ -676,8 +684,13 @@ def export_lora(
         
         shutil.copytree(source_path, export_path)
         
-        return f"✅ LoRA exported to {export_path}"
+        return f"âœ… LoRA exported to {export_path}"
         
     except Exception as e:
         logger.exception("Export error")
-        return f"❌ Export failed: {str(e)}"
+        return f"âŒ Export failed: {str(e)}"
+
+
+
+
+

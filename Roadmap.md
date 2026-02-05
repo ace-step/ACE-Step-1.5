@@ -65,7 +65,7 @@
 - [x] "Set src audio": Button to send generated audio to "Source Audio" input.
 - [x] "Add to Reference": Button to send generated audio to "Reference Audio" input.
 - [x] Delete functionality (single).
-- [ ] Delete functionality (bulk).
+- [x] Delete functionality (bulk).
 
 ## 10. Song Building Mode
 **Problem:** Need a mode for generating next/previous parts with auto-stitching/crossfading.

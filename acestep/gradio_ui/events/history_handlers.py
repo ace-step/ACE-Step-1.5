@@ -63,7 +63,8 @@ def scan_history():
 
             # Use json_path as ID (hidden in dataframe logic usually, but here we show it or use index)
             # We'll use the full json path as the ID column
-            history_data.append([json_path, filename, date_str, caption, duration])
+            # Prepend False for the checkbox column
+            history_data.append([False, json_path, filename, date_str, caption, duration])
 
         except Exception as e:
             print(f"Error reading history file {json_path}: {e}")
@@ -80,18 +81,18 @@ def select_history_item(evt: gr.SelectData, history_data):
         history_data: The dataframe data
 
     Returns:
-        audio_path, metadata_json, json_path, load_btn_interactive, send_src_btn_interactive, send_ref_btn_interactive
+        audio_path, metadata_json, json_path, load_btn_interactive, send_src_btn_interactive, send_ref_btn_interactive, delete_preview_btn_interactive
     """
     if evt.index is None:
-        return None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
+        return None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
 
     row_index = evt.index[0]
 
     if row_index >= len(history_data):
-        return None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
+        return None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
 
-    # Get JSON path from the first column (ID)
-    json_path = history_data[row_index][0]
+    # Get JSON path from the second column (ID) - first is boolean checkbox
+    json_path = history_data[row_index][1]
 
     try:
         # Find audio path again
@@ -105,11 +106,11 @@ def select_history_item(evt: gr.SelectData, history_data):
         with open(json_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
 
-        return audio_path, metadata, json_path, gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)
+        return audio_path, metadata, json_path, gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)
 
     except Exception as e:
         print(f"Error loading history item {json_path}: {e}")
-        return None, {"error": str(e)}, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
+        return None, {"error": str(e)}, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
 
 def load_params_from_history(json_path, llm_handler):
     """
@@ -153,3 +154,38 @@ def delete_history_item(json_path):
         return f"Deleted {os.path.basename(json_path)} and associated audio"
     except Exception as e:
         return f"Error deleting file: {str(e)}"
+
+def delete_selected_items(history_data):
+    """
+    Delete all selected history items.
+
+    Args:
+        history_data: The dataframe data (list of lists)
+
+    Returns:
+        Status message string.
+    """
+    if not history_data or len(history_data) == 0:
+        return "No items to delete"
+
+    deleted_count = 0
+    errors = []
+
+    for row in history_data:
+        # Checkbox is at index 0
+        if row[0] is True:
+            # JSON path is at index 1
+            json_path = row[1]
+            result = delete_history_item(json_path)
+            if "Error" in result:
+                errors.append(f"{os.path.basename(json_path)}: {result}")
+            else:
+                deleted_count += 1
+
+    if errors:
+        return f"Deleted {deleted_count} items. Errors: {'; '.join(errors)}"
+
+    if deleted_count == 0:
+        return "No items selected"
+
+    return f"Successfully deleted {deleted_count} items"

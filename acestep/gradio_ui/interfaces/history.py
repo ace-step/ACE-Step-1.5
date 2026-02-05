@@ -23,12 +23,12 @@ def create_history_section() -> dict:
             with gr.Column(scale=3):
                 refresh_history_btn = gr.Button("🔄 Refresh", variant="secondary")
                 # Dataframe to list files
-                # Columns: ID (timestamp), Filename, Date, Caption, Duration, Status
+                # Columns: Select, ID (timestamp), Filename, Date, Caption, Duration
                 history_table = gr.Dataframe(
-                    headers=["ID", "Filename", "Date", "Caption", "Duration"],
-                    datatype=["str", "str", "str", "str", "str"],
+                    headers=["Select", "ID", "Filename", "Date", "Caption", "Duration"],
+                    datatype=["bool", "str", "str", "str", "str", "str"],
                     label="Generated Files",
-                    interactive=False,
+                    interactive=True,
                     wrap=True,
                     type="array",
                 )
@@ -47,7 +47,8 @@ def create_history_section() -> dict:
 
                 with gr.Row():
                     load_params_btn = gr.Button("📋 Load Parameters to Generation Tab", variant="primary", interactive=False, scale=3)
-                    delete_btn = gr.Button("🗑️ Delete Selected", variant="stop", interactive=False, scale=1)
+                    delete_preview_btn = gr.Button("🗑️ Delete Preview", variant="secondary", interactive=False, scale=1)
+                    delete_btn = gr.Button("🗑️ Delete Checked", variant="stop", interactive=True, scale=1)
 
                 # Hidden state to store the full path of the selected item
                 selected_item_path = gr.State(None)
@@ -62,6 +63,7 @@ def create_history_section() -> dict:
         "send_to_ref_btn": send_to_ref_btn,
         "load_params_btn": load_params_btn,
         "delete_btn": delete_btn,
+        "delete_preview_btn": delete_preview_btn,
         "selected_item_path": selected_item_path,
         "status_output": status_output,
     }

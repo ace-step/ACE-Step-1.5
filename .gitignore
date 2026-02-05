@@ -1,3 +1,10 @@
+*_lyrics.txt
+*.mp3
+AlbumArt*.jpg
+Folder.jpg
+Judie Tzuke - Welcome to the Cruise.jpg
+acestep/training/dataset_builder original.py
+
 data/
 *.mp3
 *.wav

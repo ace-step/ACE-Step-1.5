@@ -46,10 +46,10 @@
 ## 7. Fix Batch Size UI (High Priority)
 **Problem:** Changing batch size (e.g., between 1-8) causes UI breakage, layout shifts, and makes elements like download buttons unclickable.
 **Solution:**
-- [ ] Audit `update_audio_components_visibility` logic and the corresponding `gr.Row`/`gr.Column` layout in `results.py`.
-- [ ] Ensure proper visibility toggling of rows/columns.
-- [ ] Fix any z-index or overlay issues causing unclickability.
-- [ ] Ensure event listeners are correctly mapped to all batch slots (1-8).
+- [x] Audit `update_audio_components_visibility` logic and the corresponding `gr.Row`/`gr.Column` layout in `results.py`.
+- [x] Ensure proper visibility toggling of rows/columns.
+- [x] Fix any z-index or overlay issues causing unclickability.
+- [x] Ensure event listeners are correctly mapped to all batch slots (1-8).
 
 ## 8. File Naming Convention
 **Problem:** Output files lack descriptive names (currently using UUIDs/Hashes).

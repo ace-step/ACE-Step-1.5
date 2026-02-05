@@ -254,7 +254,7 @@ def create_results_section(dit_handler) -> dict:
                     )
         
         # Second row for batch size 5-8 (initially hidden)
-        with gr.Row(visible=True) as audio_row_5_8:
+        with gr.Row(visible=False) as audio_row_5_8:
             with gr.Column(visible=False) as audio_col_5:
                 generated_audio_5 = gr.Audio(
                     label=t("results.generated_music", n=5),

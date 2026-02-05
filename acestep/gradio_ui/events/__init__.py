@@ -938,7 +938,46 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             history_section["selected_metadata"],
             history_section["selected_item_path"],
             history_section["load_params_btn"],
+            history_section["send_to_src_btn"],
+            history_section["send_to_ref_btn"],
         ]
+    )
+
+    history_section["send_to_src_btn"].click(
+        fn=res_h.send_audio_to_src_with_metadata,
+        inputs=[
+            history_section["selected_audio"],
+            history_section["selected_metadata"],
+        ],
+        outputs=[
+            generation_section["src_audio"],
+            generation_section["bpm"],
+            generation_section["captions"],
+            generation_section["lyrics"],
+            generation_section["audio_duration"],
+            generation_section["key_scale"],
+            generation_section["vocal_language"],
+            generation_section["time_signature"],
+            results_section["is_format_caption_state"]
+        ]
+    ).then(
+        # Switch to Generation tab after sending
+        fn=None,
+        inputs=None,
+        outputs=None,
+        js="() => { document.querySelector('button.tab-nav:nth-child(2)').click(); }"
+    )
+
+    history_section["send_to_ref_btn"].click(
+        fn=res_h.send_audio_to_ref,
+        inputs=[history_section["selected_audio"]],
+        outputs=[generation_section["reference_audio"]]
+    ).then(
+        # Switch to Generation tab after sending
+        fn=None,
+        inputs=None,
+        outputs=None,
+        js="() => { document.querySelector('button.tab-nav:nth-child(2)').click(); }"
     )
 
     history_section["load_params_btn"].click(

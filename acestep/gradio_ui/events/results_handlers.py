@@ -477,6 +477,18 @@ def send_audio_to_src_with_metadata(audio_file, lm_metadata):
     )
 
 
+def send_audio_to_ref(audio_file):
+    """Send generated audio file to reference_audio input
+
+    Args:
+        audio_file: Audio file path
+
+    Returns:
+        audio_file path or None
+    """
+    return audio_file
+
+
 def generate_with_progress(
     dit_handler, llm_handler,
     captions, lyrics, bpm, key_scale, time_signature, vocal_language,

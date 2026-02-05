@@ -61,9 +61,9 @@
 ## 9. History Tab Improvements
 **Problem:** History tab functionality is basic.
 **Solution:**
-- [ ] "Reload a section into the UI": Load project JSON settings (seed, prompt, etc.).
-- [ ] "Set src audio": Button to send generated audio to "Source Audio" input.
-- [ ] "Add to Reference": Button to send generated audio to "Reference Audio" input.
+- [x] "Reload a section into the UI": Load project JSON settings (seed, prompt, etc.).
+- [x] "Set src audio": Button to send generated audio to "Source Audio" input.
+- [x] "Add to Reference": Button to send generated audio to "Reference Audio" input.
 - [ ] Delete functionality (single and bulk).
 
 ## 10. Song Building Mode

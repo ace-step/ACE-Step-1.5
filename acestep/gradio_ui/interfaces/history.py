@@ -41,6 +41,10 @@ def create_history_section() -> dict:
                 with gr.Accordion("Metadata", open=True):
                     selected_metadata = gr.JSON(label="Full Metadata")
 
+                with gr.Row():
+                    send_to_src_btn = gr.Button("🎵 Send to Source Audio", interactive=False)
+                    send_to_ref_btn = gr.Button("🎹 Send to Reference Audio", interactive=False)
+
                 load_params_btn = gr.Button("📋 Load Parameters to Generation Tab", variant="primary", interactive=False)
 
                 # Hidden state to store the full path of the selected item
@@ -51,6 +55,8 @@ def create_history_section() -> dict:
         "history_table": history_table,
         "selected_audio": selected_audio,
         "selected_metadata": selected_metadata,
+        "send_to_src_btn": send_to_src_btn,
+        "send_to_ref_btn": send_to_ref_btn,
         "load_params_btn": load_params_btn,
         "selected_item_path": selected_item_path,
     }

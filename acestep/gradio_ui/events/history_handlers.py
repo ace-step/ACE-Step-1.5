@@ -80,15 +80,15 @@ def select_history_item(evt: gr.SelectData, history_data):
         history_data: The dataframe data
 
     Returns:
-        audio_path, metadata_json, json_path, load_btn_interactive
+        audio_path, metadata_json, json_path, load_btn_interactive, send_src_btn_interactive, send_ref_btn_interactive
     """
     if evt.index is None:
-        return None, None, None, gr.update(interactive=False)
+        return None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
 
     row_index = evt.index[0]
 
     if row_index >= len(history_data):
-        return None, None, None, gr.update(interactive=False)
+        return None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
 
     # Get JSON path from the first column (ID)
     json_path = history_data[row_index][0]
@@ -105,11 +105,11 @@ def select_history_item(evt: gr.SelectData, history_data):
         with open(json_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
 
-        return audio_path, metadata, json_path, gr.update(interactive=True)
+        return audio_path, metadata, json_path, gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)
 
     except Exception as e:
         print(f"Error loading history item {json_path}: {e}")
-        return None, {"error": str(e)}, None, gr.update(interactive=False)
+        return None, {"error": str(e)}, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
 
 def load_params_from_history(json_path, llm_handler):
     """

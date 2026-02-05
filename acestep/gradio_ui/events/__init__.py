@@ -1047,6 +1047,26 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         js="() => { document.querySelector('button.tab-nav:nth-child(2)').click(); }"  # Adjust index if needed, Dataset=1, Generation=2
     )
 
+    history_section["delete_btn"].click(
+        fn=hist_h.delete_history_item,
+        inputs=[history_section["selected_item_path"]],
+        outputs=[history_section["status_output"]]
+    ).then(
+        fn=hist_h.scan_history,
+        outputs=[history_section["history_table"]]
+    ).then(
+        fn=lambda: (None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)),
+        outputs=[
+            history_section["selected_audio"],
+            history_section["selected_metadata"],
+            history_section["selected_item_path"],
+            history_section["load_params_btn"],
+            history_section["send_to_src_btn"],
+            history_section["send_to_ref_btn"],
+            history_section["delete_btn"],
+        ]
+    )
+
 
 def setup_training_event_handlers(demo, dit_handler, llm_handler, training_section):
     """Setup event handlers for the training tab (dataset builder and LoRA training)"""

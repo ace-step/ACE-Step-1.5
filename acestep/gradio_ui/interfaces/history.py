@@ -45,10 +45,13 @@ def create_history_section() -> dict:
                     send_to_src_btn = gr.Button("🎵 Send to Source Audio", interactive=False)
                     send_to_ref_btn = gr.Button("🎹 Send to Reference Audio", interactive=False)
 
-                load_params_btn = gr.Button("📋 Load Parameters to Generation Tab", variant="primary", interactive=False)
+                with gr.Row():
+                    load_params_btn = gr.Button("📋 Load Parameters to Generation Tab", variant="primary", interactive=False, scale=3)
+                    delete_btn = gr.Button("🗑️ Delete Selected", variant="stop", interactive=False, scale=1)
 
                 # Hidden state to store the full path of the selected item
                 selected_item_path = gr.State(None)
+                status_output = gr.Textbox(label="Status", interactive=False, visible=True)
 
     return {
         "refresh_history_btn": refresh_history_btn,
@@ -58,5 +61,7 @@ def create_history_section() -> dict:
         "send_to_src_btn": send_to_src_btn,
         "send_to_ref_btn": send_to_ref_btn,
         "load_params_btn": load_params_btn,
+        "delete_btn": delete_btn,
         "selected_item_path": selected_item_path,
+        "status_output": status_output,
     }

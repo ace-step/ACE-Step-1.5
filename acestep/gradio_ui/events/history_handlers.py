@@ -120,3 +120,36 @@ def load_params_from_history(json_path, llm_handler):
         return [gr.skip()] * 37  # load_metadata returns 37 items
 
     return load_metadata(json_path, llm_handler)
+
+def delete_history_item(json_path):
+    """
+    Delete the selected history item (JSON and associated audio).
+
+    Args:
+        json_path: Path to the JSON metadata file.
+
+    Returns:
+        Status message string.
+    """
+    if not json_path or not os.path.exists(json_path):
+        return "File not found or no item selected"
+
+    try:
+        # Delete JSON
+        os.remove(json_path)
+
+        # Find audio path
+        base_path = os.path.splitext(json_path)[0]
+        audio_path = None
+        for ext in [".mp3", ".flac", ".wav"]:
+            if os.path.exists(base_path + ext):
+                audio_path = base_path + ext
+                break
+
+        # Delete Audio
+        if audio_path:
+            os.remove(audio_path)
+
+        return f"Deleted {os.path.basename(json_path)} and associated audio"
+    except Exception as e:
+        return f"Error deleting file: {str(e)}"

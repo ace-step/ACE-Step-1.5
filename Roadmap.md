@@ -64,7 +64,8 @@
 - [x] "Reload a section into the UI": Load project JSON settings (seed, prompt, etc.).
 - [x] "Set src audio": Button to send generated audio to "Source Audio" input.
 - [x] "Add to Reference": Button to send generated audio to "Reference Audio" input.
-- [ ] Delete functionality (single and bulk).
+- [x] Delete functionality (single).
+- [ ] Delete functionality (bulk).
 
 ## 10. Song Building Mode
 **Problem:** Need a mode for generating next/previous parts with auto-stitching/crossfading.

@@ -12,6 +12,11 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request, Depends, Header
 from fastapi.responses import FileResponse
 
+# Global results directory inside project root
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DEFAULT_RESULTS_DIR = os.path.join(PROJECT_ROOT, "gradio_outputs").replace("\\", "/")
+os.makedirs(DEFAULT_RESULTS_DIR, exist_ok=True)
+
 # API Key storage (set via setup_api_routes)
 _api_key: Optional[str] = None
 
@@ -463,9 +468,9 @@ async def release_task(request: Request, authorization: Optional[str] = Header(N
             audio_format=get_param("audio_format", default="mp3"),
         )
 
-        # Get temp directory
-        import tempfile
-        save_dir = tempfile.gettempdir()
+        # Get output directory
+        save_dir = os.path.join(DEFAULT_RESULTS_DIR, f"api_{int(time.time())}").replace("\\", "/")
+        os.makedirs(save_dir, exist_ok=True)
 
         # Call generation function
         result = generate_music(

@@ -223,6 +223,14 @@ class ModelRunner:
                 f"Available for KV: {available_for_kv_cache / 1024**3:.2f} GB, "
                 f"Block size: {block_bytes / 1024**2:.2f} MB"
             )
+        max_tokens_capacity = config.num_kvcache_blocks * self.block_size
+        kv_cache_size_gb = config.num_kvcache_blocks * block_bytes / 1024**3
+        print(
+            f"[nanovllm] KV cache allocated: {config.num_kvcache_blocks} blocks × {self.block_size} tokens = "
+            f"{max_tokens_capacity} tokens capacity, {kv_cache_size_gb:.2f} GB "
+            f"(free: {free / 1024**3:.2f} GB, used: {current / 1024**3:.2f} GB, "
+            f"target: {target_total_usage / 1024**3:.2f} GB, block: {block_bytes / 1024**2:.2f} MB)"
+        )
         self.kv_cache = torch.empty(2, hf_config.num_hidden_layers, config.num_kvcache_blocks, self.block_size, num_kv_heads, head_dim)
         layer_id = 0
         for module in self.model.modules():

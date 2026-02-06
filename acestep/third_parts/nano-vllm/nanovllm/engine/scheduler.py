@@ -167,8 +167,33 @@ class Scheduler:
                     if seq in self.running:
                         self.running.remove(seq)
                     
-        assert scheduled_seqs
-        
+        if not scheduled_seqs:
+            # No sequences could be scheduled - provide informative error
+            waiting_count = len(self.waiting)
+            running_count = len(self.running)
+            free_blocks = len(self.block_manager.free_block_ids)
+            total_blocks = len(self.block_manager.blocks)
+
+            if waiting_count > 0:
+                seq = self.waiting[0]
+                blocks_needed = seq.num_blocks
+                prompt_tokens = len(seq)
+                if seq.cfg_scale > 1.0 and seq.paired_seq is not None:
+                    blocks_needed += seq.paired_seq.num_blocks
+                    prompt_tokens = f"{len(seq)}+{len(seq.paired_seq)}"
+                raise RuntimeError(
+                    f"Insufficient KV cache to schedule sequence. "
+                    f"Free blocks: {free_blocks}/{total_blocks}, blocks needed: {blocks_needed}, "
+                    f"prompt tokens: {prompt_tokens}, block size: {self.block_manager.block_size}. "
+                    f"The prompt may be too long for available GPU memory, or gpu_memory_utilization is too low."
+                )
+            else:
+                raise RuntimeError(
+                    f"No schedulable sequences found. "
+                    f"Waiting: {waiting_count}, Running: {running_count}, "
+                    f"Free blocks: {free_blocks}/{total_blocks}"
+                )
+
         # For CFG batches in decode, ensure conditional sequences come before unconditional
         cfg_cond_seqs = [s for s in scheduled_seqs if s.cfg_scale > 1.0 and not s.is_unconditional]
         cfg_uncond_seqs = [s for s in scheduled_seqs if s.is_unconditional]

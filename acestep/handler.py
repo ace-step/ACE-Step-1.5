@@ -306,7 +306,7 @@ class AceStepHandler:
         }
     
     def initialize_service(
-        self, 
+        self,
         project_root: str,
         config_path: str,
         device: str = "auto",
@@ -315,10 +315,11 @@ class AceStepHandler:
         offload_to_cpu: bool = False,
         offload_dit_to_cpu: bool = False,
         quantization: Optional[str] = None,
+        prefer_source: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Initialize DiT model service
-        
+
         Args:
             project_root: Project root path (may be checkpoints directory, will be handled automatically)
             config_path: Model config directory name (e.g., "acestep-v15-turbo")
@@ -327,7 +328,8 @@ class AceStepHandler:
             compile_model: Whether to use torch.compile to optimize the model
             offload_to_cpu: Whether to offload models to CPU when not in use
             offload_dit_to_cpu: Whether to offload DiT model to CPU when not in use (only effective if offload_to_cpu is True)
-        
+            prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
         Returns:
             (status_message, enable_generate_button)
         """
@@ -369,15 +371,15 @@ class AceStepHandler:
             # Check and download main model components (vae, text_encoder, default DiT)
             if not check_main_model_exists(checkpoint_path):
                 logger.info("[initialize_service] Main model not found, starting auto-download...")
-                success, msg = ensure_main_model(checkpoint_path)
+                success, msg = ensure_main_model(checkpoint_path, prefer_source=prefer_source)
                 if not success:
                     return f"❌ Failed to download main model: {msg}", False
                 logger.info(f"[initialize_service] {msg}")
-            
+
             # Check and download the requested DiT model
             if not check_model_exists(config_path, checkpoint_path):
                 logger.info(f"[initialize_service] DiT model '{config_path}' not found, starting auto-download...")
-                success, msg = ensure_dit_model(config_path, checkpoint_path)
+                success, msg = ensure_dit_model(config_path, checkpoint_path, prefer_source=prefer_source)
                 if not success:
                     return f"❌ Failed to download DiT model '{config_path}': {msg}", False
                 logger.info(f"[initialize_service] {msg}")

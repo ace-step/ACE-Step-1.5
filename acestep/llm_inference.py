@@ -1992,6 +1992,10 @@ class LLMHandler:
             return output_text, f"✅ Generated successfully (pt) | length={len(output_text)}"
 
         except Exception as e:
+            # Log full traceback for debugging
+            import traceback
+            error_detail = traceback.format_exc()
+            logger.error(f"Error in generate_from_formatted_prompt: {type(e).__name__}: {e}\n{error_detail}")
             # Reset nano-vllm state on error to prevent stale context from causing
             # subsequent CUDA illegal memory access errors
             if self.llm_backend == "vllm":
@@ -2014,7 +2018,7 @@ class LLMHandler:
             elif hasattr(torch, 'xpu') and torch.xpu.is_available():
                 torch.xpu.empty_cache()
                 torch.xpu.synchronize()
-            return "", f"❌ Error generating from formatted prompt: {e}"
+            return "", f"❌ Error generating from formatted prompt: {type(e).__name__}: {e or error_detail.splitlines()[-1]}"
     
     def _generate_with_constrained_decoding(
         self,

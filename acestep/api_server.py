@@ -75,17 +75,17 @@ from acestep.gpu_config import (
 
 # Model name to repository mapping
 MODEL_REPO_MAPPING = {
-    # Main unified repository
+    # Main unified repository (contains: acestep-v15-turbo, acestep-5Hz-lm-1.7B, Qwen3-Embedding-0.6B, vae)
     "acestep-v15-turbo": "ACE-Step/Ace-Step1.5",
-    "acestep-5Hz-lm-0.6B": "ACE-Step/Ace-Step1.5",
     "acestep-5Hz-lm-1.7B": "ACE-Step/Ace-Step1.5",
     "vae": "ACE-Step/Ace-Step1.5",
     "Qwen3-Embedding-0.6B": "ACE-Step/Ace-Step1.5",
     # Separate model repositories
+    "acestep-5Hz-lm-0.6B": "ACE-Step/acestep-5Hz-lm-0.6B",
+    "acestep-5Hz-lm-4B": "ACE-Step/acestep-5Hz-lm-4B",
     "acestep-v15-base": "ACE-Step/acestep-v15-base",
     "acestep-v15-sft": "ACE-Step/acestep-v15-sft",
     "acestep-v15-turbo-shift3": "ACE-Step/acestep-v15-turbo-shift3",
-    "acestep-5Hz-lm-4B": "ACE-Step/acestep-5Hz-lm-4B",
 }
 
 DEFAULT_REPO_ID = "ACE-Step/Ace-Step1.5"
@@ -139,10 +139,23 @@ def _download_from_modelscope(repo_id: str, local_dir: str, model_name: str) -> 
         os.makedirs(download_dir, exist_ok=True)
         print(f"[Model Download] Downloading {model_name} from ModelScope {repo_id} to {download_dir}...")
 
-    snapshot_download(
-        model_id=repo_id,
-        local_dir=download_dir,
-    )
+    # ModelScope snapshot_download returns the cache path
+    # Use cache_dir parameter for better compatibility across versions
+    try:
+        # Try with local_dir first (newer versions)
+        result_path = snapshot_download(
+            model_id=repo_id,
+            local_dir=download_dir,
+        )
+        print(f"[Model Download] ModelScope download completed: {result_path}")
+    except TypeError:
+        # Fallback to cache_dir for older versions
+        print("[Model Download] Retrying with cache_dir parameter...")
+        result_path = snapshot_download(
+            model_id=repo_id,
+            cache_dir=download_dir,
+        )
+        print(f"[Model Download] ModelScope download completed: {result_path}")
 
     return os.path.join(local_dir, model_name)
 
@@ -170,11 +183,22 @@ def _ensure_model_downloaded(model_name: str, checkpoint_dir: str) -> str:
 
     print(f"[Model Download] Model {model_name} not found, checking network...")
 
+    # Check for user preference
+    prefer_source = os.environ.get("ACESTEP_DOWNLOAD_SOURCE", "").lower()
+
     # Determine download source
-    use_huggingface = _can_access_google()
+    if prefer_source == "huggingface":
+        use_huggingface = True
+        print("[Model Download] User preference: HuggingFace Hub")
+    elif prefer_source == "modelscope":
+        use_huggingface = False
+        print("[Model Download] User preference: ModelScope")
+    else:
+        use_huggingface = _can_access_google()
+        print(f"[Model Download] Auto-detected: {'HuggingFace Hub' if use_huggingface else 'ModelScope'}")
 
     if use_huggingface:
-        print("[Model Download] Google accessible, using HuggingFace Hub...")
+        print("[Model Download] Using HuggingFace Hub...")
         try:
             return _download_from_huggingface(repo_id, checkpoint_dir, model_name)
         except Exception as e:
@@ -182,7 +206,7 @@ def _ensure_model_downloaded(model_name: str, checkpoint_dir: str) -> str:
             print("[Model Download] Falling back to ModelScope...")
             return _download_from_modelscope(repo_id, checkpoint_dir, model_name)
     else:
-        print("[Model Download] Google not accessible, using ModelScope...")
+        print("[Model Download] Using ModelScope...")
         try:
             return _download_from_modelscope(repo_id, checkpoint_dir, model_name)
         except Exception as e:
@@ -898,6 +922,7 @@ def create_app() -> FastAPI:
         app.state._llm_initialized = False
         app.state._llm_init_error = None
         app.state._llm_init_lock = Lock()
+        app.state._llm_lazy_load_disabled = False  # Will be set to True if LLM skipped due to GPU config
 
         # Multi-model support: secondary DiT handlers
         handler2 = None
@@ -1039,7 +1064,9 @@ def create_app() -> FastAPI:
                         "dit_model": dit_model,
                     }]
             else:
-                result_data = [{"file": "", "wave": "", "status": status_int, "create_time": int(create_time), "env": env}]
+                # Failed or other status - include error from job store
+                error_msg = rec.error if rec and rec.error else None
+                result_data = [{"file": "", "wave": "", "status": status_int, "create_time": int(create_time), "env": env, "error": error_msg}]
 
             result_key = f"{RESULT_KEY_PREFIX}{job_id}"
             local_cache.set(result_key, result_data, ex=RESULT_EXPIRE_SECONDS)
@@ -1091,13 +1118,23 @@ def create_app() -> FastAPI:
 
             def _blocking_generate() -> Dict[str, Any]:
                 """Generate music using unified inference logic from acestep.inference"""
-                
+
                 def _ensure_llm_ready() -> None:
                     """Ensure LLM handler is initialized when needed"""
                     with app.state._llm_init_lock:
                         initialized = getattr(app.state, "_llm_initialized", False)
                         had_error = getattr(app.state, "_llm_init_error", None)
                         if initialized or had_error is not None:
+                            return
+
+                        # Check if lazy loading is disabled (GPU memory insufficient)
+                        if getattr(app.state, "_llm_lazy_load_disabled", False):
+                            app.state._llm_init_error = (
+                                "LLM not initialized at startup. To enable LLM, set ACESTEP_INIT_LLM=true "
+                                "in .env or environment variables. For this request, optional LLM features "
+                                "(use_cot_caption, use_cot_language) will be auto-disabled."
+                            )
+                            print(f"[API Server] LLM lazy load blocked: LLM was not initialized at startup")
                             return
 
                         project_root = _get_project_root()
@@ -1159,20 +1196,35 @@ def create_app() -> FastAPI:
                 use_format = bool(req.use_format)
                 use_cot_caption = bool(req.use_cot_caption)
                 use_cot_language = bool(req.use_cot_language)
-                
-                # LLM is needed for:
+
+                # LLM is REQUIRED for these features (fail if unavailable):
                 # - thinking mode (LM generates audio codes)
                 # - sample_mode (LM generates random caption/lyrics/metas)
                 # - sample_query/description (LM generates from description)
                 # - use_format (LM enhances caption/lyrics)
-                # - use_cot_caption or use_cot_language (LM enhances metadata)
-                need_llm = thinking or sample_mode or has_sample_query or use_format or use_cot_caption or use_cot_language
+                require_llm = thinking or sample_mode or has_sample_query or use_format
 
-                # Ensure LLM is ready if needed
-                if need_llm:
+                # LLM is OPTIONAL for these features (auto-disable if unavailable):
+                # - use_cot_caption or use_cot_language (LM enhances metadata)
+                want_llm = use_cot_caption or use_cot_language
+
+                # Check if LLM is available
+                llm_available = True
+                if require_llm or want_llm:
                     _ensure_llm_ready()
                     if getattr(app.state, "_llm_init_error", None):
-                        raise RuntimeError(f"5Hz LM init failed: {app.state._llm_init_error}")
+                        llm_available = False
+
+                # Fail if LLM is required but unavailable
+                if require_llm and not llm_available:
+                    raise RuntimeError(f"5Hz LM init failed: {app.state._llm_init_error}")
+
+                # Auto-disable optional LLM features if unavailable
+                if want_llm and not llm_available:
+                    if use_cot_caption or use_cot_language:
+                        print(f"[API Server] LLM unavailable, auto-disabling: use_cot_caption={use_cot_caption}->False, use_cot_language={use_cot_language}->False")
+                    use_cot_caption = False
+                    use_cot_language = False
 
                 # Handle sample mode or description: generate caption/lyrics/metas via LM
                 caption = req.prompt
@@ -1317,12 +1369,12 @@ def create_app() -> FastAPI:
                     lm_negative_prompt=req.lm_negative_prompt,
                     # use_cot_metas logic:
                     # - sample_mode: metas already generated, skip Phase 1
-                    # - format with duration: metas already generated, skip Phase 1  
+                    # - format with duration: metas already generated, skip Phase 1
                     # - format without duration: need Phase 1 to generate duration
                     # - no format: need Phase 1 to generate all metas
                     use_cot_metas=not sample_mode and not format_has_duration,
-                    use_cot_caption=req.use_cot_caption,
-                    use_cot_language=req.use_cot_language,
+                    use_cot_caption=use_cot_caption,  # Use local var (may be auto-disabled)
+                    use_cot_language=use_cot_language,  # Use local var (may be auto-disabled)
                     use_constrained_decoding=True,
                 )
 
@@ -1449,8 +1501,11 @@ def create_app() -> FastAPI:
 
                 # Update local cache
                 _update_local_cache(job_id, result, "succeeded")
-            except Exception:
-                job_store.mark_failed(job_id, traceback.format_exc())
+            except Exception as e:
+                error_traceback = traceback.format_exc()
+                print(f"[API Server] Job {job_id} FAILED: {e}")
+                print(f"[API Server] Traceback:\n{error_traceback}")
+                job_store.mark_failed(job_id, error_traceback)
 
                 # Update local cache
                 _update_local_cache(job_id, None, "failed")
@@ -1640,13 +1695,34 @@ def create_app() -> FastAPI:
                 app.state._initialized3 = False
 
         # Initialize LLM model based on GPU configuration
-        # Auto-determine whether to initialize LM based on GPU config
-        init_llm_env = os.getenv("ACESTEP_INIT_LLM")
-        if init_llm_env is not None:
-            init_llm = _env_bool("ACESTEP_INIT_LLM", True)
+        # ACESTEP_INIT_LLM controls LLM initialization:
+        #   - "auto" / empty / not set: Use GPU config default (auto-detect)
+        #   - "true"/"1"/"yes": Force enable LLM after GPU config is applied
+        #   - "false"/"0"/"no": Force disable LLM
+        #
+        # Flow: GPU detection → model validation → ACESTEP_INIT_LLM override
+        # This ensures GPU optimizations (offload, quantization, etc.) are always applied.
+        init_llm_env = os.getenv("ACESTEP_INIT_LLM", "").strip().lower()
+
+        # Step 1: Start with GPU auto-detection result
+        init_llm = gpu_config.init_lm_default
+        print(f"[API Server] GPU auto-detection: init_llm={init_llm} (VRAM: {gpu_config.gpu_memory_gb:.1f}GB, tier: {gpu_config.tier})")
+
+        # Step 2: Apply user override if set
+        if not init_llm_env or init_llm_env == "auto":
+            print(f"[API Server] ACESTEP_INIT_LLM=auto, using GPU auto-detection result")
+        elif init_llm_env in {"1", "true", "yes", "y", "on"}:
+            if init_llm:
+                print(f"[API Server] ACESTEP_INIT_LLM=true (GPU already supports LLM, no override needed)")
+            else:
+                init_llm = True
+                print(f"[API Server] ACESTEP_INIT_LLM=true, overriding GPU auto-detection (force enable)")
         else:
-            init_llm = gpu_config.init_lm_default
-            print(f"[API Server] Auto-setting init_llm={init_llm} based on GPU configuration")
+            if not init_llm:
+                print(f"[API Server] ACESTEP_INIT_LLM=false (GPU already disabled LLM, no override needed)")
+            else:
+                init_llm = False
+                print(f"[API Server] ACESTEP_INIT_LLM=false, overriding GPU auto-detection (force disable)")
 
         if init_llm:
             print("[API Server] Loading LLM model...")
@@ -1655,6 +1731,7 @@ def create_app() -> FastAPI:
             lm_model_path_env = os.getenv("ACESTEP_LM_MODEL_PATH", "").strip()
             if lm_model_path_env:
                 lm_model_path = lm_model_path_env
+                print(f"[API Server] Using user-specified LM model: {lm_model_path}")
             else:
                 # Get recommended LM model for this GPU tier
                 recommended_lm = get_recommended_lm_model(gpu_config)
@@ -1662,21 +1739,22 @@ def create_app() -> FastAPI:
                     lm_model_path = recommended_lm
                     print(f"[API Server] Auto-selected LM model: {lm_model_path} based on GPU tier")
                 else:
+                    # No recommended model (GPU tier too low), default to smallest
                     lm_model_path = "acestep-5Hz-lm-0.6B"
-                    print(f"[API Server] Using default LM model: {lm_model_path}")
+                    print(f"[API Server] No recommended model for this GPU tier, using smallest: {lm_model_path}")
 
-            # Validate LM model is supported for this GPU
+            # Validate LM model support (warning only, does not block)
             is_supported, warning_msg = is_lm_model_supported(lm_model_path, gpu_config)
             if not is_supported:
                 print(f"[API Server] Warning: {warning_msg}")
-                # Try to use a supported model instead
+                # Try to fall back to a supported model
                 recommended_lm = get_recommended_lm_model(gpu_config)
                 if recommended_lm:
                     lm_model_path = recommended_lm
                     print(f"[API Server] Falling back to supported LM model: {lm_model_path}")
                 else:
-                    print("[API Server] No supported LM models for this GPU, skipping LM initialization")
-                    init_llm = False
+                    # No supported model, but user may have forced init
+                    print(f"[API Server] No GPU-validated LM model available, attempting {lm_model_path} anyway (may cause OOM)")
 
         if init_llm:
             lm_backend = os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower()
@@ -1713,6 +1791,11 @@ def create_app() -> FastAPI:
         else:
             print("[API Server] Skipping LLM initialization (disabled or not supported for this GPU)")
             app.state._llm_initialized = False
+            # Disable lazy loading of LLM - don't try to load it later during requests
+            app.state._llm_lazy_load_disabled = True
+            print("[API Server] LLM lazy loading disabled. To enable LLM:")
+            print("[API Server]   - Set ACESTEP_INIT_LLM=true in .env or environment")
+            print("[API Server]   - Or use --init-llm command line flag")
 
         print("[API Server] All models initialized successfully!")
 
@@ -2010,7 +2093,8 @@ def create_app() -> FastAPI:
                         "file": "", "wave": "", "status": status_int,
                         "create_time": int(create_time), "env": env,
                         "prompt": "", "lyrics": "",
-                        "metas": {}
+                        "metas": {},
+                        "error": rec.error if rec.error else None,
                     }]
 
                 data_list.append({
@@ -2135,6 +2219,13 @@ def create_app() -> FastAPI:
             if not getattr(app.state, "_llm_initialized", False):
                 if getattr(app.state, "_llm_init_error", None):
                     raise HTTPException(status_code=500, detail=f"LLM init failed: {app.state._llm_init_error}")
+
+                # Check if lazy loading is disabled
+                if getattr(app.state, "_llm_lazy_load_disabled", False):
+                    raise HTTPException(
+                        status_code=503,
+                        detail="LLM not initialized. Set ACESTEP_INIT_LLM=true in .env to enable."
+                    )
 
                 project_root = _get_project_root()
                 checkpoint_dir = os.path.join(project_root, "checkpoints")
@@ -2285,11 +2376,46 @@ def main() -> None:
         default=os.getenv("ACESTEP_API_KEY", None),
         help="API key for authentication (default from ACESTEP_API_KEY)",
     )
+    parser.add_argument(
+        "--download-source",
+        type=str,
+        choices=["huggingface", "modelscope", "auto"],
+        default=os.getenv("ACESTEP_DOWNLOAD_SOURCE", "auto"),
+        help="Preferred model download source: auto (default), huggingface, or modelscope",
+    )
+    parser.add_argument(
+        "--init-llm",
+        action="store_true",
+        default=_env_bool("ACESTEP_INIT_LLM", False),
+        help="Initialize LLM even if GPU memory is insufficient (may cause OOM). "
+             "Can also be set via ACESTEP_INIT_LLM=true environment variable.",
+    )
+    parser.add_argument(
+        "--lm-model-path",
+        type=str,
+        default=os.getenv("ACESTEP_LM_MODEL_PATH", ""),
+        help="LM model to load (e.g., 'acestep-5Hz-lm-0.6B'). Default from ACESTEP_LM_MODEL_PATH.",
+    )
     args = parser.parse_args()
 
     # Set API key from command line argument
     if args.api_key:
         os.environ["ACESTEP_API_KEY"] = args.api_key
+
+    # Set download source preference
+    if args.download_source and args.download_source != "auto":
+        os.environ["ACESTEP_DOWNLOAD_SOURCE"] = args.download_source
+        print(f"Using preferred download source: {args.download_source}")
+
+    # Set init LLM flag
+    if args.init_llm:
+        os.environ["ACESTEP_INIT_LLM"] = "true"
+        print("[API Server] LLM initialization enabled via --init-llm")
+
+    # Set LM model path
+    if args.lm_model_path:
+        os.environ["ACESTEP_LM_MODEL_PATH"] = args.lm_model_path
+        print(f"[API Server] Using LM model: {args.lm_model_path}")
 
     # IMPORTANT: in-memory queue/store -> workers MUST be 1
     uvicorn.run(

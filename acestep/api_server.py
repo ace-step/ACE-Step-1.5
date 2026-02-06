@@ -33,6 +33,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
+from loguru import logger
 
 try:
     from dotenv import load_dotenv
@@ -66,6 +67,7 @@ from acestep.gpu_config import (
     get_recommended_lm_model,
     is_lm_model_supported,
     GPUConfig,
+    VRAM_16GB_MIN_GB,
 )
 
 
@@ -340,6 +342,7 @@ PARAM_ALIASES = {
     "prompt": ["prompt", "caption"],
     "lyrics": ["lyrics"],
     "thinking": ["thinking"],
+    "analysis_only": ["analysis_only", "analysisOnly"],
     "sample_mode": ["sample_mode", "sampleMode"],
     "sample_query": ["sample_query", "sampleQuery", "description", "desc"],
     "use_format": ["use_format", "useFormat", "format"],
@@ -482,6 +485,7 @@ class GenerateMusicRequest(BaseModel):
     instruction: str = DEFAULT_DIT_INSTRUCTION
     audio_cover_strength: float = 1.0
     task_type: str = "text2music"
+    analysis_only: bool = False
 
     use_adg: bool = False
     cfg_interval_start: float = 0.0
@@ -574,6 +578,7 @@ class _JobRecord:
     finished_at: Optional[float] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    status_text: str = ""
     env: str = "development"
 
 
@@ -670,7 +675,11 @@ class _JobStore:
                 if rec.status in stats:
                     stats[rec.status] += 1
             return stats
-
+    
+    def update_status_text(self, job_id: str, text: str) -> None:
+        with self._lock:
+            if job_id in self._jobs:
+                self._jobs[job_id].status_text = text
 
 def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
@@ -695,14 +704,20 @@ def _get_model_name(config_path: str) -> str:
     return os.path.basename(normalized)
 
 
+_project_env_loaded = False
+
+
 def _load_project_env() -> None:
-    if load_dotenv is None:
+    """Load .env at most once per process to avoid epoch-boundary stalls (e.g. Windows LoRA training)."""
+    global _project_env_loaded
+    if _project_env_loaded or load_dotenv is None:
         return
     try:
         project_root = _get_project_root()
         env_path = os.path.join(project_root, ".env")
         if os.path.exists(env_path):
             load_dotenv(env_path, override=False)
+        _project_env_loaded = True
     except Exception:
         # Optional best-effort: continue even if .env loading fails.
         pass
@@ -854,6 +869,15 @@ async def _save_upload_to_temp(upload: StarletteUploadFile, *, prefix: str) -> s
             pass
     return path
 
+class LogBuffer:
+    def __init__(self):
+        self.last_message = "Waiting"
+
+    def write(self, message):
+        self.last_message = message.strip()
+
+log_buffer = LogBuffer()
+logger.add(lambda msg: log_buffer.write(msg), format="{time:HH:mm:ss} | {level} | {message}")
 
 def create_app() -> FastAPI:
     store = _JobStore()
@@ -1393,6 +1417,38 @@ def create_app() -> FastAPI:
                 llm_is_initialized = getattr(app.state, "_llm_initialized", False)
                 llm_to_pass = llm if llm_is_initialized else None
 
+                if req.analysis_only:
+                    lm_res = llm_to_pass.generate_with_stop_condition(
+                        caption=params.caption,
+                        lyrics=params.lyrics,
+                        infer_type="dit",
+                        temperature=req.lm_temperature,
+                        top_p=req.lm_top_p,
+                        use_cot_metas=True,
+                        use_cot_caption=req.use_cot_caption,
+                        use_cot_language=req.use_cot_language,
+                        use_constrained_decoding=True
+                    )
+
+                    if not lm_res.get("success"):
+                        raise RuntimeError(f"Analysis Failed: {lm_res.get('error')}")
+
+                    metas_found = lm_res.get("metadata", {})
+                    return {
+                        "first_audio_path": None,
+                        "audio_paths": [],
+                        "generation_info": "Analysis Only Mode Complete",
+                        "status_message": "Success",
+                        "metas": metas_found,
+                        "bpm": metas_found.get("bpm"),
+                        "keyscale": metas_found.get("keyscale"),
+                        "duration": metas_found.get("duration"),
+                        "prompt": metas_found.get("caption", params.caption),
+                        "lyrics": params.lyrics,
+                        "lm_model": os.getenv("ACESTEP_LM_MODEL_PATH", ""),
+                        "dit_model": "None (Analysis Only)"
+                    }
+
                 # Generate music using unified interface
                 result = generate_music(
                     dit_handler=h,
@@ -1562,7 +1618,7 @@ def create_app() -> FastAPI:
         app.state.gpu_config = gpu_config
 
         gpu_memory_gb = gpu_config.gpu_memory_gb
-        auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < 16
+        auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_16GB_MIN_GB
 
         # Print GPU configuration info
         print(f"\n{'='*60}")
@@ -1781,6 +1837,7 @@ def create_app() -> FastAPI:
                 device=lm_device,
                 offload_to_cpu=lm_offload,
                 dtype=handler.dtype,
+                disable_cuda_graphs=True,
             )
             if llm_ok:
                 app.state._llm_initialized = True
@@ -1834,6 +1891,7 @@ def create_app() -> FastAPI:
                 prompt=p.str("prompt"),
                 lyrics=p.str("lyrics"),
                 thinking=p.bool("thinking"),
+                analysis_only=p.bool("analysis_only"),
                 sample_mode=p.bool("sample_mode"),
                 sample_query=p.str("sample_query"),
                 use_format=p.bool("use_format"),
@@ -2047,6 +2105,7 @@ def create_app() -> FastAPI:
                                 "task_id": task_id,
                                 "result": data,
                                 "status": int(status) if status is not None else 1,
+                                "progress_text": log_buffer.last_message
                             })
                     continue
 
@@ -2101,6 +2160,7 @@ def create_app() -> FastAPI:
                     "task_id": task_id,
                     "result": json.dumps(result_data, ensure_ascii=False),
                     "status": status_int,
+                    "progress_text": log_buffer.last_message
                 })
             else:
                 data_list.append({"task_id": task_id, "result": "[]", "status": 0})
@@ -2330,14 +2390,19 @@ def create_app() -> FastAPI:
             return _wrap_response(None, code=500, error=f"format_sample error: {str(e)}")
 
     @app.get("/v1/audio")
-    async def get_audio(path: str, _: None = Depends(verify_api_key)):
+    async def get_audio(path: str, request: Request, _: None = Depends(verify_api_key)):
         """Serve audio file by path."""
         from fastapi.responses import FileResponse
 
-        if not os.path.exists(path):
-            raise HTTPException(status_code=404, detail=f"Audio file not found: {path}")
+        # Security: Validate path is within allowed directory to prevent path traversal
+        resolved_path = os.path.realpath(path)
+        allowed_dir = os.path.realpath(request.app.state.temp_audio_dir)
+        if not resolved_path.startswith(allowed_dir + os.sep) and resolved_path != allowed_dir:
+            raise HTTPException(status_code=403, detail="Access denied: path outside allowed directory")
+        if not os.path.exists(resolved_path):
+            raise HTTPException(status_code=404, detail="Audio file not found")
 
-        ext = os.path.splitext(path)[1].lower()
+        ext = os.path.splitext(resolved_path)[1].lower()
         media_types = {
             ".mp3": "audio/mpeg",
             ".wav": "audio/wav",
@@ -2346,7 +2411,7 @@ def create_app() -> FastAPI:
         }
         media_type = media_types.get(ext, "audio/mpeg")
 
-        return FileResponse(path, media_type=media_type)
+        return FileResponse(resolved_path, media_type=media_type)
 
     return app
 

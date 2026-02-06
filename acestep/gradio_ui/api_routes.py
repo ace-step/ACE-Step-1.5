@@ -200,10 +200,15 @@ async def list_models(request: Request, _: None = Depends(verify_api_key)):
 @router.get("/v1/audio")
 async def get_audio(path: str, _: None = Depends(verify_api_key)):
     """Download audio file"""
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail=f"Audio file not found: {path}")
+    # Security: Validate path is within allowed directory to prevent path traversal
+    resolved_path = os.path.realpath(path)
+    allowed_dir = os.path.realpath(DEFAULT_RESULTS_DIR)
+    if not resolved_path.startswith(allowed_dir + os.sep) and resolved_path != allowed_dir:
+        raise HTTPException(status_code=403, detail="Access denied: path outside allowed directory")
+    if not os.path.exists(resolved_path):
+        raise HTTPException(status_code=404, detail="Audio file not found")
 
-    ext = os.path.splitext(path)[1].lower()
+    ext = os.path.splitext(resolved_path)[1].lower()
     media_types = {
         ".mp3": "audio/mpeg",
         ".wav": "audio/wav",
@@ -212,7 +217,7 @@ async def get_audio(path: str, _: None = Depends(verify_api_key)):
     }
     media_type = media_types.get(ext, "audio/mpeg")
 
-    return FileResponse(path, media_type=media_type)
+    return FileResponse(resolved_path, media_type=media_type)
 
 
 @router.post("/create_random_sample")

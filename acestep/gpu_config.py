@@ -19,6 +19,10 @@ from loguru import logger
 # Environment variable for debugging/testing different GPU memory configurations
 DEBUG_MAX_CUDA_VRAM_ENV = "MAX_CUDA_VRAM"
 
+# Tolerance for 16GB detection: reported VRAM like 15.99GB is effectively 16GB hardware
+VRAM_16GB_TOLERANCE_GB = 0.1
+VRAM_16GB_MIN_GB = 16.0 - VRAM_16GB_TOLERANCE_GB  # treat as 16GB class if >= this
+
 
 @dataclass
 class GPUConfig:
@@ -170,9 +174,11 @@ def get_gpu_tier(gpu_memory_gb: float) -> str:
         return "tier3"
     elif gpu_memory_gb <= 12:
         return "tier4"
-    elif gpu_memory_gb <= 16:
+    elif gpu_memory_gb < VRAM_16GB_MIN_GB:
         return "tier5"
     elif gpu_memory_gb <= 24:
+        if gpu_memory_gb < 16.0:
+            logger.info(f"Detected {gpu_memory_gb:.2f}GB VRAM — treating as 16GB class GPU")
         return "tier6"
     else:
         return "unlimited"

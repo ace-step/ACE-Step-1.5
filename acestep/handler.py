@@ -1628,7 +1628,11 @@ class AceStepHandler:
 
         # Normalize audio_code_hints to batch list
         audio_code_hints = self._normalize_audio_code_hints(audio_code_hints, batch_size)
-        
+
+        # Guard: refer_audios can be None when reference audio UI path didn't populate it (e.g. TEXT2MUSIC)
+        if refer_audios is None:
+            refer_audios = [[torch.zeros(2, 30 * self.sample_rate)] for _ in range(batch_size)]
+
         for ii, refer_audio_list in enumerate(refer_audios):
             if isinstance(refer_audio_list, list):
                 for idx, refer_audio in enumerate(refer_audio_list):

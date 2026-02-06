@@ -5,23 +5,23 @@ Handler wrapper connecting model and UI
 import os
 import sys
 
-# Load environment variables from .env file in project root
-# This allows configuration without hardcoding values
-# Falls back to .env.example if .env is not found
+# Load environment variables from .env file at most once per process to avoid
+# epoch-boundary stalls (e.g. on Windows when Gradio yields during training)
+_env_loaded = False  # module-level so we never reload .env in the same process
 try:
     from dotenv import load_dotenv
-    # Get project root directory
-    _current_file = os.path.abspath(__file__)
-    _project_root = os.path.dirname(os.path.dirname(_current_file))
-    _env_path = os.path.join(_project_root, '.env')
-    _env_example_path = os.path.join(_project_root, '.env.example')
-    
-    if os.path.exists(_env_path):
-        load_dotenv(_env_path)
-        print(f"Loaded configuration from {_env_path}")
-    elif os.path.exists(_env_example_path):
-        load_dotenv(_env_example_path)
-        print(f"Loaded configuration from {_env_example_path} (fallback)")
+    if not _env_loaded:
+        _current_file = os.path.abspath(__file__)
+        _project_root = os.path.dirname(os.path.dirname(_current_file))
+        _env_path = os.path.join(_project_root, '.env')
+        _env_example_path = os.path.join(_project_root, '.env.example')
+        if os.path.exists(_env_path):
+            load_dotenv(_env_path)
+            print(f"Loaded configuration from {_env_path}")
+        elif os.path.exists(_env_example_path):
+            load_dotenv(_env_example_path)
+            print(f"Loaded configuration from {_env_example_path} (fallback)")
+        _env_loaded = True
 except ImportError:
     # python-dotenv not installed, skip loading .env
     pass
@@ -36,7 +36,7 @@ try:
     from .llm_inference import LLMHandler
     from .dataset_handler import DatasetHandler
     from .gradio_ui import create_gradio_interface
-    from .gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config
+    from .gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB
 except ImportError:
     # When executed as a script: `python acestep/acestep_v15_pipeline.py`
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,7 +46,7 @@ except ImportError:
     from acestep.llm_inference import LLMHandler
     from acestep.dataset_handler import DatasetHandler
     from acestep.gradio_ui import create_gradio_interface
-    from acestep.gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config
+    from acestep.gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB
 
 
 def create_demo(init_params=None, language='en'):
@@ -91,7 +91,7 @@ def main():
     set_global_gpu_config(gpu_config)  # Set global config for use across modules
     
     gpu_memory_gb = gpu_config.gpu_memory_gb
-    auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < 16
+    auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_16GB_MIN_GB
     
     # Print GPU configuration info
     print(f"\n{'='*60}")
@@ -127,7 +127,7 @@ def main():
     parser.add_argument("--share", action="store_true", help="Create a public link")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)")
-    parser.add_argument("--language", type=str, default="en", choices=["en", "zh", "ja"], help="UI language: en (English), zh (中文), ja (日本語)")
+    parser.add_argument("--language", type=str, default="en", choices=["en", "zh", "he", "ja"], help="UI language: en (English), zh (中文), he (עברית), ja (日本語)")
     
     # Service mode argument
     parser.add_argument("--service_mode", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, 
@@ -274,7 +274,8 @@ def main():
                         backend=args.backend,
                         device=args.device,
                         offload_to_cpu=args.offload_to_cpu,
-                        dtype=dit_handler.dtype
+                        dtype=dit_handler.dtype,
+                        disable_cuda_graphs=True,
                     )
                     
                     if lm_success:

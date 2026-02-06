@@ -317,6 +317,7 @@ class LLMHandler:
         device: str = "auto",
         offload_to_cpu: bool = False,
         dtype: Optional[torch.dtype] = None,
+        disable_cuda_graphs: bool = False,
     ) -> Tuple[str, bool]:
         """
         Initialize 5Hz LM model
@@ -328,6 +329,8 @@ class LLMHandler:
             device: Device type ("auto", "cuda", or "cpu")
             offload_to_cpu: Whether to offload to CPU
             dtype: Data type (if None, auto-detect based on device)
+            disable_cuda_graphs: If True, disable CUDA graph capture for vLLM (use when LoRA
+                training may run in the same process to avoid cudaErrorStreamCaptureInvalidated).
         
         Returns:
             (status_message, success)
@@ -386,7 +389,7 @@ class LLMHandler:
             # Initialize based on user-selected backend
             if backend == "vllm":
                 # Try to initialize with vllm
-                status_msg = self._initialize_5hz_lm_vllm(full_lm_model_path)
+                status_msg = self._initialize_5hz_lm_vllm(full_lm_model_path, enforce_eager=disable_cuda_graphs)
                 logger.info(f"5Hz LM status message: {status_msg}")
                 # Check if initialization failed (status_msg starts with ❌)
                 if status_msg.startswith("❌"):
@@ -409,8 +412,9 @@ class LLMHandler:
         except Exception as e:
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
     
-    def _initialize_5hz_lm_vllm(self, model_path: str) -> str:
-        """Initialize 5Hz LM model using vllm backend"""
+    def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False) -> str:
+        """Initialize 5Hz LM model using vllm backend. When enforce_eager is True, CUDA graph
+        capture is disabled (required when LoRA training may run in the same process)."""
         if not torch.cuda.is_available():
             self.llm_initialized = False
             logger.error("CUDA is not available. Please check your GPU setup.")
@@ -441,11 +445,11 @@ class LLMHandler:
             else:
                 self.max_model_len = 4096
             
-            logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: False, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
+            logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: {enforce_eager}, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
             start_time = time.time()
             self.llm = LLM(
                 model=model_path,
-                enforce_eager=False,
+                enforce_eager=enforce_eager,
                 tensor_parallel_size=1,
                 max_model_len=self.max_model_len,
                 gpu_memory_utilization=gpu_memory_utilization,

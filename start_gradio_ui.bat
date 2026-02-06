@@ -12,7 +12,7 @@ set SERVER_NAME=127.0.0.1
 REM set SERVER_NAME=0.0.0.0
 REM set SHARE=--share
 
-REM UI language: en, zh, ja
+REM UI language: en, zh, he, ja
 set LANGUAGE=en
 
 REM Model settings

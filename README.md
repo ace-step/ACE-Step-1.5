@@ -77,18 +77,38 @@ Star ACE-Step on GitHub and be instantly notified of new releases
 
 ### AMD / ROCm GPUs
 
-ACE-Step can run on AMD GPUs via ROCm, but `uv run acestep` currently forces CUDA PyTorch wheels, even if ROCm PyTorch is already installed. This is expected behavior with uv’s dependency resolver.
+ACE-Step works with AMD GPUs via PyTorch ROCm builds.
 
-Until uv dependency resolution is made backend-aware, **AMD users should run ACE-Step directly from an activated virtual environment**, not via `uv run acestep`.
+**Important:** The `uv run acestep` workflow currently installs CUDA PyTorch wheels and may overwrite an existing ROCm setup. `uv run acestep` is optimized for CUDA environments and may override ROCm PyTorch installations.
 
-**Recommended workflow (Linux):**
+#### Recommended workflow for AMD / ROCm users
 
-```bash
-source .venv/bin/activate
-python -m acestep.acestep_v15_pipeline --server-name 127.0.0.1 --port 7680
-```
+1. Create and activate a virtual environment manually:
 
-Windows users can follow the same approach using the activated `.venv`. This avoids uv reinstalling CUDA PyTorch and allows ROCm PyTorch to be used correctly.
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+
+2. Install a ROCm-compatible PyTorch build:
+
+   ```bash
+   pip install torch --index-url https://download.pytorch.org/whl/rocm6.0
+   ```
+
+3. Install ACE-Step dependencies without using uv run:
+
+   ```bash
+   pip install -e .
+   ```
+
+4. Start the service directly:
+
+   ```bash
+   python -m acestep.acestep_v15_pipeline --port 7680
+   ```
+
+This avoids CUDA wheel replacement and has been confirmed to work on ROCm systems. On Windows, use `.venv\Scripts\activate` and the same steps.
 
 ### 🪟 Windows Portable Package (Recommended for Windows)
 
@@ -239,6 +259,8 @@ If you have `PortableGit/` folder in your package, you can:
 ---
 
 ### Standard Installation (All Platforms)
+
+> **AMD / ROCm users:** `uv run acestep` is optimized for CUDA and may override ROCm PyTorch. Use the [AMD / ROCm workflow](#amd--rocm-gpus) above instead.
 
 ### 1. Install uv (Package Manager)
 

@@ -69,6 +69,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     choices=[
                         ("English", "en"),
                         ("中文", "zh"),
+                        ("繁體中文", "zh-TW"),
                         ("日本語", "ja"),
                     ],
                     value=current_language,

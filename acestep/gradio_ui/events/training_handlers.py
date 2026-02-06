@@ -130,7 +130,8 @@ def auto_label_all(
     # Get updated table data
     table_data = builder_state.get_samples_dataframe_data()
 
-    return table_data, status, builder_state
+    # Force UI refresh for table and status
+    return gr.update(value=table_data), gr.update(value=status), builder_state
 
 
 def get_sample_preview(
@@ -217,12 +218,15 @@ def save_sample_edit(
         override_value = None  # Use Global Ratio
 
     # Update sample
+    updated_lyrics = lyrics if not is_instrumental else "[Instrumental]"
+    updated_formatted = updated_lyrics if updated_lyrics and updated_lyrics != "[Instrumental]" else ""
     sample, status = builder_state.update_sample(
         idx,
         caption=caption,
         genre=genre,
         prompt_override=override_value,
-        lyrics=lyrics if not is_instrumental else "[Instrumental]",
+        lyrics=updated_lyrics,
+        formatted_lyrics=updated_formatted,
         bpm=int(bpm) if bpm else None,
         keyscale=keyscale,
         timesignature=timesig,
@@ -265,27 +269,31 @@ def save_dataset(
     save_path: str,
     dataset_name: str,
     builder_state: Optional[DatasetBuilder],
-) -> str:
+) -> Tuple[str, Any]:
     """Save the dataset to a JSON file.
     
     Returns:
         Status message
     """
     if builder_state is None:
-        return "âŒ No dataset to save. Please scan a directory first."
+        return "âŒ No dataset to save. Please scan a directory first.", gr.update()
     
     if not builder_state.samples:
-        return "âŒ No samples in dataset."
+        return "âŒ No samples in dataset.", gr.update()
     
     if not save_path or not save_path.strip():
-        return "âŒ Please enter a save path."
+        return "âŒ Please enter a save path.", gr.update()
+    
+    save_path = save_path.strip()
+    if not save_path.lower().endswith(".json"):
+        save_path = save_path + ".json"
     
     # Check if any samples are labeled
     labeled_count = builder_state.get_labeled_count()
     if labeled_count == 0:
-        return "âš ï¸ Warning: No samples have been labeled. Consider auto-labeling first.\nSaving anyway..."
-    
-    return builder_state.save_dataset(save_path.strip(), dataset_name)
+        return "âš ï¸ Warning: No samples have been labeled. Consider auto-labeling first.\nSaving anyway...", gr.update(value=save_path)
+
+    return builder_state.save_dataset(save_path, dataset_name), gr.update(value=save_path)
 
 
 def load_existing_dataset_for_preprocess(

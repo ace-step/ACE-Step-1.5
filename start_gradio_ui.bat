@@ -43,6 +43,22 @@ REM set CHECK_UPDATE=true
 REM Auto-initialize models on startup
 set INIT_SERVICE=--init_service true
 
+REM ==================== Service Configuration ====================
+REM When INIT_SERVICE is enabled, the Service Configuration tab is hidden
+REM in the UI. You can configure service settings here instead:
+
+REM Flash Attention settings
+REM Disable if you encounter GPU compatibility issues
+REM Values: true (enable, requires flash_attn), false (disable)
+REM Omit to auto-detect (recommended unless you have issues)
+REM set USE_FLASH_ATTENTION=--use_flash_attention false
+REM set USE_FLASH_ATTENTION=--use_flash_attention true
+
+REM To show Service Configuration tab in UI:
+REM   1. Comment out or remove the line: set INIT_SERVICE=--init_service true
+REM   2. Or change to: set INIT_SERVICE=
+REM   3. Then you can configure all settings in the web interface
+
 REM API settings (enable REST API alongside Gradio)
 REM set ENABLE_API=--enable-api
 REM set API_KEY=--api-key sk-your-secret-key
@@ -107,6 +123,7 @@ if exist "%~dp0python_embeded\python.exe" (
     if not "%INIT_LLM%"=="" set "CMD=!CMD! %INIT_LLM%"
     if not "%DOWNLOAD_SOURCE%"=="" set "CMD=!CMD! %DOWNLOAD_SOURCE%"
     if not "%INIT_SERVICE%"=="" set "CMD=!CMD! %INIT_SERVICE%"
+    if not "%USE_FLASH_ATTENTION%"=="" set "CMD=!CMD! %USE_FLASH_ATTENTION%"
     if not "%ENABLE_API%"=="" set "CMD=!CMD! %ENABLE_API%"
     if not "%API_KEY%"=="" set "CMD=!CMD! %API_KEY%"
     if not "%AUTH_USERNAME%"=="" set "CMD=!CMD! %AUTH_USERNAME%"
@@ -254,6 +271,7 @@ if exist "%~dp0python_embeded\python.exe" (
     if not "%OFFLOAD_TO_CPU%"=="" set "CMD=!CMD! %OFFLOAD_TO_CPU%"
     if not "%DOWNLOAD_SOURCE%"=="" set "CMD=!CMD! %DOWNLOAD_SOURCE%"
     if not "%INIT_SERVICE%"=="" set "CMD=!CMD! %INIT_SERVICE%"
+    if not "%USE_FLASH_ATTENTION%"=="" set "CMD=!CMD! %USE_FLASH_ATTENTION%"
     if not "%ENABLE_API%"=="" set "CMD=!CMD! %ENABLE_API%"
     if not "%API_KEY%"=="" set "CMD=!CMD! %API_KEY%"
     if not "%AUTH_USERNAME%"=="" set "CMD=!CMD! %AUTH_USERNAME%"

@@ -50,6 +50,38 @@ The Gradio interface consists of several main sections:
 
 ## Service Configuration
 
+> **Note for Windows Portable Package Users:**
+> 
+> If you're using the Windows Portable version with `start_gradio_ui.bat`, the Service Configuration tab may be hidden because the service is pre-initialized on startup.
+> 
+> **To configure service settings (like disabling Flash Attention):**
+> 
+> 1. **Edit `start_gradio_ui.bat`** in the ACE-Step directory
+> 2. **Add this line** in the "Service Configuration" section (around line 56):
+>    ```batch
+>    set USE_FLASH_ATTENTION=--use_flash_attention false
+>    ```
+> 3. **Save the file** and restart the application
+> 
+> **To show the Service Configuration tab in the UI:**
+> 
+> 1. **Edit `start_gradio_ui.bat`**
+> 2. **Comment out or remove** this line (around line 44):
+>    ```batch
+>    REM set INIT_SERVICE=--init_service true
+>    ```
+>    Or change it to:
+>    ```batch
+>    set INIT_SERVICE=
+>    ```
+> 3. **Save and restart** - you'll now see the full Service Configuration tab in the web interface
+> 
+> **Other configurable settings in `start_gradio_ui.bat`:**
+> - `CONFIG_PATH` - DiT model selection
+> - `LM_MODEL_PATH` - Language model selection  
+> - `OFFLOAD_TO_CPU` - CPU offload settings
+> - `INIT_LLM` - LLM initialization mode
+
 ### Model Selection
 
 | Setting | Description |

@@ -63,8 +63,10 @@
 | ✅ Query Rewriting | Auto LM expansion of tags and lyrics |
 | ✅ Audio Understanding | Extract BPM, key/scale, time signature & caption from audio |
 | ✅ LRC Generation | Auto-generate lyric timestamps for generated music |
-| ✅ LoRA Training | One-click annotation & training in Gradio. 8 songs, 1 hour on 3090 (12GB VRAM) |
+| 🔧 LoRA Training | **[Experimental - Currently Disabled]** One-click annotation & training. See [Feature Flags](#-feature-flags) |
 | ✅ Quality Scoring | Automatic quality assessment for generated audio |
+
+> **Note:** Features marked with 🔧 are experimental and disabled by default. See the [Feature Flags](#-feature-flags) section below.
 
 ## Staying ahead
 -----------------
@@ -438,6 +440,54 @@ Currently, we support Intel GPUs.
   - *Note*: `nanovllm` acceleration for LLM inference is currently NOT supported on Intel GPUs.
 - **Test Environment**: PyTorch 2.8.0 from [Intel Extension for PyTorch](https://pytorch-extension.intel.com/?request=platform).
 - **Intel Discrete GPUs**: Expected to work, but not tested yet as the developer does not have available devices. Waiting for community feedback.
+
+---
+
+## 🎛️ Feature Flags
+
+ACE-Step includes a feature flag system to control experimental and work-in-progress features. This prevents users from encountering unstable functionality.
+
+### Available Feature Flags
+
+| Feature | Default | Status | Description |
+|---------|---------|--------|-------------|
+| `LORA_TRAINING` | `false` | 🔴 Disabled | LoRA training functionality (currently has stability issues) |
+| `API_TRAINING_ENDPOINTS` | `false` | 🔴 Disabled | Training API endpoints (depends on LoRA training) |
+| `ADVANCED_EDITING` | `true` | 🟢 Enabled | Advanced audio editing features |
+| `BATCH_GENERATION` | `true` | 🟢 Enabled | Batch music generation |
+| `EXPERIMENTAL_SCORING` | `true` | 🟢 Enabled | Quality scoring features |
+
+### Enabling Experimental Features
+
+To enable an experimental feature, set the corresponding environment variable:
+
+```bash
+# Linux/macOS
+export ACESTEP_FEATURE_LORA_TRAINING=true
+
+# Windows (CMD)
+set ACESTEP_FEATURE_LORA_TRAINING=true
+
+# Windows (PowerShell)
+$env:ACESTEP_FEATURE_LORA_TRAINING="true"
+```
+
+Or create a `.env` file in the project root (see `.env.feature_flags.example` for reference):
+
+```bash
+ACESTEP_FEATURE_LORA_TRAINING=true
+```
+
+### Why is LoRA Training Disabled?
+
+LoRA training is currently experiencing stability issues:
+- Tensor generation may run for 10+ hours
+- GPU utilization is suboptimal (~30%)
+- Training completion time is unpredictable
+
+We're actively working on fixing these issues. Enable at your own risk for experimentation.
+
+---
 
 ## 📥 Model Download
 

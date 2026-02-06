@@ -7,6 +7,7 @@ Contains the dataset builder and LoRA training interface components.
 import os
 import gradio as gr
 from acestep.gradio_ui.i18n import t
+from acestep.feature_flags import Feature, is_feature_enabled
 
 
 def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
@@ -24,7 +25,36 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
     # Check if running in service mode (hide training tab)
     service_mode = init_params is not None and init_params.get('service_mode', False)
     
-    with gr.Tab(t("training.tab_title"), visible=not service_mode):
+    # Check if LoRA training feature is enabled
+    lora_training_enabled = is_feature_enabled(Feature.LORA_TRAINING)
+    
+    # Only show training tab if not in service mode AND LoRA training is enabled
+    show_training_tab = not service_mode and lora_training_enabled
+    
+    with gr.Tab(t("training.tab_title"), visible=show_training_tab):
+        if not lora_training_enabled:
+            # Show informative message when feature is disabled
+            gr.HTML("""
+            <div style="text-align: center; padding: 20px; margin: 20px; border: 2px solid #ff6b6b; border-radius: 12px; background: linear-gradient(135deg, #2a1a1a 0%, #1a0a0a 100%);">
+                <h2 style="color: #ff6b6b;">⚠️ LoRA Training - Under Development</h2>
+                <p style="font-size: 16px; color: #ffaaaa; margin: 15px 0;">
+                    This feature is currently under active development and not yet stable.
+                </p>
+                <p style="color: #aaa; margin: 10px 0;">
+                    <b>Known Issues:</b><br>
+                    • Tensor generation may run for extended periods (10+ hours)<br>
+                    • GPU utilization may be suboptimal (~30%)<br>
+                    • Training completion time is unpredictable
+                </p>
+                <p style="color: #888; margin-top: 20px; font-size: 14px;">
+                    To enable this experimental feature for testing:<br>
+                    Set environment variable: <code style="background: #333; padding: 2px 8px; border-radius: 4px;">ACESTEP_FEATURE_LORA_TRAINING=true</code>
+                </p>
+            </div>
+            """)
+            # Return empty dict since components won't be created
+            return {}
+        
         gr.HTML("""
         <div style="text-align: center; padding: 10px; margin-bottom: 15px;">
             <h2>🎵 LoRA Training for ACE-Step</h2>

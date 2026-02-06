@@ -708,7 +708,9 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     scale=1,
                 )
             with gr.Column(scale=18):
-                generate_btn = gr.Button(t("generation.generate_btn"), variant="primary", size="lg", interactive=generate_btn_interactive)
+                with gr.Row(equal_height=True):
+                    generate_btn = gr.Button(t("generation.generate_btn"), variant="primary", size="lg", interactive=generate_btn_interactive, scale=9)
+                    stop_btn = gr.Button("⏹ Stop", variant="stop", size="lg", interactive=False, scale=1)
             with gr.Column(scale=1, variant="compact"):
                 autogen_checkbox = gr.Checkbox(
                     label=t("generation.autogen_label"),
@@ -806,6 +808,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
         "think_checkbox": think_checkbox,
         "autogen_checkbox": autogen_checkbox,
         "generate_btn": generate_btn,
+        "stop_btn": stop_btn,
         "instrumental_checkbox": instrumental_checkbox,
         "format_btn": format_btn,
         "constrained_decoding_debug": constrained_decoding_debug,

@@ -6,6 +6,7 @@ import os
 import traceback
 import time
 import random
+import threading
 from typing import Optional, Dict, Any, Tuple, List, Union
 from contextlib import contextmanager
 
@@ -53,6 +54,10 @@ class LLMHandler:
 
         # Shared HuggingFace model for perplexity calculation
         self._hf_model_for_scoring = None
+        
+        # Interrupt mechanism for stopping generation
+        self._stop_event = threading.Event()
+        self._generation_in_progress = False
 
     def _get_checkpoint_dir(self) -> str:
         """Get checkpoint directory, prioritizing persistent storage"""
@@ -61,6 +66,24 @@ class LLMHandler:
         current_file = os.path.abspath(__file__)
         project_root = os.path.dirname(os.path.dirname(current_file))
         return os.path.join(project_root, "checkpoints")
+    
+    def request_stop(self):
+        """Request generation to stop (safe to call from any thread)"""
+        logger.info("Stop requested for LLM generation")
+        self._stop_event.set()
+    
+    def clear_stop(self):
+        """Clear stop request (call before starting new generation)"""
+        self._stop_event.clear()
+        self._generation_in_progress = False
+    
+    def is_stop_requested(self) -> bool:
+        """Check if stop has been requested"""
+        return self._stop_event.is_set()
+    
+    def is_generation_in_progress(self) -> bool:
+        """Check if generation is currently in progress"""
+        return self._generation_in_progress
 
     def get_available_5hz_lm_models(self) -> List[str]:
         """Scan and return all model directory names starting with 'acestep-5Hz-lm-'"""
@@ -781,6 +804,13 @@ class LLMHandler:
         if is_batch:
             output_texts = []
             for i, formatted_prompt in enumerate(formatted_prompt_list):
+                # Check for interrupt before processing each batch item
+                if self.is_stop_requested():
+                    logger.info(f"Generation cancelled by user at batch item {i+1}/{len(formatted_prompt_list)}")
+                    # Return empty results for remaining items
+                    output_texts.extend([""] * (len(formatted_prompt_list) - i))
+                    break
+                
                 # Set seed for this item if provided
                 if seeds and i < len(seeds):
                     torch.manual_seed(seeds[i])
@@ -926,10 +956,15 @@ class LLMHandler:
         if progress is None:
             def progress(*args, **kwargs):
                 pass
+        
+        # Clear any previous stop request and mark generation as in progress
+        self.clear_stop()
+        self._generation_in_progress = True
 
         infer_type = (infer_type or "").strip().lower()
         if infer_type not in {"dit", "llm_dit"}:
             error_msg = f"invalid infer_type: {infer_type!r} (expected 'dit' or 'llm_dit')"
+            self._generation_in_progress = False
             return {
                 "metadata": [] if (batch_size and batch_size > 1) else {},
                 "audio_codes": [] if (batch_size and batch_size > 1) else "",
@@ -1014,6 +1049,18 @@ class LLMHandler:
                 logger.info(f"Batch Phase 1 completed in {phase1_time:.2f}s. Generated metadata: {list(metadata.keys())}")
             else:
                 logger.info(f"Phase 1 completed in {phase1_time:.2f}s. Generated metadata: {list(metadata.keys())}")
+            
+            # Check for interrupt after Phase 1
+            if self.is_stop_requested():
+                logger.info("Generation cancelled by user after Phase 1")
+                self._generation_in_progress = False
+                return {
+                    "metadata": [] if is_batch else {},
+                    "audio_codes": [] if is_batch else "",
+                    "success": False,
+                    "error": "Generation cancelled by user",
+                    "extra_outputs": {"time_costs": {"phase1_time": phase1_time}},
+                }
         else:
             # Use user-provided metadata
             if is_batch:
@@ -1053,6 +1100,18 @@ class LLMHandler:
                 }
         
         # ========== PHASE 2: Audio Codes Generation ==========
+        # Check for interrupt before starting Phase 2
+        if self.is_stop_requested():
+            logger.info("Generation cancelled by user before Phase 2")
+            self._generation_in_progress = False
+            return {
+                "metadata": [] if is_batch else {},
+                "audio_codes": [] if is_batch else "",
+                "success": False,
+                "error": "Generation cancelled by user",
+                "extra_outputs": {"time_costs": {"phase1_time": phase1_time}},
+            }
+        
         if is_batch:
             logger.info(f"Batch Phase 2: Generating audio codes for {actual_batch_size} items...")
         else:
@@ -1207,6 +1266,7 @@ class LLMHandler:
             logger.info(f"Phase 2 completed in {phase2_time:.2f}s. Generated {codes_count} audio codes")
             
             total_time = phase1_time + phase2_time
+            self._generation_in_progress = False
             return {
                 "metadata": metadata,
                 "audio_codes": audio_codes,
@@ -2068,6 +2128,11 @@ class LLMHandler:
         
         with torch.no_grad():
             for step in tqdm(range(max_new_tokens), desc="LLM Constrained Decoding", unit="token"):
+                # Check for interrupt request
+                if self.is_stop_requested():
+                    logger.info(f"Generation interrupted at token {step}/{max_new_tokens}")
+                    break
+                
                 # Forward pass
                 outputs = self._forward_pass(model, generated_ids, model_kwargs, past_key_values, use_cache)
                 
@@ -2173,6 +2238,11 @@ class LLMHandler:
         
         with torch.no_grad():
             for step in tqdm(range(max_new_tokens), desc="LLM CFG Generation", unit="token"):
+                # Check for interrupt request
+                if self.is_stop_requested():
+                    logger.info(f"CFG Generation interrupted at token {step}/{max_new_tokens}")
+                    break
+                
                 # Forward pass for the entire batch (conditional + unconditional)
                 outputs = self._forward_pass(model, generated_ids, model_kwargs, past_key_values, use_cache)
                 

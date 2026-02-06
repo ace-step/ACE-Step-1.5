@@ -664,6 +664,41 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             results_section["next_batch_status"],
             results_section["next_batch_btn"],
         ]
+    ).then(
+        # Re-enable Generate button and disable Stop button after generation completes
+        fn=lambda: (gr.update(interactive=True), gr.update(interactive=False)),
+        inputs=None,
+        outputs=[generation_section["generate_btn"], generation_section["stop_btn"]],
+        queue=False
+    )
+    
+    # Enable Stop button when generation starts
+    generation_section["generate_btn"].click(
+        fn=lambda: (gr.update(interactive=False), gr.update(interactive=True)),
+        inputs=None,
+        outputs=[generation_section["generate_btn"], generation_section["stop_btn"]],
+        queue=False  # Execute immediately without queuing
+    )
+    
+    # ========== Stop Button Handler ==========
+    def stop_generation_handler():
+        """Stop the current generation"""
+        llm_handler.request_stop()
+        return (
+            gr.update(interactive=True),   # Re-enable generate button
+            gr.update(interactive=False),  # Disable stop button
+            "Generation stop requested..."
+        )
+    
+    generation_section["stop_btn"].click(
+        fn=stop_generation_handler,
+        inputs=None,
+        outputs=[
+            generation_section["generate_btn"],
+            generation_section["stop_btn"],
+            results_section["status_output"],
+        ],
+        queue=False  # Execute immediately without queuing
     )
     
     # ========== Batch Navigation Handlers ==========

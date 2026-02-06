@@ -1,3 +1,4 @@
+import os
 import torch
 from torch import nn
 import triton
@@ -5,6 +6,14 @@ import triton.language as tl
 
 from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 from nanovllm.utils.context import get_context
+
+# Debug logging - enable with NANOVLLM_DEBUG=1
+_DEBUG = os.environ.get("NANOVLLM_DEBUG", "0") == "1"
+
+def _debug_log(msg: str):
+    """Print debug message if NANOVLLM_DEBUG is enabled"""
+    if _DEBUG:
+        print(f"[nanovllm attention DEBUG] {msg}", flush=True)
 
 
 @triton.jit
@@ -59,16 +68,31 @@ class Attention(nn.Module):
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
         context = get_context()
         k_cache, v_cache = self.k_cache, self.v_cache
+        
+        if _DEBUG:
+            _debug_log(f"forward: q.shape={q.shape}, k.shape={k.shape}, v.shape={v.shape}")
+            _debug_log(f"  is_prefill={context.is_prefill}")
+            _debug_log(f"  k_cache.shape={k_cache.shape if k_cache.numel() else 'empty'}")
+            if context.slot_mapping is not None:
+                _debug_log(f"  slot_mapping.shape={context.slot_mapping.shape}, range=[{context.slot_mapping.min().item()}, {context.slot_mapping.max().item()}]")
+            if context.block_tables is not None:
+                valid_blocks = context.block_tables[context.block_tables >= 0]
+                _debug_log(f"  block_tables.shape={context.block_tables.shape}, range=[{valid_blocks.min().item() if valid_blocks.numel() else -1}, {valid_blocks.max().item() if valid_blocks.numel() else -1}]")
+            if context.context_lens is not None:
+                _debug_log(f"  context_lens={context.context_lens.tolist()}")
+        
         if k_cache.numel() and v_cache.numel():
             store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
         if context.is_prefill:
             if context.block_tables is not None:    # prefix cache
                 k, v = k_cache, v_cache
+            _debug_log(f"  calling flash_attn_varlen_func")
             o = flash_attn_varlen_func(q, k, v,
                                        max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
                                        max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
                                        softmax_scale=self.scale, causal=True, block_table=context.block_tables)
         else:    # decode
+            _debug_log(f"  calling flash_attn_with_kvcache")
             o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,
                                         cache_seqlens=context.context_lens, block_table=context.block_tables, 
                                         softmax_scale=self.scale, causal=True)

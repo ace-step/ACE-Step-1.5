@@ -1,7 +1,7 @@
 # PyTorch with CUDA 12.8 (for Windows/Linux)
 --extra-index-url https://download.pytorch.org/whl/cu128
-torch==2.7.1; sys_platform == 'win32'
-torchaudio==2.7.1; sys_platform == 'win32'
+torch==2.7.1+cu128; sys_platform == 'win32'
+torchaudio==2.7.1+cu128; sys_platform == 'win32'
 torchvision; sys_platform == 'win32'
 # macOS arm64 (Apple Silicon): latest CPU/MPS wheels
 torch>=2.9.1; sys_platform == 'darwin' and platform_machine == 'arm64'
@@ -28,11 +28,13 @@ numba>=0.63.1
 vector-quantize-pytorch>=1.27.15
 torchcodec>=0.9.1; sys_platform != 'darwin' or platform_machine == 'arm64'
 torchao
+toml
 modelscope
 
 # Training dependencies (required for LoRA training)
 peft>=0.7.0
 lightning>=2.0.0
+tensorboard>=2.0.0
 
 # nano-vllm dependencies
 triton-windows>=3.0.0,<3.4; sys_platform == 'win32'

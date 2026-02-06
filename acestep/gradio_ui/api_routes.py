@@ -12,6 +12,11 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request, Depends, Header
 from fastapi.responses import FileResponse
 
+# Global results directory inside project root
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DEFAULT_RESULTS_DIR = os.path.join(PROJECT_ROOT, "gradio_outputs").replace("\\", "/")
+os.makedirs(DEFAULT_RESULTS_DIR, exist_ok=True)
+
 # API Key storage (set via setup_api_routes)
 _api_key: Optional[str] = None
 
@@ -195,10 +200,15 @@ async def list_models(request: Request, _: None = Depends(verify_api_key)):
 @router.get("/v1/audio")
 async def get_audio(path: str, _: None = Depends(verify_api_key)):
     """Download audio file"""
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail=f"Audio file not found: {path}")
+    # Security: Validate path is within allowed directory to prevent path traversal
+    resolved_path = os.path.realpath(path)
+    allowed_dir = os.path.realpath(DEFAULT_RESULTS_DIR)
+    if not resolved_path.startswith(allowed_dir + os.sep) and resolved_path != allowed_dir:
+        raise HTTPException(status_code=403, detail="Access denied: path outside allowed directory")
+    if not os.path.exists(resolved_path):
+        raise HTTPException(status_code=404, detail="Audio file not found")
 
-    ext = os.path.splitext(path)[1].lower()
+    ext = os.path.splitext(resolved_path)[1].lower()
     media_types = {
         ".mp3": "audio/mpeg",
         ".wav": "audio/wav",
@@ -207,7 +217,7 @@ async def get_audio(path: str, _: None = Depends(verify_api_key)):
     }
     media_type = media_types.get(ext, "audio/mpeg")
 
-    return FileResponse(path, media_type=media_type)
+    return FileResponse(resolved_path, media_type=media_type)
 
 
 @router.post("/create_random_sample")
@@ -463,9 +473,9 @@ async def release_task(request: Request, authorization: Optional[str] = Header(N
             audio_format=get_param("audio_format", default="mp3"),
         )
 
-        # Get temp directory
-        import tempfile
-        save_dir = tempfile.gettempdir()
+        # Get output directory
+        save_dir = os.path.join(DEFAULT_RESULTS_DIR, f"api_{int(time.time())}").replace("\\", "/")
+        os.makedirs(save_dir, exist_ok=True)
 
         # Call generation function
         result = generate_music(

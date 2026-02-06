@@ -320,7 +320,7 @@ class AceStepHandler:
         }
     
     def initialize_service(
-        self, 
+        self,
         project_root: str,
         config_path: str,
         device: str = "auto",
@@ -329,10 +329,11 @@ class AceStepHandler:
         offload_to_cpu: bool = False,
         offload_dit_to_cpu: bool = False,
         quantization: Optional[str] = None,
+        prefer_source: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Initialize DiT model service
-        
+
         Args:
             project_root: Project root path (may be checkpoints directory, will be handled automatically)
             config_path: Model config directory name (e.g., "acestep-v15-turbo")
@@ -341,7 +342,8 @@ class AceStepHandler:
             compile_model: Whether to use torch.compile to optimize the model
             offload_to_cpu: Whether to offload models to CPU when not in use
             offload_dit_to_cpu: Whether to offload DiT model to CPU when not in use (only effective if offload_to_cpu is True)
-        
+            prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
         Returns:
             (status_message, enable_generate_button)
         """
@@ -413,15 +415,15 @@ class AceStepHandler:
             # Check and download main model components (vae, text_encoder, default DiT)
             if not check_main_model_exists(checkpoint_path):
                 logger.info("[initialize_service] Main model not found, starting auto-download...")
-                success, msg = ensure_main_model(checkpoint_path)
+                success, msg = ensure_main_model(checkpoint_path, prefer_source=prefer_source)
                 if not success:
                     return f"❌ Failed to download main model: {msg}", False
                 logger.info(f"[initialize_service] {msg}")
-            
+
             # Check and download the requested DiT model
             if not check_model_exists(config_path, checkpoint_path):
                 logger.info(f"[initialize_service] DiT model '{config_path}' not found, starting auto-download...")
-                success, msg = ensure_dit_model(config_path, checkpoint_path)
+                success, msg = ensure_dit_model(config_path, checkpoint_path, prefer_source=prefer_source)
                 if not success:
                     return f"❌ Failed to download DiT model '{config_path}': {msg}", False
                 logger.info(f"[initialize_service] {msg}")
@@ -1895,7 +1897,11 @@ class AceStepHandler:
 
         # Normalize audio_code_hints to batch list
         audio_code_hints = self._normalize_audio_code_hints(audio_code_hints, batch_size)
-        
+
+        # Guard: refer_audios can be None when reference audio UI path didn't populate it (e.g. TEXT2MUSIC)
+        if refer_audios is None:
+            refer_audios = [[torch.zeros(2, 30 * self.sample_rate)] for _ in range(batch_size)]
+
         for ii, refer_audio_list in enumerate(refer_audios):
             if isinstance(refer_audio_list, list):
                 for idx, refer_audio in enumerate(refer_audio_list):
@@ -2652,6 +2658,22 @@ class AceStepHandler:
         if offload_wav_to_cpu is None:
             offload_wav_to_cpu = self._should_offload_wav_to_cpu()
         B, C, T = latents.shape
+        
+        # Check device type (handle both string and torch.device)
+        device_type = self.device if isinstance(self.device, str) else self.device.type
+        if device_type == "mps":
+            # MPS conv1d has an output length limit; use smaller chunks to avoid it.
+            max_chunk_size = 32
+            if chunk_size > max_chunk_size:
+                orig_chunk_size = chunk_size
+                orig_overlap = overlap
+                chunk_size = max_chunk_size
+                overlap = min(overlap, max(1, chunk_size // 4))
+                logger.warning(
+                    f"[tiled_decode] MPS device detected; reducing chunk_size from {orig_chunk_size} "
+                    f"to {max_chunk_size} and overlap from {orig_overlap} to {overlap} "
+                    f"to avoid MPS conv output limit."
+                )
         
         # If short enough, decode directly
         if T <= chunk_size:

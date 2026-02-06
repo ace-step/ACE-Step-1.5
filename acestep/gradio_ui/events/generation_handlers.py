@@ -462,7 +462,7 @@ def init_service_wrapper(dit_handler, llm_handler, checkpoint, config_path, devi
             backend=backend,
             device=device,
             offload_to_cpu=offload_to_cpu,
-            dtype=dit_handler.dtype
+            dtype=dit_handler.dtype,
         )
         
         if lm_success:
@@ -519,18 +519,35 @@ def update_negative_prompt_visibility(init_llm_checked):
     return gr.update(visible=init_llm_checked)
 
 
-def update_audio_cover_strength_visibility(task_type_value, init_llm_checked):
-    """Update audio_cover_strength visibility and label"""
-    # Show if task is cover OR if LM is initialized
-    is_visible = (task_type_value == "cover") or init_llm_checked
-    # Change label based on context
-    if init_llm_checked and task_type_value != "cover":
-        label = "LM codes strength"
-        info = "Control how many denoising steps use LM-generated codes"
+def _has_reference_audio(reference_audio) -> bool:
+    """True if reference_audio has a usable value (Gradio Audio returns path string or (path, sr))."""
+    if reference_audio is None:
+        return False
+    if isinstance(reference_audio, str):
+        return bool(reference_audio.strip())
+    if isinstance(reference_audio, (list, tuple)) and reference_audio:
+        return bool(reference_audio[0])
+    return False
+
+
+def update_audio_cover_strength_visibility(task_type_value, init_llm_checked, reference_audio=None):
+    """Update audio_cover_strength visibility and label. Show Similarity/Denoise when reference audio is present."""
+    has_reference = _has_reference_audio(reference_audio)
+    # Show if task is cover, LM is initialized, or reference audio is present (audio-conditioned generation)
+    is_visible = (task_type_value == "cover") or init_llm_checked or has_reference
+    # Label priority: cover -> LM codes -> Similarity/Denoise (reference audio)
+    if task_type_value == "cover":
+        label = t("generation.cover_strength_label")
+        info = t("generation.cover_strength_info")
+    elif init_llm_checked:
+        label = t("generation.codes_strength_label")
+        info = t("generation.codes_strength_info")
+    elif has_reference:
+        label = t("generation.similarity_denoise_label")
+        info = t("generation.similarity_denoise_info")
     else:
-        label = "Audio Cover Strength"
-        info = "Control how many denoising steps use cover mode"
-    
+        label = t("generation.cover_strength_label")
+        info = t("generation.cover_strength_info")
     return gr.update(visible=is_visible, label=label, info=info)
 
 
@@ -546,7 +563,8 @@ def update_instruction_ui(
     track_name_value: Optional[str], 
     complete_track_classes_value: list, 
     audio_codes_content: str = "",
-    init_llm_checked: bool = False
+    init_llm_checked: bool = False,
+    reference_audio=None,
 ) -> tuple:
     """Update instruction and UI visibility based on task type."""
     instruction = dit_handler.generate_instruction(
@@ -559,15 +577,22 @@ def update_instruction_ui(
     track_name_visible = task_type_value in ["lego", "extract"]
     # Show complete_track_classes for complete
     complete_visible = task_type_value == "complete"
-    # Show audio_cover_strength for cover OR when LM is initialized
-    audio_cover_strength_visible = (task_type_value == "cover") or init_llm_checked
-    # Determine label and info based on context
-    if init_llm_checked and task_type_value != "cover":
-        audio_cover_strength_label = "LM codes strength"
-        audio_cover_strength_info = "Control how many denoising steps use LM-generated codes"
+    # Show audio_cover_strength for cover, LM initialized, or reference audio present
+    has_reference = _has_reference_audio(reference_audio)
+    audio_cover_strength_visible = (task_type_value == "cover") or init_llm_checked or has_reference
+    # Label priority: cover -> LM codes -> Similarity/Denoise (reference audio)
+    if task_type_value == "cover":
+        audio_cover_strength_label = t("generation.cover_strength_label")
+        audio_cover_strength_info = t("generation.cover_strength_info")
+    elif init_llm_checked:
+        audio_cover_strength_label = t("generation.codes_strength_label")
+        audio_cover_strength_info = t("generation.codes_strength_info")
+    elif has_reference:
+        audio_cover_strength_label = t("generation.similarity_denoise_label")
+        audio_cover_strength_info = t("generation.similarity_denoise_info")
     else:
-        audio_cover_strength_label = "Audio Cover Strength"
-        audio_cover_strength_info = "Control how many denoising steps use cover mode"
+        audio_cover_strength_label = t("generation.cover_strength_label")
+        audio_cover_strength_info = t("generation.cover_strength_info")
     # Show repainting controls for repaint and lego
     repainting_visible = task_type_value in ["repaint", "lego"]
     # Show text2music_audio_codes if task is text2music OR if it has content

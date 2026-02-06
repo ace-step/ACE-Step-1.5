@@ -1,3 +1,4 @@
+import os
 import pickle
 import torch
 import torch.distributed as dist
@@ -6,6 +7,14 @@ from multiprocessing.shared_memory import SharedMemory
 import sys
 
 from nanovllm.config import Config
+
+# Debug logging - enable with NANOVLLM_DEBUG=1
+_DEBUG = os.environ.get("NANOVLLM_DEBUG", "0") == "1"
+
+def _debug_log(msg: str):
+    """Print debug message if NANOVLLM_DEBUG is enabled"""
+    if _DEBUG:
+        print(f"[nanovllm DEBUG] {msg}", flush=True)
 from nanovllm.engine.sequence import Sequence
 from nanovllm.models.qwen3 import Qwen3ForCausalLM
 from nanovllm.layers.sampler import Sampler
@@ -62,7 +71,7 @@ class ModelRunner:
         torch.cuda.set_device(rank)
         default_dtype = torch.get_default_dtype()
         # Use dtype instead of deprecated torch_dtype
-        config_dtype = getattr(hf_config, 'dtype', getattr(hf_config, 'torch_dtype', None))
+        config_dtype = getattr(hf_config, 'dtype', getattr(hf_config, 'torch_dtype', torch.bfloat16))
 
         # Validate and convert config_dtype to a valid torch floating-point dtype
         # Default to bfloat16 for CUDA (required for Flash Attention 2)
@@ -223,6 +232,14 @@ class ModelRunner:
                 f"Available for KV: {available_for_kv_cache / 1024**3:.2f} GB, "
                 f"Block size: {block_bytes / 1024**2:.2f} MB"
             )
+        max_tokens_capacity = config.num_kvcache_blocks * self.block_size
+        kv_cache_size_gb = config.num_kvcache_blocks * block_bytes / 1024**3
+        print(
+            f"[nanovllm] KV cache allocated: {config.num_kvcache_blocks} blocks × {self.block_size} tokens = "
+            f"{max_tokens_capacity} tokens capacity, {kv_cache_size_gb:.2f} GB "
+            f"(free: {free / 1024**3:.2f} GB, used: {current / 1024**3:.2f} GB, "
+            f"target: {target_total_usage / 1024**3:.2f} GB, block: {block_bytes / 1024**2:.2f} MB)"
+        )
         self.kv_cache = torch.empty(2, hf_config.num_hidden_layers, config.num_kvcache_blocks, self.block_size, num_kv_heads, head_dim)
         layer_id = 0
         for module in self.model.modules():
@@ -333,10 +350,18 @@ class ModelRunner:
     @torch.inference_mode()
     def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool):
         if is_prefill or self.enforce_eager or input_ids.size(0) > 512:
+            _debug_log(f"run_model: eager mode, is_prefill={is_prefill}, bs={input_ids.size(0)}")
             return self.model.compute_logits(self.model(input_ids, positions))
         else:
             bs = input_ids.size(0)
             context = get_context()
+            
+            _debug_log(f"run_model: decode mode, bs={bs}")
+            _debug_log(f"  context.block_tables.shape={context.block_tables.shape}")
+            _debug_log(f"  context.slot_mapping.shape={context.slot_mapping.shape}")
+            _debug_log(f"  context.context_lens.shape={context.context_lens.shape}")
+            _debug_log(f"  context.slot_mapping={context.slot_mapping.tolist()}")
+            _debug_log(f"  context.context_lens={context.context_lens.tolist()}")
             
             # Check if block_tables size exceeds pre-allocated buffer size
             # This can happen when conditional and unconditional sequences have different lengths
@@ -344,18 +369,30 @@ class ModelRunner:
             max_num_blocks = self.graph_vars["block_tables"].size(1)
             if context.block_tables.size(1) > max_num_blocks:
                 # Fall back to eager mode when block_tables is too large for CUDA graph
+                _debug_log(f"  fallback: block_tables cols {context.block_tables.size(1)} > max {max_num_blocks}")
                 return self.model.compute_logits(self.model(input_ids, positions))
             
             # Fix: Also check if block_tables row count matches batch size
             # Dimension mismatch can cause CUDA illegal memory access during graph replay
             if context.block_tables.size(0) != bs:
                 # Fall back to eager mode when block_tables row count doesn't match batch size
+                _debug_log(f"  fallback: block_tables rows {context.block_tables.size(0)} != bs {bs}")
                 return self.model.compute_logits(self.model(input_ids, positions))
             
             # Fix: Verify slot_mapping and context_lens dimensions match batch size
             if context.slot_mapping.size(0) != bs or context.context_lens.size(0) != bs:
                 # Fall back to eager mode when dimensions don't match
+                _debug_log(f"  fallback: slot_mapping/context_lens size mismatch")
                 return self.model.compute_logits(self.model(input_ids, positions))
+            
+            # Validate block_tables values
+            if _DEBUG:
+                max_block_id = context.block_tables.max().item()
+                min_block_id = context.block_tables[context.block_tables >= 0].min().item() if (context.block_tables >= 0).any() else -1
+                _debug_log(f"  block_tables range: [{min_block_id}, {max_block_id}]")
+                _debug_log(f"  num_kvcache_blocks: {self.config.num_kvcache_blocks}")
+                if max_block_id >= self.config.num_kvcache_blocks:
+                    _debug_log(f"  WARNING: block_table contains invalid block_id {max_block_id} >= {self.config.num_kvcache_blocks}")
             
             graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]
             graph_vars = self.graph_vars
@@ -368,6 +405,8 @@ class ModelRunner:
             # Clear block_tables first to ensure no stale data from previous runs
             graph_vars["block_tables"][:bs].fill_(-1)
             graph_vars["block_tables"][:bs, :context.block_tables.size(1)] = context.block_tables
+            
+            _debug_log(f"  executing CUDA graph replay for bs={bs}")
             graph.replay()
             return self.model.compute_logits(graph_vars["outputs"][:bs])
 
@@ -375,8 +414,15 @@ class ModelRunner:
         """Run model forward and sampling. For CFG sequences, batch is structured as:
         [cond_seq1, cond_seq2, ..., uncond_seq1, uncond_seq2, ...]
         where uncond_seqi is the paired unconditional sequence of cond_seqi."""
+        _debug_log(f"run: num_seqs={len(seqs)}, is_prefill={is_prefill}")
+        for i, seq in enumerate(seqs):
+            _debug_log(f"  seq[{i}]: len={len(seq)}, num_blocks={seq.num_blocks}, "
+                      f"cfg_scale={seq.cfg_scale}, is_uncond={seq.is_unconditional}, "
+                      f"block_table={seq.block_table}")
+        
         # Check if this is a CFG batch (contains paired conditional and unconditional sequences)
         is_cfg_batch = seqs[0].cfg_scale > 1.0 and seqs[0].paired_seq is not None
+        _debug_log(f"  is_cfg_batch={is_cfg_batch}")
         if is_cfg_batch:
             # CFG batch: seqs = [cond_seq1, cond_seq2, ..., uncond_seq1, uncond_seq2, ...]
             num_cond = len(seqs) // 2

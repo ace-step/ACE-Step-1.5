@@ -1,0 +1,44 @@
+# Proxy Configuration Example
+# Copy this file to proxy_config.txt and modify the settings
+# 代理配置示例文件
+# 复制此文件为 proxy_config.txt 并修改配置
+
+# Enable or disable proxy (1 = enabled, 0 = disabled)
+# 启用或禁用代理（1 = 启用，0 = 禁用）
+PROXY_ENABLED=0
+
+# Proxy server URL
+# 代理服务器 URL
+#
+# Supported formats / 支持的格式:
+#   - HTTP:   http://127.0.0.1:7890
+#   - HTTPS:  https://proxy.example.com:8080
+#   - SOCKS5: socks5://127.0.0.1:1080
+#
+# With authentication / 带认证:
+#   - http://username:password@proxy.example.com:8080
+#
+# Common proxy ports / 常见代理端口:
+#   - Clash:         7890
+#   - V2Ray:         1080 (SOCKS5) or 10809 (HTTP)
+#   - Shadowsocks:   1080
+#
+PROXY_URL=
+
+# Examples / 示例配置:
+# ========================================
+# Example 1: Local Clash proxy
+# PROXY_ENABLED=1
+# PROXY_URL=http://127.0.0.1:7890
+
+# Example 2: Local V2Ray SOCKS5 proxy
+# PROXY_ENABLED=1
+# PROXY_URL=socks5://127.0.0.1:1080
+
+# Example 3: Corporate proxy with authentication
+# PROXY_ENABLED=1
+# PROXY_URL=http://username:password@proxy.company.com:8080
+
+# Example 4: No proxy (direct connection)
+# PROXY_ENABLED=0
+# PROXY_URL=

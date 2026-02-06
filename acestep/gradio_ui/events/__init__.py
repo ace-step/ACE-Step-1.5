@@ -113,13 +113,19 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
     
     generation_section["init_llm_checkbox"].change(
         fn=gen_h.update_audio_cover_strength_visibility,
-        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"]],
+        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"], generation_section["reference_audio"]],
         outputs=[generation_section["audio_cover_strength"]]
     )
     
     generation_section["task_type"].change(
         fn=gen_h.update_audio_cover_strength_visibility,
-        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"]],
+        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"], generation_section["reference_audio"]],
+        outputs=[generation_section["audio_cover_strength"]]
+    )
+    
+    generation_section["reference_audio"].change(
+        fn=gen_h.update_audio_cover_strength_visibility,
+        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"], generation_section["reference_audio"]],
         outputs=[generation_section["audio_cover_strength"]]
     )
     
@@ -147,7 +153,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
     )
     
     # ========== Instruction UI Updates ==========
-    for trigger in [generation_section["task_type"], generation_section["track_name"], generation_section["complete_track_classes"]]:
+    for trigger in [generation_section["task_type"], generation_section["track_name"], generation_section["complete_track_classes"], generation_section["reference_audio"]]:
         trigger.change(
             fn=lambda *args: gen_h.update_instruction_ui(dit_handler, *args),
             inputs=[
@@ -155,7 +161,8 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
                 generation_section["track_name"],
                 generation_section["complete_track_classes"],
                 generation_section["text2music_audio_code_string"],
-                generation_section["init_llm_checkbox"]
+                generation_section["init_llm_checkbox"],
+                generation_section["reference_audio"],
             ],
             outputs=[
                 generation_section["instruction_display_gen"],

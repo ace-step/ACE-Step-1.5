@@ -127,7 +127,7 @@ def main():
     parser.add_argument("--share", action="store_true", help="Create a public link")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)")
-    parser.add_argument("--language", type=str, default="en", choices=["en", "zh", "ja"], help="UI language: en (English), zh (中文), ja (日本語)")
+    parser.add_argument("--language", type=str, default="en", choices=["en", "zh", "he", "ja"], help="UI language: en (English), zh (中文), he (עברית), ja (日本語)")
     
     # Service mode argument
     parser.add_argument("--service_mode", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, 

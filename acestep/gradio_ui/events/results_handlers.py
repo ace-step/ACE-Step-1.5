@@ -477,6 +477,18 @@ def send_audio_to_src_with_metadata(audio_file, lm_metadata):
     )
 
 
+def send_audio_to_ref(audio_file):
+    """Send generated audio file to reference_audio input
+
+    Args:
+        audio_file: Audio file path
+
+    Returns:
+        audio_file path or None
+    """
+    return audio_file
+
+
 def generate_with_progress(
     dit_handler, llm_handler,
     captions, lyrics, bpm, key_scale, time_signature, vocal_language,
@@ -493,6 +505,8 @@ def generate_with_progress(
     auto_lrc,
     score_scale,
     lm_batch_chunk_size,
+    custom_track_name=None,
+    scratchpad=None,
     progress=gr.Progress(track_tqdm=True),
 ):
     """Generate audio with progress tracking"""
@@ -701,9 +715,33 @@ def generate_with_progress(
             temp_dir = os.path.join(DEFAULT_RESULTS_DIR, f"batch_{timestamp}")
             temp_dir = os.path.abspath(temp_dir).replace("\\", "/")
             os.makedirs(temp_dir, exist_ok=True)
-            json_path = os.path.join(temp_dir, f"{key}.json").replace("\\", "/")
-            audio_path = os.path.join(temp_dir, f"{key}.{audio_format}").replace("\\", "/")
+
+            # File naming logic
+            if custom_track_name and str(custom_track_name).strip():
+                # Sanitize filename
+                base_name = str(custom_track_name).strip()
+                base_name = re.sub(r'[\\/*?:"<>|]', "", base_name)
+
+                # Append inpainting info if applicable
+                if repainting_end != -1:
+                    base_name += f"-inpaint_{repainting_start}:{repainting_end}"
+
+                # Append batch index
+                filename = f"{base_name}_{i+1}"
+            else:
+                filename = key
+
+            json_path = os.path.join(temp_dir, f"{filename}.json").replace("\\", "/")
+            audio_path = os.path.join(temp_dir, f"{filename}.{audio_format}").replace("\\", "/")
+
             save_audio(audio_data=audio_tensor, output_path=audio_path, sample_rate=sample_rate, format=audio_format, channels_first=True)
+
+            # Add custom params to metadata
+            if custom_track_name:
+                audio_params["custom_track_name"] = custom_track_name
+            if scratchpad:
+                audio_params["scratchpad"] = scratchpad
+
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(audio_params, f, indent=2, ensure_ascii=False)
             audio_outputs[i] = audio_path
@@ -1423,7 +1461,8 @@ def capture_current_params(
     think_checkbox, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
     use_cot_metas, use_cot_caption, use_cot_language,
     constrained_decoding_debug, allow_lm_batch, auto_score, auto_lrc, score_scale, lm_batch_chunk_size,
-    track_name, complete_track_classes
+    track_name, complete_track_classes,
+    custom_track_name, scratchpad
 ):
     """Capture current UI parameters for next batch generation
     
@@ -1476,6 +1515,8 @@ def capture_current_params(
         "lm_batch_chunk_size": lm_batch_chunk_size,
         "track_name": track_name,
         "complete_track_classes": complete_track_classes,
+        "custom_track_name": custom_track_name,
+        "scratchpad": scratchpad,
     }
 
 
@@ -1497,6 +1538,8 @@ def generate_with_batch_management(
     lm_batch_chunk_size,
     track_name,
     complete_track_classes,
+    custom_track_name,
+    scratchpad,
     autogen_checkbox,
     current_batch_index,
     total_batches,
@@ -1524,6 +1567,8 @@ def generate_with_batch_management(
         auto_lrc,
         score_scale,
         lm_batch_chunk_size,
+        custom_track_name,
+        scratchpad,
         progress
     )
     final_result_from_inner = None
@@ -1617,6 +1662,8 @@ def generate_with_batch_management(
         "lm_batch_chunk_size": lm_batch_chunk_size,
         "track_name": track_name,
         "complete_track_classes": complete_track_classes,
+        "custom_track_name": custom_track_name,
+        "scratchpad": scratchpad,
     }
     
     # Next batch parameters (with cleared codes & random seed)
@@ -1798,6 +1845,7 @@ def generate_next_batch_background(
         params.setdefault("lm_batch_chunk_size", 8)
         params.setdefault("track_name", None)
         params.setdefault("complete_track_classes", [])
+        params.setdefault("custom_track_name", "")
         
         # Call generate_with_progress with the saved parameters
         # Note: generate_with_progress is a generator, need to iterate through it
@@ -1849,6 +1897,8 @@ def generate_next_batch_background(
             auto_lrc=params.get("auto_lrc"),
             score_scale=params.get("score_scale"),
             lm_batch_chunk_size=params.get("lm_batch_chunk_size"),
+            custom_track_name=params.get("custom_track_name"),
+            scratchpad=params.get("scratchpad"),
             progress=progress
         )
         
@@ -2231,7 +2281,7 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     """
     if current_batch_index not in batch_queue:
         gr.Warning(t("messages.no_batch_data"))
-        return [gr.update()] * 20  # Updated count: 1 codes + 19 other params
+        return [gr.update()] * 22  # Updated count: 1 codes + 21 other params
     
     batch_data = batch_queue[current_batch_index]
     params = batch_data.get("generation_params", {})
@@ -2256,6 +2306,8 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     allow_lm_batch = params.get("allow_lm_batch", True)
     track_name = params.get("track_name", None)
     complete_track_classes = params.get("complete_track_classes", [])
+    custom_track_name = params.get("custom_track_name", "")
+    scratchpad = params.get("scratchpad", "")
     
     # Extract codes - only restore to single input
     stored_codes = batch_data.get("codes", "")
@@ -2276,5 +2328,6 @@ def restore_batch_parameters(current_batch_index, batch_queue):
         vocal_language, audio_duration, batch_size_input, inference_steps,
         lm_temperature, lm_cfg_scale, lm_top_k, lm_top_p, think_checkbox,
         use_cot_caption, use_cot_language, allow_lm_batch,
-        track_name, complete_track_classes
+        track_name, complete_track_classes,
+        custom_track_name, scratchpad
     )

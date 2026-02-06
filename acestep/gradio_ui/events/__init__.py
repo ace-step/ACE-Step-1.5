@@ -9,12 +9,32 @@ from typing import Optional
 from . import generation_handlers as gen_h
 from . import results_handlers as res_h
 from . import training_handlers as train_h
+from . import init_handlers as init_h
+from . import history_handlers as hist_h
 from acestep.gradio_ui.i18n import t
 
 
-def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, dataset_section, generation_section, results_section):
+def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, dataset_section, generation_section, results_section, lora_page, history_section):
     """Setup event handlers connecting UI components and business logic"""
     
+    # ========== App Load Sync ==========
+    demo.load(
+        fn=lambda: init_h.on_app_load(dit_handler, llm_handler),
+        inputs=None,
+        outputs=[
+            generation_section["service_config_accordion"],
+            generation_section["init_status"],
+            generation_section["generate_btn"],
+            generation_section["inference_steps"],
+            generation_section["guidance_scale"],
+            generation_section["use_adg"],
+            generation_section["shift"],
+            generation_section["cfg_interval_start"],
+            generation_section["cfg_interval_end"],
+            generation_section["task_type"],
+        ]
+    )
+
     # ========== Dataset Handlers ==========
     dataset_section["import_dataset_btn"].click(
         fn=dataset_handler.import_dataset,
@@ -73,35 +93,35 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
     )
     
     # ========== LoRA Handlers ==========
-    generation_section["load_lora_btn"].click(
+    lora_page["load_lora_btn"].click(
         fn=dit_handler.load_lora,
-        inputs=[generation_section["lora_path"]],
-        outputs=[generation_section["lora_status"]]
+        inputs=[lora_page["lora_path"]],
+        outputs=[lora_page["lora_status"]]
     ).then(
         # Update checkbox to enabled state after loading
         fn=lambda: gr.update(value=True),
-        outputs=[generation_section["use_lora_checkbox"]]
+        outputs=[lora_page["use_lora_checkbox"]]
     )
     
-    generation_section["unload_lora_btn"].click(
+    lora_page["unload_lora_btn"].click(
         fn=dit_handler.unload_lora,
-        outputs=[generation_section["lora_status"]]
+        outputs=[lora_page["lora_status"]]
     ).then(
         # Update checkbox to disabled state after unloading
         fn=lambda: gr.update(value=False),
-        outputs=[generation_section["use_lora_checkbox"]]
+        outputs=[lora_page["use_lora_checkbox"]]
     )
     
-    generation_section["use_lora_checkbox"].change(
+    lora_page["use_lora_checkbox"].change(
         fn=dit_handler.set_use_lora,
-        inputs=[generation_section["use_lora_checkbox"]],
-        outputs=[generation_section["lora_status"]]
+        inputs=[lora_page["use_lora_checkbox"]],
+        outputs=[lora_page["lora_status"]]
     )
     
-    generation_section["lora_scale_slider"].change(
+    lora_page["lora_scale_slider"].change(
         fn=dit_handler.set_lora_scale,
-        inputs=[generation_section["lora_scale_slider"]],
-        outputs=[generation_section["lora_status"]]
+        inputs=[lora_page["lora_scale_slider"]],
+        outputs=[lora_page["lora_status"]]
     )
     
     # ========== UI Visibility Updates ==========
@@ -144,6 +164,21 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         fn=lambda src: gen_h.convert_src_audio_to_codes_wrapper(dit_handler, src),
         inputs=[generation_section["src_audio"]],
         outputs=[generation_section["text2music_audio_code_string"]]
+    )
+
+    # ========== Repainting Start/End Handlers ==========
+    generation_section["set_start_btn"].click(
+        fn=None,
+        inputs=[],
+        outputs=[generation_section["repainting_start"]],
+        js="() => { const waveformDiv = document.querySelector('#src_audio_player #waveform > div'); if (waveformDiv && waveformDiv.shadowRoot) { const audio = waveformDiv.shadowRoot.querySelector('audio'); if (audio) { return audio.currentTime; } } const el = document.querySelector('#src_audio_player audio'); if (el) { return el.currentTime; } return 0.0; }"
+    )
+
+    generation_section["set_end_btn"].click(
+        fn=None,
+        inputs=[],
+        outputs=[generation_section["repainting_end"]],
+        js="() => { const waveformDiv = document.querySelector('#src_audio_player #waveform > div'); if (waveformDiv && waveformDiv.shadowRoot) { const audio = waveformDiv.shadowRoot.querySelector('audio'); if (audio) { return audio.currentTime; } } const el = document.querySelector('#src_audio_player audio'); if (el) { return el.currentTime; } return -1.0; }"
     )
     
     # ========== Instruction UI Updates ==========
@@ -374,6 +409,8 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["text2music_audio_code_string"],
             generation_section["repainting_start"],
             generation_section["repainting_end"],
+            generation_section["custom_track_name"],
+            generation_section["scratchpad"],
             generation_section["track_name"],
             generation_section["complete_track_classes"],
             generation_section["instrumental_checkbox"],  # Added: instrumental_checkbox
@@ -578,6 +615,8 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["lm_batch_chunk_size"],
             generation_section["track_name"],
             generation_section["complete_track_classes"],
+            generation_section["custom_track_name"],
+            generation_section["scratchpad"],
             generation_section["autogen_checkbox"],
             results_section["current_batch_index"],
             results_section["total_batches"],
@@ -765,6 +804,8 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["lm_batch_chunk_size"],
             generation_section["track_name"],
             generation_section["complete_track_classes"],
+            generation_section["custom_track_name"],
+            generation_section["scratchpad"],
         ],
         outputs=[results_section["generation_params_state"]]
     ).then(
@@ -872,6 +913,8 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["allow_lm_batch"],
             generation_section["track_name"],
             generation_section["complete_track_classes"],
+            generation_section["custom_track_name"],
+            generation_section["scratchpad"],
         ]
     )
     
@@ -894,6 +937,156 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
                 results_section[f"generated_audio_{lrc_idx}"],  # Only updates subtitles, not value
             ]
         )
+
+    # ========== History Handlers ==========
+    history_section["refresh_history_btn"].click(
+        fn=hist_h.scan_history,
+        inputs=[],
+        outputs=[history_section["history_table"]]
+    )
+
+    history_section["history_table"].select(
+        fn=hist_h.select_history_item,
+        inputs=[history_section["history_table"]],
+        outputs=[
+            history_section["selected_audio"],
+            history_section["selected_metadata"],
+            history_section["selected_item_path"],
+            history_section["load_params_btn"],
+            history_section["send_to_src_btn"],
+            history_section["send_to_ref_btn"],
+            history_section["delete_preview_btn"],
+        ]
+    )
+
+    history_section["send_to_src_btn"].click(
+        fn=res_h.send_audio_to_src_with_metadata,
+        inputs=[
+            history_section["selected_audio"],
+            history_section["selected_metadata"],
+        ],
+        outputs=[
+            generation_section["src_audio"],
+            generation_section["bpm"],
+            generation_section["captions"],
+            generation_section["lyrics"],
+            generation_section["audio_duration"],
+            generation_section["key_scale"],
+            generation_section["vocal_language"],
+            generation_section["time_signature"],
+            results_section["is_format_caption_state"]
+        ]
+    ).then(
+        # Switch to Generation tab after sending
+        fn=None,
+        inputs=None,
+        outputs=None,
+        js="() => { document.querySelector('button.tab-nav:nth-child(2)').click(); }"
+    )
+
+    history_section["send_to_ref_btn"].click(
+        fn=res_h.send_audio_to_ref,
+        inputs=[history_section["selected_audio"]],
+        outputs=[generation_section["reference_audio"]]
+    ).then(
+        # Switch to Generation tab after sending
+        fn=None,
+        inputs=None,
+        outputs=None,
+        js="() => { document.querySelector('button.tab-nav:nth-child(2)').click(); }"
+    )
+
+    history_section["load_params_btn"].click(
+        fn=lambda path: hist_h.load_params_from_history(path, llm_handler),
+        inputs=[history_section["selected_item_path"]],
+        outputs=[
+            generation_section["task_type"],
+            generation_section["captions"],
+            generation_section["lyrics"],
+            generation_section["vocal_language"],
+            generation_section["bpm"],
+            generation_section["key_scale"],
+            generation_section["time_signature"],
+            generation_section["audio_duration"],
+            generation_section["batch_size_input"],
+            generation_section["inference_steps"],
+            generation_section["guidance_scale"],
+            generation_section["seed"],
+            generation_section["random_seed_checkbox"],
+            generation_section["use_adg"],
+            generation_section["cfg_interval_start"],
+            generation_section["cfg_interval_end"],
+            generation_section["shift"],
+            generation_section["infer_method"],
+            generation_section["custom_timesteps"],
+            generation_section["audio_format"],
+            generation_section["lm_temperature"],
+            generation_section["lm_cfg_scale"],
+            generation_section["lm_top_k"],
+            generation_section["lm_top_p"],
+            generation_section["lm_negative_prompt"],
+            generation_section["use_cot_metas"],
+            generation_section["use_cot_caption"],
+            generation_section["use_cot_language"],
+            generation_section["audio_cover_strength"],
+            generation_section["think_checkbox"],
+            generation_section["text2music_audio_code_string"],
+            generation_section["repainting_start"],
+            generation_section["repainting_end"],
+            generation_section["custom_track_name"],
+            generation_section["scratchpad"],
+            generation_section["track_name"],
+            generation_section["complete_track_classes"],
+            generation_section["instrumental_checkbox"],
+            results_section["is_format_caption_state"]
+        ]
+    ).then(
+        # Switch to Generation tab after loading
+        fn=None,
+        inputs=None,
+        outputs=None,
+        js="() => { document.querySelector('button.tab-nav:nth-child(2)').click(); }"  # Adjust index if needed, Dataset=1, Generation=2
+    )
+
+    history_section["delete_preview_btn"].click(
+        fn=hist_h.delete_history_item,
+        inputs=[history_section["selected_item_path"]],
+        outputs=[history_section["status_output"]]
+    ).then(
+        fn=hist_h.scan_history,
+        outputs=[history_section["history_table"]]
+    ).then(
+        fn=lambda: (None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)),
+        outputs=[
+            history_section["selected_audio"],
+            history_section["selected_metadata"],
+            history_section["selected_item_path"],
+            history_section["load_params_btn"],
+            history_section["send_to_src_btn"],
+            history_section["send_to_ref_btn"],
+            history_section["delete_preview_btn"],
+        ]
+    )
+
+    history_section["delete_btn"].click(
+        fn=hist_h.delete_selected_items,
+        inputs=[history_section["history_table"]],
+        outputs=[history_section["status_output"]]
+    ).then(
+        fn=hist_h.scan_history,
+        outputs=[history_section["history_table"]]
+    ).then(
+        fn=lambda: (None, None, None, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)),
+        outputs=[
+            history_section["selected_audio"],
+            history_section["selected_metadata"],
+            history_section["selected_item_path"],
+            history_section["load_params_btn"],
+            history_section["send_to_src_btn"],
+            history_section["send_to_ref_btn"],
+            history_section["delete_preview_btn"],
+        ]
+    )
 
 
 def setup_training_event_handlers(demo, dit_handler, llm_handler, training_section):

@@ -165,6 +165,8 @@ def load_metadata(file_obj, llm_handler=None):
         audio_codes = metadata.get('audio_codes', '')
         repainting_start = metadata.get('repainting_start', 0.0)
         repainting_end = metadata.get('repainting_end', -1)
+        custom_track_name = metadata.get('custom_track_name', '')
+        scratchpad = metadata.get('scratchpad', '')
         track_name = metadata.get('track_name')
         complete_track_classes = metadata.get('complete_track_classes', [])
         shift = metadata.get('shift', 3.0)  # Default 3.0 for base models
@@ -184,16 +186,16 @@ def load_metadata(file_obj, llm_handler=None):
             audio_format, lm_temperature, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
             use_cot_metas, use_cot_caption, use_cot_language, audio_cover_strength,
             think, audio_codes, repainting_start, repainting_end,
-            track_name, complete_track_classes, instrumental,
+            custom_track_name, scratchpad, track_name, complete_track_classes, instrumental,
             True  # Set is_format_caption to True when loading from file
         )
         
     except json.JSONDecodeError as e:
         gr.Warning(t("messages.invalid_json", error=str(e)))
-        return [None] * 36 + [False]
+        return [None] * 38 + [False]
     except Exception as e:
         gr.Warning(t("messages.load_error", error=str(e)))
-        return [None] * 36 + [False]
+        return [None] * 38 + [False]
 
 
 def load_random_example(task_type: str, llm_handler=None):
@@ -428,6 +430,8 @@ def update_model_type_settings(config_path):
         is_turbo = True
     elif "base" in config_path_lower:
         is_turbo = False
+    elif "sft" in config_path_lower:
+        is_turbo = False
     else:
         # Default to turbo settings for unknown model types
         is_turbo = True
@@ -493,7 +497,7 @@ def get_model_type_ui_settings(is_turbo: bool):
     if is_turbo:
         # Turbo model: max 20 steps, default 8, show shift with default 3.0, only show text2music/repaint/cover
         return (
-            gr.update(value=8, maximum=20, minimum=1),  # inference_steps
+            gr.update(value=8, maximum=20, minimum=1, visible=True),  # inference_steps
             gr.update(visible=False),  # guidance_scale
             gr.update(visible=False),  # use_adg
             gr.update(value=3.0, visible=True),  # shift (show with default 3.0)
@@ -504,7 +508,7 @@ def get_model_type_ui_settings(is_turbo: bool):
     else:
         # Base model: max 200 steps, default 32, show CFG/ADG/shift, show all task types
         return (
-            gr.update(value=32, maximum=200, minimum=1),  # inference_steps
+            gr.update(value=50, maximum=200, minimum=1, visible=True),  # inference_steps
             gr.update(visible=True),  # guidance_scale
             gr.update(visible=True),  # use_adg
             gr.update(value=3.0, visible=True),  # shift (effective for base, default 3.0)
@@ -712,9 +716,8 @@ def update_audio_components_visibility(batch_size):
     )
     
     # Row 2 container and columns (5-8)
-    show_row_5_8 = batch_size >= 5
     updates_row2 = (
-        gr.update(visible=show_row_5_8),  # audio_row_5_8 (container)
+        gr.update(visible=batch_size >= 5),  # audio_row_5_8 (container)
         gr.update(visible=batch_size >= 5),  # audio_col_5
         gr.update(visible=batch_size >= 6),  # audio_col_6
         gr.update(visible=batch_size >= 7),  # audio_col_7

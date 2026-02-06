@@ -40,7 +40,7 @@ dependencies = [
     "lightning>=2.0.0",
     # Local third-party packages
     "nano-vllm; sys_platform != 'darwin'",
-    "modelscope"
+    "modelscope",
 ]
 
 [[tool.uv.index]]

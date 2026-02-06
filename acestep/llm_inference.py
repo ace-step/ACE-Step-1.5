@@ -54,6 +54,11 @@ class LLMHandler:
         # Shared HuggingFace model for perplexity calculation
         self._hf_model_for_scoring = None
 
+        # Initialization state tracking
+        self.loaded_model_path = None
+        self.loaded_backend = None
+        self.loaded_device = None
+
     def _get_checkpoint_dir(self) -> str:
         """Get checkpoint directory, prioritizing persistent storage"""
         if self.persistent_storage_path:
@@ -354,6 +359,15 @@ class LLMHandler:
                 lm_model_path = "acestep-5Hz-lm-1.7B"
                 logger.info(f"[initialize] lm_model_path is None, using default: {lm_model_path}")
 
+            # Check if already initialized with same parameters
+            if (self.llm_initialized and
+                self.llm is not None and
+                self.loaded_model_path == lm_model_path and
+                self.loaded_backend == backend and
+                self.loaded_device == device):
+                logger.info(f"[initialize] 5Hz LM already initialized with model={lm_model_path} backend={backend} device={device}. Skipping reload.")
+                return f"✅ 5Hz LM already initialized with {lm_model_path}", True
+
             full_lm_model_path = os.path.join(checkpoint_dir, lm_model_path)
             if not os.path.exists(full_lm_model_path):
                 return f"❌ 5Hz LM model not found at {full_lm_model_path}", False
@@ -397,16 +411,33 @@ class LLMHandler:
                         if not success:
                             return status_msg, False
                         status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
-                # If vllm initialization succeeded, self.llm_initialized should already be True
+                        # Update loaded state for fallback
+                        self.loaded_backend = "pt"
+                    else:
+                        # vllm init failed but self.llm_initialized is true? unexpected.
+                        pass
+                else:
+                    # vllm init success
+                    self.loaded_backend = "vllm"
             else:
                 # Use PyTorch backend (pt)
                 success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
                 if not success:
                     return status_msg, False
+                self.loaded_backend = "pt"
+
+            # Update loaded state on success
+            if self.llm_initialized:
+                self.loaded_model_path = lm_model_path
+                self.loaded_device = device
             
             return status_msg, True
             
         except Exception as e:
+            # Reset loaded state on failure
+            self.loaded_model_path = None
+            self.loaded_backend = None
+            self.loaded_device = None
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
     
     def _initialize_5hz_lm_vllm(self, model_path: str) -> str:

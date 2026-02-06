@@ -187,40 +187,6 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
             # Set init_status value from init_params if pre-initialized
             init_status_value = init_params.get('init_status', '') if service_pre_initialized else ''
             init_status = gr.Textbox(label=t("service.status_label"), interactive=False, lines=3, value=init_status_value)
-            
-            # LoRA Configuration Section
-            gr.HTML("<hr><h4>🔧 LoRA Adapter</h4>")
-            with gr.Row():
-                lora_path = gr.Textbox(
-                    label="LoRA Path",
-                    placeholder="./lora_output/final/adapter",
-                    info="Path to trained LoRA adapter directory",
-                    scale=3,
-                )
-                load_lora_btn = gr.Button("📥 Load LoRA", variant="secondary", scale=1)
-                unload_lora_btn = gr.Button("🗑️ Unload", variant="secondary", scale=1)
-            with gr.Row():
-                use_lora_checkbox = gr.Checkbox(
-                    label="Use LoRA",
-                    value=False,
-                    info="Enable LoRA adapter for inference",
-                    scale=1,
-                )
-                lora_scale_slider = gr.Slider(
-                    minimum=0.0,
-                    maximum=1.0,
-                    value=1.0,
-                    step=0.05,
-                    label="LoRA Scale",
-                    info="LoRA influence strength (0=disabled, 1=full)",
-                    scale=2,
-                )
-                lora_status = gr.Textbox(
-                    label="LoRA Status",
-                    value="No LoRA loaded",
-                    interactive=False,
-                    scale=2,
-                )
         
         # Inputs
         with gr.Row():
@@ -261,6 +227,13 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                                 size="sm",
                             )
                     
+                    custom_track_name = gr.Textbox(
+                        label=t("generation.custom_track_name_label"),
+                        placeholder=t("generation.custom_track_name_placeholder"),
+                        info=t("generation.custom_track_name_info"),
+                        lines=1,
+                    )
+
                     track_name = gr.Dropdown(
                         choices=TRACK_NAMES,
                         value=None,
@@ -289,6 +262,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                                 src_audio = gr.Audio(
                                     label=t("generation.source_audio"),
                                     type="filepath",
+                                    elem_id="src_audio_player",
                                 )
                             with gr.Column(scale=1, min_width=80):
                                 convert_src_to_codes_btn = gr.Button(
@@ -317,17 +291,29 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     # Repainting controls
                     with gr.Group(visible=False) as repainting_group:
                         gr.HTML(f"<h5>{t('generation.repainting_controls')}</h5>")
-                        with gr.Row():
+                        with gr.Row(equal_height=True):
                             repainting_start = gr.Number(
                                 label=t("generation.repainting_start"),
                                 value=0.0,
                                 step=0.1,
+                                scale=2,
+                            )
+                            set_start_btn = gr.Button(
+                                t("generation.set_start_btn"),
+                                size="sm",
+                                scale=1,
                             )
                             repainting_end = gr.Number(
                                 label=t("generation.repainting_end"),
                                 value=-1,
                                 minimum=-1,
                                 step=0.1,
+                                scale=2,
+                            )
+                            set_end_btn = gr.Button(
+                                t("generation.set_end_btn"),
+                                size="sm",
+                                scale=1,
                             )
                     
                     # Simple/Custom Mode Toggle
@@ -356,7 +342,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
 
                             with gr.Column(scale=1, min_width=100):
                                 random_desc_btn = gr.Button(
-                                    "🎲",
+                                    t("generation.random_btn"),
                                     variant="secondary",
                                     size="sm",
                                     scale=2
@@ -399,7 +385,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                         )
                         with gr.Column(scale=1, min_width=100):
                             sample_btn = gr.Button(
-                                "🎲",
+                                t("generation.random_btn"),
                                 variant="secondary",
                                 size="sm",
                                 scale=2,
@@ -438,12 +424,21 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                         # 右侧：格式化按钮 (Button)
                         # 放在同一行最右侧，操作更顺手
                         format_btn = gr.Button(
-                            t("generation.format_btn"),
+                            t("generation.format_btn_label"),
                             variant="secondary",
                             scale=1,
                             min_width=80,
                         )
                 
+                # Scratchpad
+                with gr.Accordion(t("generation.scratchpad_title"), open=False) as scratchpad_accordion:
+                    scratchpad = gr.Textbox(
+                        label=t("generation.scratchpad_label"),
+                        placeholder=t("generation.scratchpad_placeholder"),
+                        lines=5,
+                        info=t("generation.scratchpad_info"),
+                    )
+
                 # Optional Parameters
                 # In service mode: auto-expand
                 with gr.Accordion(t("generation.optional_params"), open=service_mode) as optional_params_accordion:
@@ -489,6 +484,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
         # Default UI settings use turbo mode (max 20 steps, default 8, show shift with default 3)
         # These will be updated after model initialization based on handler.is_turbo_model()
         with gr.Accordion(t("generation.advanced_settings"), open=False):
+            gr.HTML(f"<h4>{t('generation.dit_params_title') if t('generation.dit_params_title') != 'generation.dit_params_title' else 'DiT Parameters'}</h4>")
             with gr.Row():
                 inference_steps = gr.Slider(
                     minimum=1,
@@ -496,7 +492,8 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     value=8,
                     step=1,
                     label=t("generation.inference_steps_label"),
-                    info=t("generation.inference_steps_info")
+                    info=t("generation.inference_steps_info"),
+                    visible=True
                 )
                 guidance_scale = gr.Slider(
                     minimum=1.0,
@@ -699,11 +696,13 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
             with gr.Column(scale=1, variant="compact"):
                 think_checkbox = gr.Checkbox(
                     label=t("generation.think_label"),
+                    info=t("generation.think_info"),
                     value=True,
                     scale=1,
                 )
                 allow_lm_batch = gr.Checkbox(
                     label=t("generation.parallel_thinking_label"),
+                    info=t("generation.parallel_thinking_info"),
                     value=True,
                     scale=1,
                 )
@@ -739,13 +738,6 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
         "offload_dit_to_cpu_checkbox": offload_dit_to_cpu_checkbox,
         "compile_model_checkbox": compile_model_checkbox,
         "quantization_checkbox": quantization_checkbox,
-        # LoRA components
-        "lora_path": lora_path,
-        "load_lora_btn": load_lora_btn,
-        "unload_lora_btn": unload_lora_btn,
-        "use_lora_checkbox": use_lora_checkbox,
-        "lora_scale_slider": lora_scale_slider,
-        "lora_status": lora_status,
         "task_type": task_type,
         "instruction_display_gen": instruction_display_gen,
         "track_name": track_name,
@@ -767,7 +759,9 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
         "use_cot_language": use_cot_language,
         "repainting_group": repainting_group,
         "repainting_start": repainting_start,
+        "set_start_btn": set_start_btn,
         "repainting_end": repainting_end,
+        "set_end_btn": set_end_btn,
         "audio_cover_strength": audio_cover_strength,
         # Simple/Custom Mode Components
         "generation_mode": generation_mode,
@@ -806,6 +800,8 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
         "think_checkbox": think_checkbox,
         "autogen_checkbox": autogen_checkbox,
         "generate_btn": generate_btn,
+        "custom_track_name": custom_track_name,
+        "scratchpad": scratchpad,
         "instrumental_checkbox": instrumental_checkbox,
         "format_btn": format_btn,
         "constrained_decoding_debug": constrained_decoding_debug,
@@ -819,4 +815,3 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
         "max_duration": max_duration,
         "max_batch_size": max_batch_size,
     }
-

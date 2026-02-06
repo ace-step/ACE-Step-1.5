@@ -532,7 +532,8 @@ class MetadataConstrainedLogitsProcessor(LogitsProcessor):
         """
         import re
         audio_code_pattern = re.compile(r'^<\|audio_code_(\d+)\|>$')
-        invalid_tokens_count = 0
+        # Store invalid tokens so we can block them too (but not allow them in code gen)
+        self.invalid_audio_code_token_ids: Set[int] = set()
         
         # Iterate through vocabulary to find audio code tokens
         for token_id in range(self.vocab_size):
@@ -546,14 +547,14 @@ class MetadataConstrainedLogitsProcessor(LogitsProcessor):
                     if 0 <= code_value <= MAX_AUDIO_CODE:
                         self.audio_code_token_ids.add(token_id)
                     else:
-                        invalid_tokens_count += 1
+                        self.invalid_audio_code_token_ids.add(token_id)
                         if self.debug:
-                            logger.debug(f"Skipping audio code token {token_id} with invalid code value {code_value} (max: {MAX_AUDIO_CODE})")
+                            logger.debug(f"Found audio code token {token_id} with invalid code value {code_value} (max: {MAX_AUDIO_CODE})")
             except Exception:
                 continue
         
-        if invalid_tokens_count > 0:
-            logger.warning(f"Found {invalid_tokens_count} audio code tokens with values outside valid range [0, {MAX_AUDIO_CODE}]")
+        if len(self.invalid_audio_code_token_ids) > 0:
+            logger.debug(f"Found {len(self.invalid_audio_code_token_ids)} audio code tokens with values outside valid range [0, {MAX_AUDIO_CODE}]. These will be blocked in all states.")
         
         # Log warning if no valid tokens found (this would prevent code generation)
         if len(self.audio_code_token_ids) == 0:
@@ -604,17 +605,21 @@ class MetadataConstrainedLogitsProcessor(LogitsProcessor):
         mask = torch.zeros(1, self.vocab_size, dtype=torch.float32)
         
         # Convert set to list for indexing
-        audio_code_indices = list(self.audio_code_token_ids)
+        # For blocking (caption/metadata), use ALL audio codes (valid + invalid)
+        all_audio_code_indices = list(self.audio_code_token_ids | getattr(self, "invalid_audio_code_token_ids", set()))
         
         # Set -inf at audio code token positions
-        mask[0, audio_code_indices] = float('-inf')
+        mask[0, all_audio_code_indices] = float('-inf')
         
         self.audio_code_mask = mask
         
         # Build inverse mask: -inf everywhere EXCEPT at audio code positions
         # This is used in CODES_GENERATION state to only allow audio codes
+        # IMPORTANT: Only allow VALID audio codes here
+        valid_audio_code_indices = list(self.audio_code_token_ids)
+
         inverse_mask = torch.full((1, self.vocab_size), float('-inf'), dtype=torch.float32)
-        inverse_mask[0, audio_code_indices] = 0
+        inverse_mask[0, valid_audio_code_indices] = 0
         
         # Also allow EOS token in codes generation (will be controlled by duration constraint)
         if self.eos_token_id is not None:

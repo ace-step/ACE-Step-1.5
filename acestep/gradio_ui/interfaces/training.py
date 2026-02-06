@@ -1,7 +1,7 @@
 """
-Gradio UI Training Tab Module
+Gradio UI LoRA & Training Page Module
 
-Contains the dataset builder and LoRA training interface components.
+Contains the LoRA management, dataset builder and training interface components.
 """
 
 import os
@@ -9,8 +9,8 @@ import gradio as gr
 from acestep.gradio_ui.i18n import t
 
 
-def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
-    """Create the training tab section with dataset builder and training controls.
+def create_lora_page(dit_handler, llm_handler, init_params=None) -> dict:
+    """Create the LoRA & Training page with management, dataset builder and training controls.
     
     Args:
         dit_handler: DiT handler instance
@@ -24,15 +24,64 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
     # Check if running in service mode (hide training tab)
     service_mode = init_params is not None and init_params.get('service_mode', False)
     
-    with gr.Tab("🎓 LoRA Training", visible=not service_mode):
+    # Check if LoRA is already loaded
+    lora_loaded = dit_handler.lora_loaded if hasattr(dit_handler, 'lora_loaded') else False
+    use_lora = dit_handler.use_lora if hasattr(dit_handler, 'use_lora') else False
+    lora_scale = dit_handler.lora_scale if hasattr(dit_handler, 'lora_scale') else 1.0
+
+    with gr.Tab("LoRA & Training", visible=not service_mode):
         gr.HTML("""
         <div style="text-align: center; padding: 10px; margin-bottom: 15px;">
-            <h2>🎵 LoRA Training for ACE-Step</h2>
-            <p>Build datasets from your audio files and train custom LoRA adapters</p>
+            <h2>LoRA & Training</h2>
+            <p>Manage, build datasets, and train custom LoRA adapters</p>
         </div>
         """)
         
         with gr.Tabs():
+            # ==================== Load & Manage Tab ====================
+            with gr.Tab("🔧 Load & Manage"):
+                gr.HTML("""
+                <div style="padding: 10px; margin-bottom: 10px; border: 1px solid #4a4a6a; border-radius: 8px; background: linear-gradient(135deg, #2a2a4a 0%, #1a1a3a 100%);">
+                    <h3 style="margin: 0 0 5px 0;">Load LoRA Adapter</h3>
+                    <p style="margin: 0; color: #aaa;">Load a trained LoRA adapter to use for generation.</p>
+                </div>
+                """)
+
+                with gr.Row():
+                    lora_path = gr.Textbox(
+                        label="LoRA Path",
+                        placeholder="./lora_output/final/adapter",
+                        info="Path to trained LoRA adapter directory",
+                        scale=3,
+                    )
+                    load_lora_btn = gr.Button("📥 Load LoRA", variant="secondary", scale=1)
+                    unload_lora_btn = gr.Button("🗑️ Unload", variant="secondary", scale=1)
+
+                gr.HTML("<hr><h3>LoRA Settings</h3>")
+                with gr.Row():
+                    use_lora_checkbox = gr.Checkbox(
+                        label="Use LoRA",
+                        value=use_lora,
+                        info="Enable LoRA adapter for inference",
+                        scale=1,
+                        interactive=True  # Always interactive, handler logic handles check
+                    )
+                    lora_scale_slider = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=lora_scale,
+                        step=0.05,
+                        label="LoRA Scale",
+                        info="LoRA influence strength (0=disabled, 1=full)",
+                        scale=2,
+                    )
+                    lora_status = gr.Textbox(
+                        label="LoRA Status",
+                        value="LoRA Loaded" if lora_loaded else "No LoRA loaded",
+                        interactive=False,
+                        scale=2,
+                    )
+
             # ==================== Dataset Builder Tab ====================
             with gr.Tab("📁 Dataset Builder"):
                 # ========== Load Existing OR Scan New ==========
@@ -537,6 +586,13 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
     training_state = gr.State({"is_training": False, "should_stop": False})
     
     return {
+        # LoRA Manage
+        "lora_path": lora_path,
+        "load_lora_btn": load_lora_btn,
+        "unload_lora_btn": unload_lora_btn,
+        "use_lora_checkbox": use_lora_checkbox,
+        "lora_scale_slider": lora_scale_slider,
+        "lora_status": lora_status,
         # Dataset Builder - Load or Scan
         "load_json_path": load_json_path,
         "load_json_btn": load_json_btn,

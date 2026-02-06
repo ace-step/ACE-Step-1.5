@@ -88,6 +88,10 @@ class AceStepHandler:
         self.use_lora = False
         self.lora_scale = 1.0  # LoRA influence scale (0-1)
         self._base_decoder = None  # Backup of original decoder
+
+        # Initialization state tracking
+        self.loaded_config_path = None
+        self.loaded_device = None
     
     def get_available_checkpoints(self) -> str:
         """Return project root directory path"""
@@ -187,6 +191,9 @@ class AceStepHandler:
             self.lora_loaded = True
             self.use_lora = True  # Enable LoRA by default after loading
             
+            # Ensure decoder is patched for batch size mismatch (after loading LoRA)
+            self._ensure_decoder_patched()
+
             logger.info(f"LoRA adapter loaded successfully from {lora_path}")
             return f"✅ LoRA loaded from {lora_path}"
             
@@ -217,6 +224,9 @@ class AceStepHandler:
             self.use_lora = False
             self.lora_scale = 1.0  # Reset scale to default
             
+            # Ensure decoder is patched for batch size mismatch (after unloading LoRA)
+            self._ensure_decoder_patched()
+
             logger.info("LoRA unloaded, base decoder restored")
             return "✅ LoRA unloaded, using base model"
             
@@ -343,6 +353,15 @@ class AceStepHandler:
                     device = "mps"
                 else:
                     device = "cpu"
+
+            # Check if already initialized with same parameters
+            if (self.model is not None and
+                self.vae is not None and
+                self.text_encoder is not None and
+                self.loaded_config_path == config_path and
+                self.loaded_device == device):
+                logger.info(f"[initialize_service] Model already initialized with config={config_path} on {device}. Skipping reload.")
+                return f"✅ Model already initialized with {config_path} on {device}", True
 
             status_msg = ""
             
@@ -512,6 +531,10 @@ class AceStepHandler:
             # Determine actual attention implementation used
             actual_attn = getattr(self.config, "_attn_implementation", "eager")
             
+            # Update loaded state
+            self.loaded_config_path = config_path
+            self.loaded_device = device
+
             status_msg = f"✅ Model initialized successfully on {device}\n"
             status_msg += f"Main model: {acestep_v15_checkpoint_path}\n"
             status_msg += f"VAE: {vae_checkpoint_path}\n"
@@ -522,13 +545,66 @@ class AceStepHandler:
             status_msg += f"Offload to CPU: {self.offload_to_cpu}\n"
             status_msg += f"Offload DiT to CPU: {self.offload_dit_to_cpu}"
             
+            # Ensure decoder is patched for batch size mismatch
+            self._ensure_decoder_patched()
+
             return status_msg, True
             
         except Exception as e:
+            # Reset loaded state on failure
+            self.loaded_config_path = None
+            self.loaded_device = None
             error_msg = f"❌ Error initializing model: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
             logger.exception("[initialize_service] Error initializing model")
             return error_msg, False
     
+    def _ensure_decoder_patched(self):
+        """Ensure the decoder forward method is patched to handle batch size mismatches."""
+        if self.model is None or not hasattr(self.model, "decoder"):
+            return
+
+        decoder = self.model.decoder
+        # Avoid double patching
+        if getattr(decoder, "_is_patched_for_size_mismatch", False):
+            return
+
+        logger.info(f"[_ensure_decoder_patched] Patching decoder {type(decoder).__name__} forward method")
+
+        # Save original forward method
+        if hasattr(decoder, "_original_forward"):
+             original_forward = decoder._original_forward
+        else:
+             original_forward = decoder.forward
+             decoder._original_forward = original_forward
+
+        def patched_forward(hidden_states, *args, **kwargs):
+            # Check for context_latents in kwargs
+            context_latents = kwargs.get("context_latents")
+
+            # If mismatch in batch dimension (dim 0)
+            if context_latents is not None and isinstance(hidden_states, torch.Tensor) and isinstance(context_latents, torch.Tensor):
+                h_batch = hidden_states.shape[0]
+                c_batch = context_latents.shape[0]
+
+                if h_batch != c_batch:
+                    # Case 1: Hidden is N, Context is 2N (e.g. CFG context but non-CFG latents)
+                    # We slice Context to match Hidden (taking the second half, usually conditional)
+                    if c_batch == 2 * h_batch:
+                        logger.warning(f"[_ensure_decoder_patched] Batch size mismatch: hidden {h_batch}, context {c_batch}. Slicing context to second half.")
+                        kwargs["context_latents"] = context_latents[h_batch:]
+
+                    # Case 2: Hidden is 2N, Context is N (unlikely, but possible)
+                    elif h_batch == 2 * c_batch:
+                        logger.warning(f"[_ensure_decoder_patched] Batch size mismatch: hidden {h_batch}, context {c_batch}. Duplicating context.")
+                        kwargs["context_latents"] = torch.cat([context_latents, context_latents], dim=0)
+
+            return original_forward(hidden_states, *args, **kwargs)
+
+        # Assign closure directly to instance method (replaces the bound method)
+        # Note: original_forward is captured in the closure and maintains its bound 'self'
+        decoder.forward = patched_forward
+        decoder._is_patched_for_size_mismatch = True
+
     def _is_on_target_device(self, tensor, target_device):
         """Check if tensor is on the target device (handles cuda vs cuda:0 comparison)."""
         if tensor is None:
@@ -2334,24 +2410,37 @@ class AceStepHandler:
             generate_kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32)
         logger.info("[service_generate] Generating audio...")
         with self._load_model_context("model"):
-            # Prepare condition tensors first (for LRC timestamp generation)
-            encoder_hidden_states, encoder_attention_mask, context_latents = self.model.prepare_condition(
-                text_hidden_states=text_hidden_states,
-                text_attention_mask=text_attention_mask,
-                lyric_hidden_states=lyric_hidden_states,
-                lyric_attention_mask=lyric_attention_mask,
-                refer_audio_acoustic_hidden_states_packed=refer_audio_acoustic_hidden_states_packed,
-                refer_audio_order_mask=refer_audio_order_mask,
-                hidden_states=src_latents,
-                attention_mask=torch.ones(src_latents.shape[0], src_latents.shape[1], device=src_latents.device, dtype=src_latents.dtype),
-                silence_latent=self.silence_latent,
-                src_latents=src_latents,
-                chunk_masks=chunk_mask,
-                is_covers=is_covers,
-                precomputed_lm_hints_25Hz=precomputed_lm_hints_25Hz,
-            )
-            
-            outputs = self.model.generate_audio(**generate_kwargs)
+            try:
+                # Prepare condition tensors first (for LRC timestamp generation)
+                encoder_hidden_states, encoder_attention_mask, context_latents = self.model.prepare_condition(
+                    text_hidden_states=text_hidden_states,
+                    text_attention_mask=text_attention_mask,
+                    lyric_hidden_states=lyric_hidden_states,
+                    lyric_attention_mask=lyric_attention_mask,
+                    refer_audio_acoustic_hidden_states_packed=refer_audio_acoustic_hidden_states_packed,
+                    refer_audio_order_mask=refer_audio_order_mask,
+                    hidden_states=src_latents,
+                    attention_mask=torch.ones(src_latents.shape[0], src_latents.shape[1], device=src_latents.device, dtype=src_latents.dtype),
+                    silence_latent=self.silence_latent,
+                    src_latents=src_latents,
+                    chunk_masks=chunk_mask,
+                    is_covers=is_covers,
+                    precomputed_lm_hints_25Hz=precomputed_lm_hints_25Hz,
+                )
+
+                outputs = self.model.generate_audio(**generate_kwargs)
+            except RuntimeError as e:
+                error_str = str(e)
+                if "flash_attn" in error_str or "flash_api" in error_str or "k must have shape" in error_str:
+                    logger.error(f"[service_generate] Flash Attention crash detected: {e}")
+                    return {
+                        "audios": [],
+                        "status_message": "❌ Flash Attention crashed. Please uncheck 'Use Flash Attention' in the Service Configuration and Initialize again.",
+                        "extra_outputs": {},
+                        "success": False,
+                        "error": "Flash Attention crash. Please disable it in settings.",
+                    }
+                raise e
         
         # Add intermediate information to outputs for extra_outputs
         outputs["src_latents"] = src_latents
@@ -2890,6 +2979,10 @@ class AceStepHandler:
                 timesteps=timesteps,  # Pass custom timesteps if provided
             )
             
+            if "target_latents" not in outputs:
+                logger.error("[generate_music] Generation failed: target_latents missing in outputs")
+                return outputs
+
             logger.info("[generate_music] Model generation completed. Decoding latents...")
             pred_latents = outputs["target_latents"]  # [batch, latent_length, latent_dim]
             time_costs = outputs["time_costs"]

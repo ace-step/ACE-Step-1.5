@@ -343,6 +343,7 @@ PARAM_ALIASES = {
     "lyrics": ["lyrics"],
     "thinking": ["thinking"],
     "analysis_only": ["analysis_only", "analysisOnly"],
+    "full_analysis_only": ["full_analysis_only", "fullAnalysisOnly"],
     "sample_mode": ["sample_mode", "sampleMode"],
     "sample_query": ["sample_query", "sampleQuery", "description", "desc"],
     "use_format": ["use_format", "useFormat", "format"],
@@ -486,6 +487,7 @@ class GenerateMusicRequest(BaseModel):
     audio_cover_strength: float = 1.0
     task_type: str = "text2music"
     analysis_only: bool = False
+    full_analysis_only: bool = False
 
     use_adg: bool = False
     cfg_interval_start: float = 0.0
@@ -530,7 +532,8 @@ class CreateJobResponse(BaseModel):
     task_id: str
     status: JobStatus
     queue_position: int = 0  # 1-based best-effort position when queued
-
+    progress_text: Optional[str] = ""
+    
 
 class JobResult(BaseModel):
     first_audio_path: Optional[str] = None
@@ -578,6 +581,7 @@ class _JobRecord:
     finished_at: Optional[float] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    progress_text: str = ""
     status_text: str = ""
     env: str = "development"
 
@@ -680,6 +684,11 @@ class _JobStore:
         with self._lock:
             if job_id in self._jobs:
                 self._jobs[job_id].status_text = text
+
+    def update_progress_text(self, job_id: str, text: str) -> None:
+        with self._lock:
+            if job_id in self._jobs:
+                self._jobs[job_id].progress_text = text
 
 def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
@@ -874,10 +883,30 @@ class LogBuffer:
         self.last_message = "Waiting"
 
     def write(self, message):
-        self.last_message = message.strip()
+        msg = message.strip()
+        if msg:
+            self.last_message = msg
+
+    def flush(self):
+        pass
 
 log_buffer = LogBuffer()
 logger.add(lambda msg: log_buffer.write(msg), format="{time:HH:mm:ss} | {level} | {message}")
+
+class StderrLogger:
+    def __init__(self, original_stderr, buffer):
+        self.original_stderr = original_stderr
+        self.buffer = buffer
+
+    def write(self, message):
+        self.original_stderr.write(message) # Print to terminal
+        self.buffer.write(message)          # Send to API buffer
+
+    def flush(self):
+        self.original_stderr.flush()
+
+sys.stderr = StderrLogger(sys.stderr, log_buffer)
+
 
 def create_app() -> FastAPI:
     store = _JobStore()
@@ -1030,34 +1059,55 @@ def create_app() -> FastAPI:
             status_int = _map_status(status)
 
             if status == "succeeded" and result:
-                audio_paths = result.get("audio_paths", [])
-                # Final prompt/lyrics (may be modified by thinking/format)
-                final_prompt = result.get("prompt", "")
-                final_lyrics = result.get("lyrics", "")
-                # Original user input from metas
-                metas_raw = result.get("metas", {}) or {}
-                original_prompt = metas_raw.get("prompt", "")
-                original_lyrics = metas_raw.get("lyrics", "")
-                # metas contains original input + other metadata
-                metas = {
-                    "bpm": metas_raw.get("bpm"),
-                    "duration": metas_raw.get("duration"),
-                    "genres": metas_raw.get("genres", ""),
-                    "keyscale": metas_raw.get("keyscale", ""),
-                    "timesignature": metas_raw.get("timesignature", ""),
-                    "prompt": original_prompt,
-                    "lyrics": original_lyrics,
-                }
-                # Extra fields for Discord bot
-                generation_info = result.get("generation_info", "")
-                seed_value = result.get("seed_value", "")
-                lm_model = result.get("lm_model", "")
-                dit_model = result.get("dit_model", "")
+                # Check if it's a "Full Analysis" result
+                if result.get("status_message") == "Full Hardware Analysis Success":
+                    result_data = [result]
+                else:
+                    audio_paths = result.get("audio_paths", [])
+                    # Final prompt/lyrics (may be modified by thinking/format)
+                    final_prompt = result.get("prompt", "")
+                    final_lyrics = result.get("lyrics", "")
+                    # Original user input from metas
+                    metas_raw = result.get("metas", {}) or {}
+                    original_prompt = metas_raw.get("prompt", "")
+                    original_lyrics = metas_raw.get("lyrics", "")
+                    # metas contains original input + other metadata
+                    metas = {
+                        "bpm": metas_raw.get("bpm"),
+                        "duration": metas_raw.get("duration"),
+                        "genres": metas_raw.get("genres", ""),
+                        "keyscale": metas_raw.get("keyscale", ""),
+                        "timesignature": metas_raw.get("timesignature", ""),
+                        "prompt": original_prompt,
+                        "lyrics": original_lyrics,
+                    }
+                    # Extra fields for Discord bot
+                    generation_info = result.get("generation_info", "")
+                    seed_value = result.get("seed_value", "")
+                    lm_model = result.get("lm_model", "")
+                    dit_model = result.get("dit_model", "")
 
-                if audio_paths:
-                    result_data = [
-                        {
-                            "file": p,
+                    if audio_paths:
+                        result_data = [
+                            {
+                                "file": p,
+                                "wave": "",
+                                "status": status_int,
+                                "create_time": int(create_time),
+                                "env": env,
+                                "prompt": final_prompt,
+                                "lyrics": final_lyrics,
+                                "metas": metas,
+                                "generation_info": generation_info,
+                                "seed_value": seed_value,
+                                "lm_model": lm_model,
+                                "dit_model": dit_model,
+                            }
+                            for p in audio_paths
+                        ]
+                    else:
+                        result_data = [{
+                            "file": "",
                             "wave": "",
                             "status": status_int,
                             "create_time": int(create_time),
@@ -1069,24 +1119,7 @@ def create_app() -> FastAPI:
                             "seed_value": seed_value,
                             "lm_model": lm_model,
                             "dit_model": dit_model,
-                        }
-                        for p in audio_paths
-                    ]
-                else:
-                    result_data = [{
-                        "file": "",
-                        "wave": "",
-                        "status": status_int,
-                        "create_time": int(create_time),
-                        "env": env,
-                        "prompt": final_prompt,
-                        "lyrics": final_lyrics,
-                        "metas": metas,
-                        "generation_info": generation_info,
-                        "seed_value": seed_value,
-                        "lm_model": lm_model,
-                        "dit_model": dit_model,
-                    }]
+                        }]
             else:
                 # Failed or other status - include error from job store
                 error_msg = rec.error if rec and rec.error else None
@@ -1220,13 +1253,15 @@ def create_app() -> FastAPI:
                 use_format = bool(req.use_format)
                 use_cot_caption = bool(req.use_cot_caption)
                 use_cot_language = bool(req.use_cot_language)
+                full_analysis_only = bool(req.full_analysis_only)
 
                 # LLM is REQUIRED for these features (fail if unavailable):
                 # - thinking mode (LM generates audio codes)
                 # - sample_mode (LM generates random caption/lyrics/metas)
                 # - sample_query/description (LM generates from description)
                 # - use_format (LM enhances caption/lyrics)
-                require_llm = thinking or sample_mode or has_sample_query or use_format
+                # - full_analysis_only (LM understands audio codes)
+                require_llm = thinking or sample_mode or has_sample_query or use_format or full_analysis_only
 
                 # LLM is OPTIONAL for these features (auto-disable if unavailable):
                 # - use_cot_caption or use_cot_language (LM enhances metadata)
@@ -1416,6 +1451,41 @@ def create_app() -> FastAPI:
                 # Check LLM initialization status
                 llm_is_initialized = getattr(app.state, "_llm_initialized", False)
                 llm_to_pass = llm if llm_is_initialized else None
+
+                if req.full_analysis_only:
+                    store.update_progress_text(job_id, "Starting Deep Analysis...")
+                    # Step A: Convert source audio to semantic codes
+                    # We use params.src_audio which is the server-side path
+                    audio_codes = h.convert_src_audio_to_codes(params.src_audio)
+                    
+                    if not audio_codes or audio_codes.startswith("❌"):
+                        raise RuntimeError(f"Audio encoding failed: {audio_codes}")
+
+                    # Step B: LLM Understanding of those specific codes
+                    # This yields the deep metadata and lyrics transcription
+                    metadata_dict, status_string = llm_to_pass.understand_audio_from_codes(
+                        audio_codes=audio_codes,
+                        temperature=0.3,
+                        use_constrained_decoding=True,
+                        constrained_decoding_debug=config.constrained_decoding_debug
+                    )
+                    
+                    if not metadata_dict:
+                        raise RuntimeError(f"LLM Understanding failed: {status_string}")
+
+                    return {
+                        "status_message": "Full Hardware Analysis Success",
+                        "bpm": metadata_dict.get("bpm"),
+                        "keyscale": metadata_dict.get("keyscale"),
+                        "timesignature": metadata_dict.get("timesignature"),
+                        "duration": metadata_dict.get("duration"),
+                        "genre": metadata_dict.get("genres") or metadata_dict.get("genre"),
+                        "prompt": metadata_dict.get("caption", ""),
+                        "lyrics": metadata_dict.get("lyrics", ""),
+                        "language": metadata_dict.get("language", "unknown"),
+                        "metas": metadata_dict,
+                        "audio_paths": []
+                    }
 
                 if req.analysis_only:
                     lm_res = llm_to_pass.generate_with_stop_condition(
@@ -1892,6 +1962,7 @@ def create_app() -> FastAPI:
                 lyrics=p.str("lyrics"),
                 thinking=p.bool("thinking"),
                 analysis_only=p.bool("analysis_only"),
+                full_analysis_only=p.bool("full_analysis_only"),
                 sample_mode=p.bool("sample_mode"),
                 sample_query=p.str("sample_query"),
                 use_format=p.bool("use_format"),
@@ -2117,11 +2188,29 @@ def create_app() -> FastAPI:
                 status_int = _map_status(rec.status)
 
                 if rec.result and rec.status == "succeeded":
-                    audio_paths = rec.result.get("audio_paths", [])
-                    metas = rec.result.get("metas", {}) or {}
-                    result_data = [
-                        {
-                            "file": p, "wave": "", "status": status_int,
+                    # Check if it's a "Full Analysis" result
+                    if rec.result.get("status_message") == "Full Hardware Analysis Success":
+                         result_data = [rec.result]
+                    else:
+                        audio_paths = rec.result.get("audio_paths", [])
+                        metas = rec.result.get("metas", {}) or {}
+                        result_data = [
+                            {
+                                "file": p, "wave": "", "status": status_int,
+                                "create_time": int(create_time), "env": env,
+                                "prompt": metas.get("caption", ""),
+                                "lyrics": metas.get("lyrics", ""),
+                                "metas": {
+                                    "bpm": metas.get("bpm"),
+                                    "duration": metas.get("duration"),
+                                    "genres": metas.get("genres", ""),
+                                    "keyscale": metas.get("keyscale", ""),
+                                    "timesignature": metas.get("timesignature", ""),
+                                }
+                            }
+                            for p in audio_paths
+                        ] if audio_paths else [{
+                            "file": "", "wave": "", "status": status_int,
                             "create_time": int(create_time), "env": env,
                             "prompt": metas.get("caption", ""),
                             "lyrics": metas.get("lyrics", ""),
@@ -2132,21 +2221,7 @@ def create_app() -> FastAPI:
                                 "keyscale": metas.get("keyscale", ""),
                                 "timesignature": metas.get("timesignature", ""),
                             }
-                        }
-                        for p in audio_paths
-                    ] if audio_paths else [{
-                        "file": "", "wave": "", "status": status_int,
-                        "create_time": int(create_time), "env": env,
-                        "prompt": metas.get("caption", ""),
-                        "lyrics": metas.get("lyrics", ""),
-                        "metas": {
-                            "bpm": metas.get("bpm"),
-                            "duration": metas.get("duration"),
-                            "genres": metas.get("genres", ""),
-                            "keyscale": metas.get("keyscale", ""),
-                            "timesignature": metas.get("timesignature", ""),
-                        }
-                    }]
+                        }]
                 else:
                     result_data = [{
                         "file": "", "wave": "", "status": status_int,
@@ -2156,11 +2231,12 @@ def create_app() -> FastAPI:
                         "error": rec.error if rec.error else None,
                     }]
 
+                current_log = log_buffer.last_message if status_int == 0 else rec.progress_text
                 data_list.append({
                     "task_id": task_id,
                     "result": json.dumps(result_data, ensure_ascii=False),
                     "status": status_int,
-                    "progress_text": log_buffer.last_message
+                    "progress_text": current_log
                 })
             else:
                 data_list.append({"task_id": task_id, "result": "[]", "status": 0})

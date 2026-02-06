@@ -33,7 +33,7 @@ dependencies = [
     "uvicorn[standard]>=0.27.0",
     "numba>=0.63.1",
     "vector-quantize-pytorch>=1.27.15",
-    "torchcodec>=0.9.1; sys_platform != 'darwin'",
+    "torchcodec>=0.9.1",
     "torchao",
     "toml",
     # Training dependencies

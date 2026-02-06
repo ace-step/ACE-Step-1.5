@@ -165,13 +165,15 @@ def get_sample_preview(
     else:
         override_choice = "Use Global Ratio"
 
+    display_lyrics = sample.lyrics if sample.lyrics else sample.formatted_lyrics
+
     return (
         sample.audio_path,
         sample.filename,
         sample.caption,
         sample.genre,
         override_choice,
-        sample.lyrics,
+        display_lyrics,
         sample.bpm,
         sample.keyscale,
         sample.timesignature,
@@ -305,12 +307,14 @@ def load_existing_dataset_for_preprocess(
     empty_preview = (None, "", "", "", "Use Global Ratio", "", None, "", "", 0.0, "instrumental", True, "", False)
 
     if not dataset_path or not dataset_path.strip():
-        return ("âŒ Please enter a dataset path", [], _safe_slider(0, value=0, visible=False), builder_state) + empty_preview
+        updates = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+        return ("âŒ Please enter a dataset path", [], _safe_slider(0, value=0, visible=False), builder_state) + empty_preview + updates
 
     dataset_path = dataset_path.strip()
 
     if not os.path.exists(dataset_path):
-        return (f"âŒ Dataset not found: {dataset_path}", [], _safe_slider(0, value=0, visible=False), builder_state) + empty_preview
+        updates = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+        return (f"âŒ Dataset not found: {dataset_path}", [], _safe_slider(0, value=0, visible=False), builder_state) + empty_preview + updates
 
     # Create new builder (don't reuse old state when loading a file)
     builder = DatasetBuilder()
@@ -319,7 +323,8 @@ def load_existing_dataset_for_preprocess(
     samples, status = builder.load_dataset(dataset_path)
 
     if not samples:
-        return (status, [], _safe_slider(0, value=0, visible=False), builder) + empty_preview
+        updates = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+        return (status, [], _safe_slider(0, value=0, visible=False), builder) + empty_preview + updates
 
     # Get table data
     table_data = builder.get_samples_dataframe_data()
@@ -333,6 +338,8 @@ def load_existing_dataset_for_preprocess(
     info += f"ðŸ“Š Samples: {len(samples)} ({labeled_count} labeled)\n"
     info += f"ðŸ·ï¸ Custom Tag: {builder.metadata.custom_tag or '(none)'}\n"
     info += "ðŸ“ Ready for preprocessing! You can also edit samples below."
+    if any((s.formatted_lyrics and not s.lyrics) for s in builder.samples):
+        info += "\nâ„¹ï¸ Showing formatted lyrics where lyrics are empty."
 
     # Get first sample preview
     first_sample = builder.samples[0]
@@ -346,13 +353,15 @@ def load_existing_dataset_for_preprocess(
     else:
         override_choice = "Use Global Ratio"
 
+    display_lyrics = first_sample.lyrics if first_sample.lyrics else first_sample.formatted_lyrics
+
     preview = (
         first_sample.audio_path,
         first_sample.filename,
         first_sample.caption,
         first_sample.genre,
         override_choice,
-        first_sample.lyrics,
+        display_lyrics,
         first_sample.bpm,
         first_sample.keyscale,
         first_sample.timesignature,
@@ -363,7 +372,15 @@ def load_existing_dataset_for_preprocess(
         has_raw,
     )
 
-    return (info, table_data, _safe_slider(slider_max, value=0, visible=len(samples) > 1), builder) + preview
+    updates = (
+        gr.update(value=builder.metadata.name),
+        gr.update(value=builder.metadata.custom_tag),
+        gr.update(value=builder.metadata.tag_position),
+        gr.update(value=builder.metadata.all_instrumental),
+        gr.update(value=builder.metadata.genre_ratio),
+    )
+
+    return (info, table_data, _safe_slider(slider_max, value=0, visible=len(samples) > 1), builder) + preview + updates
 
 
 def preprocess_dataset(

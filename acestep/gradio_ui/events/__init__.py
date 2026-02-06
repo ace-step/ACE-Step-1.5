@@ -935,6 +935,12 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
             training_section["edit_instrumental"],
             training_section["raw_lyrics_display"],
             training_section["has_raw_lyrics_state"],
+            # Update dataset-level settings
+            training_section["dataset_name"],
+            training_section["custom_tag"],
+            training_section["tag_position"],
+            training_section["all_instrumental"],
+            training_section["genre_ratio"],
         ]
     ).then(
         fn=lambda has_raw: gr.update(visible=has_raw),
@@ -1105,6 +1111,12 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
             training_section["edit_instrumental"],
             training_section["raw_lyrics_display"],
             training_section["has_raw_lyrics_state"],
+            # Update dataset-level settings
+            training_section["dataset_name"],
+            training_section["custom_tag"],
+            training_section["tag_position"],
+            training_section["all_instrumental"],
+            training_section["genre_ratio"],
         ]
     ).then(
         fn=lambda has_raw: gr.update(visible=has_raw),

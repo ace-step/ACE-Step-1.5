@@ -2984,6 +2984,17 @@ class AceStepHandler:
                     
                     logger.debug(f"[generate_music] Before VAE decode: allocated={self._memory_allocated()/1024**3:.2f}GB, max={self._max_memory_allocated()/1024**3:.2f}GB")
                     
+                    # ROCm fix: decode VAE on CPU to bypass MIOpen workspace bugs
+                    # On APUs with unified memory this has zero data-transfer cost
+                    import os as _os
+                    _vae_cpu = _os.environ.get("ACESTEP_VAE_ON_CPU", "0").lower() in ("1", "true", "yes")
+                    if _vae_cpu:
+                        logger.info("[generate_music] Moving VAE to CPU for decode (ACESTEP_VAE_ON_CPU=1)...")
+                        _vae_device = next(self.vae.parameters()).device
+                        self.vae = self.vae.cpu()
+                        pred_latents_for_decode = pred_latents_for_decode.cpu()
+                        self._empty_cache()
+
                     if use_tiled_decode:
                         logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
                         pred_wavs = self.tiled_decode(pred_latents_for_decode)  # [batch, channels, samples]
@@ -2991,6 +3002,13 @@ class AceStepHandler:
                         decoder_output = self.vae.decode(pred_latents_for_decode)
                         pred_wavs = decoder_output.sample
                         del decoder_output
+
+                    if _vae_cpu:
+                        logger.info("[generate_music] VAE decode on CPU complete, restoring to GPU...")
+                        self.vae = self.vae.to(_vae_device)
+                        if pred_wavs.device.type != 'cpu':
+                            pass  # already on right device
+                        # pred_wavs stays on CPU - fine for audio post-processing
                     
                     logger.debug(f"[generate_music] After VAE decode: allocated={self._memory_allocated()/1024**3:.2f}GB, max={self._max_memory_allocated()/1024**3:.2f}GB")
                     

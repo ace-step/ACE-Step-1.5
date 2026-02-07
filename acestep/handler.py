@@ -75,7 +75,7 @@ class AceStepHandler:
         self.reward_model = None
         
         # Batch size
-        self.batch_size = 1
+        self.batch_size = 2
         
         # Custom layers config
         self.custom_layers_config = {2: [6], 3: [10, 11], 4: [3], 5: [8, 9], 6: [8]}
@@ -397,14 +397,27 @@ class AceStepHandler:
 
                 try:
                     logger.info(f"[initialize_service] Attempting to load model with attention implementation: {attn_implementation}")
-                    # When using device_map="auto", don't specify device/dtype - let Accelerate handle it
+                    
+                    # Determine device_map strategy based on offloading preference
+                    if self.offload_dit_to_cpu:
+                         # Manual offloading: Load to CPU initially (no device_map="auto")
+                         # This allows _load_model_context to manually move it to GPU when needed
+                         load_device_map = None
+                         load_max_memory = None
+                         logger.info("[initialize_service] using manual offloading (device_map=None)")
+                    else:
+                         # Accelerate offloading: Load to GPU/CPU automatically
+                         load_device_map = "auto"
+                         load_max_memory = {0: "4GiB", "cpu": "32GiB"}
+                         logger.info("[initialize_service] using Accelerate offloading (device_map='auto')")
+
                     self.model = AutoModel.from_pretrained(
                         acestep_v15_checkpoint_path, 
                         trust_remote_code=True, 
                         attn_implementation=attn_implementation,
                         torch_dtype=torch.bfloat16,  # Use torch_dtype instead of dtype
-                        device_map="auto",
-                        max_memory={0: "4GiB", "cpu": "32GiB"},
+                        device_map=load_device_map,
+                        max_memory=load_max_memory,
                     )
                 except Exception as e:
                     logger.warning(f"[initialize_service] Failed to load model with {attn_implementation}: {e}")

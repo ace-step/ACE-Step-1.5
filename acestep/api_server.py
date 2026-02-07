@@ -1338,7 +1338,7 @@ def create_app() -> FastAPI:
                 )
 
                 # Build GenerationConfig - default to 2 audios like gradio_ui
-                batch_size = req.batch_size if req.batch_size is not None else 1
+                batch_size = req.batch_size if req.batch_size is not None else 2
                 config = GenerationConfig(
                     batch_size=batch_size,
                     allow_lm_batch=req.allow_lm_batch,

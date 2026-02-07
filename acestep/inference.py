@@ -164,7 +164,7 @@ class GenerationConfig:
         constrained_decoding_debug: Whether to enable constrained decoding debug
         audio_format: Output audio format, one of "mp3", "wav", "flac". Default: "flac"
     """
-    batch_size: int = 1
+    batch_size: int = 2
     allow_lm_batch: bool = False
     use_random_seed: bool = True
     seeds: Optional[List[int]] = None

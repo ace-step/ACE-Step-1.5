@@ -313,18 +313,13 @@ class LLMHandler:
         self._llm_device = device
         
         try:
-            # When using device_map="auto", don't specify device parameter - let Accelerate handle it
             self.llm = AutoModelForCausalLM.from_pretrained(
                 model_path,
                 device_map="auto",
-                max_memory={0: "3GiB", "cpu": "32GiB"},
+                max_memory={0: "7GiB", "cpu": "32GiB"},
                 torch_dtype=torch.bfloat16,
                 trust_remote_code=True
             )
-            #if not self.offload_to_cpu:
-            #    self.llm = self.llm.to(device).to(self.dtype)
-            #else:
-            #    self.llm = self.llm.to("cpu").to(self.dtype)
             self.llm.eval()
             self.llm_backend = "pt"
             self.llm_initialized = True
@@ -787,8 +782,6 @@ class LLMHandler:
             generation_phase=generation_phase,
             is_batch=False,
         )
-        print("Run single")
-        print(self.device)
         with self._load_model_context():
             # When using device_map="auto", move inputs to the model's first device
             model_device = self._get_model_device(self.llm)
@@ -806,12 +799,11 @@ class LLMHandler:
             # Cap at model's max length
             if hasattr(self, "max_model_len"):
                 max_new_tokens = min(max_new_tokens, self.max_model_len - 64)
-            print("Run single1")
+
             # Build logits processor list (only for CFG and repetition penalty)
             logits_processor = self._build_logits_processor(repetition_penalty)
-            print("Run single2")
+
             if cfg_scale > 1.0:
-                print("Run _build_unconditional_prompt")
                 # Build unconditional prompt based on generation phase
                 formatted_unconditional_prompt = self._build_unconditional_prompt(
                     caption=caption,
@@ -821,24 +813,23 @@ class LLMHandler:
                     generation_phase=generation_phase,
                     is_batch=False,
                 )
-                print("Run _build_unconditional_prompt2")
                 # Tokenize both prompts together to ensure same length (with left padding)
                 # Left padding is important for generation tasks
                 batch_texts = [formatted_prompt, formatted_unconditional_prompt]
                 original_padding_side = self.llm_tokenizer.padding_side
                 self.llm_tokenizer.padding_side = 'left'
-                print("Run llm_tokenizer")
+
                 batch_inputs_tokenized = self.llm_tokenizer(
                     batch_texts,
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
                 )
-                print("Run llm_tokenizer2")
+
                 self.llm_tokenizer.padding_side = original_padding_side
                 # Use the same model_device as above
                 batch_inputs_tokenized = {k: v.to(model_device) for k, v in batch_inputs_tokenized.items()}
-                print("Run single3")
+
                 # Extract batch inputs
                 batch_input_ids = batch_inputs_tokenized['input_ids']
                 batch_attention_mask = batch_inputs_tokenized.get('attention_mask', None)
@@ -857,11 +848,10 @@ class LLMHandler:
                     streamer=None,
                     constrained_processor=constrained_processor,
                 )
-                print("Run single4")
+
                 # Extract only the conditional output (first in batch)
                 outputs = outputs[0:1]  # Keep only conditional output
             elif use_constrained_decoding:
-                print("Run _generate_with_constrained_decoding")
                 # Use custom constrained decoding loop for non-CFG
                 outputs = self._generate_with_constrained_decoding(
                     input_ids=inputs["input_ids"],
@@ -876,7 +866,6 @@ class LLMHandler:
                     constrained_processor=constrained_processor,
                 )
             else:
-                print("Run self.llm.generate")
                 # Generate without CFG using native generate() parameters
                 with torch.no_grad():
                     outputs = self.llm.generate(
@@ -890,7 +879,7 @@ class LLMHandler:
                         pad_token_id=self.llm_tokenizer.pad_token_id or self.llm_tokenizer.eos_token_id,
                         streamer=None,
                     )
-        print("Run single5")
+
         # Decode the generated tokens
         # outputs is a tensor with shape [batch_size, seq_len], extract first sequence
         if isinstance(outputs, torch.Tensor):
@@ -2222,7 +2211,7 @@ class LLMHandler:
         """
         model = self.llm
         device = self.device
-        print(device)
+
         # Initialize generated sequences
         generated_ids = input_ids.clone()
         if attention_mask is not None:
@@ -2241,16 +2230,15 @@ class LLMHandler:
         eos_token_id = self.llm_tokenizer.eos_token_id
         if eos_token_id is None:
             eos_token_id = pad_token_id
-        print("Run _build_logits_processor")
+
         # Build logits processor for repetition penalty
         logits_processor = self._build_logits_processor(repetition_penalty)
         
         with torch.no_grad():
             for step in tqdm(range(max_new_tokens), desc="LLM Constrained Decoding", unit="token"):
-                print("Run step")
                 # Forward pass
                 outputs = self._forward_pass(model, generated_ids, model_kwargs, past_key_values, use_cache)
-                print("Run step1")
+
                 # Get logits for the last position
                 next_token_logits = outputs.logits[:, -1, :]  # [batch_size, vocab_size]
                 
@@ -2261,11 +2249,11 @@ class LLMHandler:
                 # Apply other logits processors (repetition penalty)
                 for processor in logits_processor:
                     next_token_logits = processor(generated_ids, next_token_logits)
-                print("Run step2")
+
                 # Apply top-k and top-p filtering
                 next_token_logits = self._apply_top_k_filter(next_token_logits, top_k)
                 next_token_logits = self._apply_top_p_filter(next_token_logits, top_p)
-                print("Run step3")
+
                 # Apply temperature and sample
                 next_tokens = self._sample_tokens(next_token_logits, temperature)
                 
@@ -2274,13 +2262,13 @@ class LLMHandler:
                 
                 # Check for EOS token
                 should_stop = self._check_eos_token(next_tokens, eos_token_id, pad_token_id)
-                print("Run step4")
+
                 # Append token to sequence
                 next_tokens_unsqueezed = next_tokens.unsqueeze(1)
                 generated_ids = torch.cat([generated_ids, next_tokens_unsqueezed], dim=1)
                 attn_mask = torch.cat([attn_mask, torch.ones((input_ids.shape[0], 1), device=device, dtype=attn_mask.dtype)], dim=1)
                 model_kwargs['attention_mask'] = attn_mask
-                print("Run step5")
+
                 # Update KV cache
                 if use_cache and hasattr(outputs, 'past_key_values'):
                     past_key_values = outputs.past_key_values

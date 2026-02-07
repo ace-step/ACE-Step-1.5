@@ -1745,7 +1745,7 @@ def generate_next_batch_background(
         params.setdefault("seed", "-1")
         params.setdefault("reference_audio", None)
         params.setdefault("audio_duration", -1)
-        params.setdefault("batch_size_input", 1)
+        params.setdefault("batch_size_input", 2)
         params.setdefault("src_audio", None)
         params.setdefault("text2music_audio_code_string", "")
         params.setdefault("repainting_start", 0.0)

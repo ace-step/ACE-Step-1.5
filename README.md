@@ -250,7 +250,7 @@ uv run acestep
 python_embeded\python.exe acestep\acestep_v15_pipeline.py
 
 # Conda/venv/system Python
-python acestep/acestep_v15_pipeline.py --lm_model_path acestep-5Hz-lm-4B
+python acestep/acestep_v15_pipeline.py
 ```
 
 Open http://localhost:7860 in your browser. Models will be downloaded automatically on first run.

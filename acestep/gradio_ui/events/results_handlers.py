@@ -1872,7 +1872,7 @@ def generate_next_batch_background(
                 scores_from_bg.append("")
         
         # Determine which codes to store
-        batch_size = params.get("batch_size_input", 2)
+        batch_size = params.get("batch_size_input", 1)
         allow_lm_batch = params.get("allow_lm_batch", False)
         if allow_lm_batch and batch_size >= 2:
             codes_to_store = generated_codes_batch[:int(batch_size)]
@@ -2008,7 +2008,7 @@ def navigate_to_previous_batch(current_batch_index, batch_queue):
     # Restore codes display from batch queue
     stored_codes = batch_data.get("codes", "")
     stored_allow_lm_batch = batch_data.get("allow_lm_batch", False)
-    batch_size = batch_data.get("batch_size", 2)
+    batch_size = batch_data.get("batch_size", 1)
     
     codes_display_updates = []
     lrc_display_updates = []
@@ -2136,7 +2136,7 @@ def navigate_to_next_batch(autogen_enabled, current_batch_index, total_batches, 
     # Restore codes display from batch queue
     stored_codes = batch_data.get("codes", "")
     stored_allow_lm_batch = batch_data.get("allow_lm_batch", False)
-    batch_size = batch_data.get("batch_size", 2)
+    batch_size = batch_data.get("batch_size", 1)
     
     codes_display_updates = []
     lrc_display_updates = []
@@ -2223,7 +2223,7 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     time_signature = params.get("time_signature", "")
     vocal_language = params.get("vocal_language", "unknown")
     audio_duration = params.get("audio_duration", -1)
-    batch_size_input = params.get("batch_size_input", 2)
+    batch_size_input = params.get("batch_size_input", 1)
     inference_steps = params.get("inference_steps", 8)
     lm_temperature = params.get("lm_temperature", 0.85)
     lm_cfg_scale = params.get("lm_cfg_scale", 2.0)

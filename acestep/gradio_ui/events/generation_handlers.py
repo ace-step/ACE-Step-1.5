@@ -820,6 +820,7 @@ def handle_create_sample(
             gr.update(),  # audio_duration - no change
             gr.update(),  # key_scale - no change
             gr.update(),  # vocal_language - no change
+            gr.update(),  # simple vocal_language - no change
             gr.update(),  # time_signature - no change
             gr.update(),  # instrumental_checkbox - no change
             gr.update(),  # caption_accordion - no change

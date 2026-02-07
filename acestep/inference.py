@@ -378,7 +378,10 @@ def generate_music(
         # 3. use_cot_language=True: detect vocal language via CoT
         # 4. use_cot_metas=True: fill missing metadata via CoT
         need_lm_for_cot = params.use_cot_caption or params.use_cot_language or params.use_cot_metas
-        use_lm = (params.thinking or need_lm_for_cot) and llm_handler is not None and llm_handler.llm_initialized and params.task_type not in skip_lm_tasks
+        
+        # Check if LLM is ready (initialized or reloadable)
+        is_llm_ready = llm_handler is not None and (llm_handler.llm_initialized or llm_handler.is_reloadable)
+        use_lm = (params.thinking or need_lm_for_cot) and is_llm_ready and params.task_type not in skip_lm_tasks
         lm_status = []
         
         if params.task_type in skip_lm_tasks:
@@ -390,6 +393,18 @@ def generate_music(
                    f"llm_initialized={llm_handler.llm_initialized if llm_handler else False}, use_lm={use_lm}")
         
         if use_lm:
+            # Reload LLM if needed
+            if not llm_handler.llm_initialized:
+                logger.info("Reloading LLM model for generation...")
+                if not llm_handler.reload_model():
+                    return GenerationResult(
+                        audios=[],
+                        status_message="❌ Failed to reload LLM model",
+                        extra_outputs={},
+                        success=False,
+                        error="Failed to reload LLM model",
+                    )
+
             # Convert sampling parameters - handle None values safely
             top_k_value = None if not params.lm_top_k or params.lm_top_k == 0 else int(params.lm_top_k)
             top_p_value = None if not params.lm_top_p or params.lm_top_p >= 1.0 else params.lm_top_p
@@ -551,6 +566,10 @@ def generate_music(
                 dit_input_caption = lm_generated_metadata.get("caption", dit_input_caption)
             if params.use_cot_language:
                 dit_input_vocal_language = lm_generated_metadata.get("vocal_language", dit_input_vocal_language)
+
+            # Unload LLM model to free memory for DiT/VAE
+            # This is critical for 8GB VRAM optimization
+            llm_handler.unload_model()
 
         # Phase 2: DiT music generation
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation

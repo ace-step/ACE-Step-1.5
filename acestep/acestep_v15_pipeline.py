@@ -91,7 +91,8 @@ def main():
     set_global_gpu_config(gpu_config)  # Set global config for use across modules
     
     gpu_memory_gb = gpu_config.gpu_memory_gb
-    auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < 16
+    #auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < 16
+    auto_offload = False
     
     # Print GPU configuration info
     print(f"\n{'='*60}")

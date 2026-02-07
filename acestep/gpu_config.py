@@ -65,11 +65,11 @@ GPU_TIER_CONFIGS = {
     "tier3": {  # 6-8GB
         "max_duration_with_lm": 240,  # 4 minutes with LM
         "max_duration_without_lm": 360,  # 6 minutes without LM
-        "max_batch_size_with_lm": 1,
+        "max_batch_size_with_lm": 2,
         "max_batch_size_without_lm": 2,
         "init_lm_default": False,  # Don't init by default due to limited memory
-        "available_lm_models": ["acestep-5Hz-lm-0.6B"],
-        "lm_memory_gb": {"0.6B": 3},
+        "available_lm_models": ["acestep-5Hz-lm-0.6B", "acestep-5Hz-lm-1.7B", "acestep-5Hz-lm-4B"],
+        "lm_memory_gb": {"0.6B": 3, "1.7B": 8, "4B": 12},
     },
     "tier4": {  # 8-12GB
         "max_duration_with_lm": 240,  # 4 minutes with LM
@@ -77,8 +77,8 @@ GPU_TIER_CONFIGS = {
         "max_batch_size_with_lm": 2,
         "max_batch_size_without_lm": 4,
         "init_lm_default": False,  # Don't init by default
-        "available_lm_models": ["acestep-5Hz-lm-0.6B"],
-        "lm_memory_gb": {"0.6B": 3},
+        "available_lm_models": ["acestep-5Hz-lm-0.6B", "acestep-5Hz-lm-1.7B", "acestep-5Hz-lm-4B"],
+        "lm_memory_gb": {"0.6B": 3, "1.7B": 8, "4B": 12},
     },
     "tier5": {  # 12-16GB
         "max_duration_with_lm": 240,  # 4 minutes with LM
@@ -86,8 +86,8 @@ GPU_TIER_CONFIGS = {
         "max_batch_size_with_lm": 2,
         "max_batch_size_without_lm": 4,
         "init_lm_default": True,
-        "available_lm_models": ["acestep-5Hz-lm-0.6B", "acestep-5Hz-lm-1.7B"],
-        "lm_memory_gb": {"0.6B": 3, "1.7B": 8},
+        "available_lm_models": ["acestep-5Hz-lm-0.6B", "acestep-5Hz-lm-1.7B", "acestep-5Hz-lm-4B"],
+        "lm_memory_gb": {"0.6B": 3, "1.7B": 8, "4B": 12},
     },
     "tier6": {  # 16-24GB
         "max_duration_with_lm": 480,  # 8 minutes

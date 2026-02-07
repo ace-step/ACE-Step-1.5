@@ -6,6 +6,8 @@ import os
 import traceback
 import time
 import random
+import pickle
+import gzip
 from typing import Optional, Dict, Any, Tuple, List, Union
 from contextlib import contextmanager
 
@@ -53,6 +55,11 @@ class LLMHandler:
 
         # Shared HuggingFace model for perplexity calculation
         self._hf_model_for_scoring = None
+        
+        # Track model path and params for unload/reload
+        self._llm_model_path = None
+        self._llm_device = None
+        self._llm_max_memory = None
 
     def _get_checkpoint_dir(self) -> str:
         """Get checkpoint directory, prioritizing persistent storage"""
@@ -61,6 +68,88 @@ class LLMHandler:
         current_file = os.path.abspath(__file__)
         project_root = os.path.dirname(os.path.dirname(current_file))
         return os.path.join(project_root, "checkpoints")
+    
+    def _load_tokenizer_with_cache(self, model_path: str, checkpoint_dir: str) -> AutoTokenizer:
+        """
+        Load tokenizer with pickle caching for faster subsequent loads.
+        
+        First load: ~80-90s (builds cache)
+        Cached loads: ~1-3s (100x faster!)
+        
+        Args:
+            model_path: Relative model path (e.g., "acestep-5Hz-lm-1.7B")
+            checkpoint_dir: Base checkpoint directory
+            
+        Returns:
+            Loaded tokenizer instance
+        """
+        full_model_path = os.path.join(checkpoint_dir, model_path)
+        
+        # Create cache directory
+        cache_dir = os.path.join(checkpoint_dir, ".tokenizer_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Cache filename based on model path (use .pkl.gz extension)
+        cache_filename = f"{model_path.replace('/', '_').replace('\\\\', '_')}_tokenizer.pkl.gz"
+        cache_path = os.path.join(cache_dir, cache_filename)
+        
+        # Check if cache exists and is valid
+        cache_valid = False
+        if os.path.exists(cache_path):
+            # Get cache modification time
+            cache_mtime = os.path.getmtime(cache_path)
+            
+            # Check if any source tokenizer files are newer than cache
+            tokenizer_files = [
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+            ]
+            
+            cache_valid = True
+            for filename in tokenizer_files:
+                file_path = os.path.join(full_model_path, filename)
+                if os.path.exists(file_path):
+                    if os.path.getmtime(file_path) > cache_mtime:
+                        logger.info(f"Tokenizer cache invalid: {filename} was modified")
+                        cache_valid = False
+                        break
+        
+        # Load from cache if valid
+        if cache_valid:
+            try:
+                logger.info(f"Loading tokenizer from cache: {cache_path}")
+                start_time = time.time()
+                # Use gzip for faster I/O with compressed pickle
+                with gzip.open(cache_path, "rb") as f:
+                    tokenizer = pickle.load(f)
+                load_time = time.time() - start_time
+                logger.info(f"✅ Tokenizer loaded from cache in {load_time:.2f}s (saved ~80s!)")
+                return tokenizer
+            except Exception as e:
+                logger.warning(f"Failed to load tokenizer from cache: {e}. Will load normally.")
+                cache_valid = False
+        
+        # Load tokenizer normally (first time or cache invalid)
+        logger.info("Loading tokenizer from pretrained (this may take 80-90s)...")
+        start_time = time.time()
+        tokenizer = AutoTokenizer.from_pretrained(full_model_path, use_fast=True)
+        load_time = time.time() - start_time
+        logger.info(f"Tokenizer loaded in {load_time:.2f}s")
+        
+        # Save to cache for next time with compression
+        try:
+            logger.info(f"Saving tokenizer to cache: {cache_path}")
+            with gzip.open(cache_path, "wb", compresslevel=6) as f:
+                pickle.dump(tokenizer, f, protocol=pickle.HIGHEST_PROTOCOL)
+            # Log cache file size
+            cache_size_mb = os.path.getsize(cache_path) / (1024 * 1024)
+            logger.info(f"✅ Tokenizer cached successfully ({cache_size_mb:.1f}MB compressed)")
+        except Exception as e:
+            logger.warning(f"Failed to cache tokenizer: {e}")
+        
+        return tokenizer
+
 
     def get_available_5hz_lm_models(self) -> List[str]:
         """Scan and return all model directory names starting with 'acestep-5Hz-lm-'"""
@@ -219,12 +308,18 @@ class LLMHandler:
     
     def _load_pytorch_model(self, model_path: str, device: str) -> Tuple[bool, str]:
         """Load PyTorch model from path and return (success, status_message)"""
+        # Save params for reload
+        self._llm_model_path = model_path
+        self._llm_device = device
+        
         try:
-            self.llm = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
-            if not self.offload_to_cpu:
-                self.llm = self.llm.to(device).to(self.dtype)
-            else:
-                self.llm = self.llm.to("cpu").to(self.dtype)
+            self.llm = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                device_map="auto",
+                max_memory={0: "7GiB", "cpu": "32GiB"},
+                torch_dtype=torch.bfloat16,
+                trust_remote_code=True
+            )
             self.llm.eval()
             self.llm_backend = "pt"
             self.llm_initialized = True
@@ -277,6 +372,34 @@ class LLMHandler:
             for b in range(tokens.shape[0]):
                 constrained_processor.update_state(tokens[b].item())
     
+    def _get_model_device(self, model: Any) -> torch.device:
+        """Get the first device of the model (useful when using device_map='auto')"""
+        # Try to get device from hf_device_map first (for Accelerate)
+        if hasattr(model, "hf_device_map") and model.hf_device_map:
+            # Get the first device from the device map
+            first_device = next(iter(model.hf_device_map.values()))
+            return torch.device(first_device)
+        
+        # Fallback: get device from first parameter
+        try:
+            return next(model.parameters()).device
+        except StopIteration:
+            # No parameters, default to self.device
+            return torch.device(self.device)
+    
+    def _move_to_device(self, obj: Any, device: torch.device) -> Any:
+        """Recursively move tensors/dict/list to device"""
+        if isinstance(obj, torch.Tensor):
+            return obj.to(device)
+        elif isinstance(obj, dict):
+            return {k: self._move_to_device(v, device) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._move_to_device(item, device) for item in obj]
+        elif isinstance(obj, tuple):
+            return tuple(self._move_to_device(item, device) for item in obj)
+        else:
+            return obj
+    
     def _forward_pass(
         self,
         model: Any,
@@ -286,6 +409,15 @@ class LLMHandler:
         use_cache: bool,
     ) -> Any:
         """Perform forward pass with KV cache support"""
+        # Get the model's first device (important for device_map="auto")
+        model_device = self._get_model_device(model)
+        
+        # Move input tensors to the model's device
+        generated_ids = generated_ids.to(model_device)
+        model_kwargs = self._move_to_device(model_kwargs, model_device)
+        if past_key_values is not None:
+            past_key_values = self._move_to_device(past_key_values, model_device)
+        
         if past_key_values is None:
             outputs = model(
                 input_ids=generated_ids,
@@ -309,6 +441,41 @@ class LLMHandler:
         else:
             return [formatted_prompts], is_batch
     
+    def unload_model(self):
+        """Unload LLM model to free GPU memory"""
+        if self.llm is not None:
+            logger.info("Unloading LLM model to free memory...")
+            del self.llm
+            self.llm = None
+            self.llm_initialized = False
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("LLM model unloaded")
+            
+    def reload_model(self) -> bool:
+        """Reload LLM model if it was unloaded"""
+        if self.llm_initialized and self.llm is not None:
+            return True
+            
+        if self._llm_model_path is None:
+            logger.warning("Cannot reload LLM: No previous model path saved")
+            return False
+            
+        logger.info(f"Reloading LLM model from {self._llm_model_path}...")
+        success, msg = self._load_pytorch_model(self._llm_model_path, self._llm_device)
+        if success:
+            logger.info("LLM model reloaded successfully")
+        else:
+            logger.error(f"Failed to reload LLM model: {msg}")
+        return success
+
+    @property
+    def is_reloadable(self) -> bool:
+        """Check if model can be reloaded"""
+        return self._llm_model_path is not None
+
     def initialize(
         self,
         checkpoint_dir: str,
@@ -358,12 +525,9 @@ class LLMHandler:
             if not os.path.exists(full_lm_model_path):
                 return f"❌ 5Hz LM model not found at {full_lm_model_path}", False
             
-            logger.info("loading 5Hz LM tokenizer... it may take 80~90s")
-            start_time = time.time()
-            # TODO: load tokenizer too slow, not found solution yet
-            llm_tokenizer = AutoTokenizer.from_pretrained(full_lm_model_path, use_fast=True)
-            logger.info(f"5Hz LM tokenizer loaded successfully in {time.time() - start_time:.2f} seconds")
-            self.llm_tokenizer = llm_tokenizer
+            
+            # Load tokenizer with caching for faster subsequent loads
+            self.llm_tokenizer = self._load_tokenizer_with_cache(lm_model_path, checkpoint_dir)
             
             # Initialize shared constrained decoding processor (one-time initialization)
             # Use GPU-based max_duration to limit duration values in constrained decoding
@@ -618,9 +782,10 @@ class LLMHandler:
             generation_phase=generation_phase,
             is_batch=False,
         )
-
         with self._load_model_context():
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            # When using device_map="auto", move inputs to the model's first device
+            model_device = self._get_model_device(self.llm)
+            inputs = {k: v.to(model_device) for k, v in inputs.items()}
             
             # Calculate max_new_tokens based on target_duration if specified
             # 5 audio codes = 1 second, plus ~500 tokens for CoT metadata and safety margin
@@ -648,21 +813,23 @@ class LLMHandler:
                     generation_phase=generation_phase,
                     is_batch=False,
                 )
-                
                 # Tokenize both prompts together to ensure same length (with left padding)
                 # Left padding is important for generation tasks
                 batch_texts = [formatted_prompt, formatted_unconditional_prompt]
                 original_padding_side = self.llm_tokenizer.padding_side
                 self.llm_tokenizer.padding_side = 'left'
+
                 batch_inputs_tokenized = self.llm_tokenizer(
                     batch_texts,
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
                 )
+
                 self.llm_tokenizer.padding_side = original_padding_side
-                batch_inputs_tokenized = {k: v.to(self.device) for k, v in batch_inputs_tokenized.items()}
-                
+                # Use the same model_device as above
+                batch_inputs_tokenized = {k: v.to(model_device) for k, v in batch_inputs_tokenized.items()}
+
                 # Extract batch inputs
                 batch_input_ids = batch_inputs_tokenized['input_ids']
                 batch_attention_mask = batch_inputs_tokenized.get('attention_mask', None)
@@ -681,7 +848,7 @@ class LLMHandler:
                     streamer=None,
                     constrained_processor=constrained_processor,
                 )
-                
+
                 # Extract only the conditional output (first in batch)
                 outputs = outputs[0:1]  # Keep only conditional output
             elif use_constrained_decoding:
@@ -739,6 +906,15 @@ class LLMHandler:
             generated_ids = generated_ids.cpu()
         
         output_text = self.llm_tokenizer.decode(generated_ids, skip_special_tokens=False)
+        
+        # Aggressive memory cleanup
+        del generated_ids
+        if 'inputs' in locals(): del inputs
+        if 'batch_inputs_tokenized' in locals(): del batch_inputs_tokenized
+        if 'batch_input_ids' in locals(): del batch_input_ids
+        if 'outputs' in locals(): del outputs
+        torch.cuda.empty_cache()
+        
         return output_text
 
     def _run_pt(
@@ -2035,7 +2211,7 @@ class LLMHandler:
         """
         model = self.llm
         device = self.device
-        
+
         # Initialize generated sequences
         generated_ids = input_ids.clone()
         if attention_mask is not None:
@@ -2054,7 +2230,7 @@ class LLMHandler:
         eos_token_id = self.llm_tokenizer.eos_token_id
         if eos_token_id is None:
             eos_token_id = pad_token_id
-        
+
         # Build logits processor for repetition penalty
         logits_processor = self._build_logits_processor(repetition_penalty)
         
@@ -2062,7 +2238,7 @@ class LLMHandler:
             for step in tqdm(range(max_new_tokens), desc="LLM Constrained Decoding", unit="token"):
                 # Forward pass
                 outputs = self._forward_pass(model, generated_ids, model_kwargs, past_key_values, use_cache)
-                
+
                 # Get logits for the last position
                 next_token_logits = outputs.logits[:, -1, :]  # [batch_size, vocab_size]
                 
@@ -2073,11 +2249,11 @@ class LLMHandler:
                 # Apply other logits processors (repetition penalty)
                 for processor in logits_processor:
                     next_token_logits = processor(generated_ids, next_token_logits)
-                
+
                 # Apply top-k and top-p filtering
                 next_token_logits = self._apply_top_k_filter(next_token_logits, top_k)
                 next_token_logits = self._apply_top_p_filter(next_token_logits, top_p)
-                
+
                 # Apply temperature and sample
                 next_tokens = self._sample_tokens(next_token_logits, temperature)
                 
@@ -2086,13 +2262,13 @@ class LLMHandler:
                 
                 # Check for EOS token
                 should_stop = self._check_eos_token(next_tokens, eos_token_id, pad_token_id)
-                
+
                 # Append token to sequence
                 next_tokens_unsqueezed = next_tokens.unsqueeze(1)
                 generated_ids = torch.cat([generated_ids, next_tokens_unsqueezed], dim=1)
                 attn_mask = torch.cat([attn_mask, torch.ones((input_ids.shape[0], 1), device=device, dtype=attn_mask.dtype)], dim=1)
                 model_kwargs['attention_mask'] = attn_mask
-                
+
                 # Update KV cache
                 if use_cache and hasattr(outputs, 'past_key_values'):
                     past_key_values = outputs.past_key_values
@@ -2352,32 +2528,39 @@ class LLMHandler:
     @contextmanager
     def _load_model_context(self):
         """
-        Context manager to load a model to GPU and offload it back to CPU after use.
-        Only used for PyTorch backend when offload_to_cpu is True.
+        Context manager to ensure model is on GPU during inference and offloaded if needed.
+        Handles both manual offloading and device_map='auto'.
         """
-        if not self.offload_to_cpu:
-            yield
-            return
-        
-        # If using nanovllm, do not offload (it stays on GPU)
+        # 1. If using nanovllm, do not offload (it stays on GPU)
         if self.llm_backend == "vllm":
             yield
             return
-        
+
         model = self.llm
         if model is None:
             yield
             return
+
+        # 2. If model uses device_map="auto" (Accelerate), do not manually move it.
+        # Accelerate handles offloading automatically.
+        if hasattr(model, "hf_device_map") and model.hf_device_map:
+            yield
+            return
+
+        # 3. If manual offloading is disabled, assuming model is already on device
+        if not self.offload_to_cpu:
+            yield
+            return
         
-        # Load to GPU
+        # 4. Manual offloading: Move to GPU, then back to CPU
         logger.info(f"Loading LLM to {self.device}")
         start_time = time.time()
-        if hasattr(model, "to"):
-            model.to(self.device).to(self.dtype)
-        load_time = time.time() - start_time
-        logger.info(f"Loaded LLM to {self.device} in {load_time:.4f}s")
-
         try:
+            if hasattr(model, "to"):
+                 model.to(self.device).to(self.dtype)
+            load_time = time.time() - start_time
+            logger.info(f"Loaded LLM to {self.device} in {load_time:.4f}s")
+            
             yield
         finally:
             # Offload to CPU

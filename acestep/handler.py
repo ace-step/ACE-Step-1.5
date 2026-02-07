@@ -397,11 +397,27 @@ class AceStepHandler:
 
                 try:
                     logger.info(f"[initialize_service] Attempting to load model with attention implementation: {attn_implementation}")
+                    
+                    # Determine device_map strategy based on offloading preference
+                    if self.offload_dit_to_cpu:
+                         # Manual offloading: Load to CPU initially (no device_map="auto")
+                         # This allows _load_model_context to manually move it to GPU when needed
+                         load_device_map = None
+                         load_max_memory = None
+                         logger.info("[initialize_service] using manual offloading (device_map=None)")
+                    else:
+                         # Accelerate offloading: Load to GPU/CPU automatically
+                         load_device_map = "auto"
+                         load_max_memory = {0: "4GiB", "cpu": "32GiB"}
+                         logger.info("[initialize_service] using Accelerate offloading (device_map='auto')")
+
                     self.model = AutoModel.from_pretrained(
                         acestep_v15_checkpoint_path, 
                         trust_remote_code=True, 
                         attn_implementation=attn_implementation,
-                        dtype="bfloat16"
+                        torch_dtype=torch.bfloat16,  # Use torch_dtype instead of dtype
+                        device_map=load_device_map,
+                        max_memory=load_max_memory,
                     )
                 except Exception as e:
                     logger.warning(f"[initialize_service] Failed to load model with {attn_implementation}: {e}")
@@ -419,16 +435,16 @@ class AceStepHandler:
                 self.model.config._attn_implementation = attn_implementation
                 self.config = self.model.config
                 # Move model to device and set dtype
-                if not self.offload_to_cpu:
-                    self.model = self.model.to(device).to(self.dtype)
-                else:
-                    # If offload_to_cpu is True, check if we should keep DiT on GPU
-                    if not self.offload_dit_to_cpu:
-                        logger.info(f"[initialize_service] Keeping main model on {device} (persistent)")
-                        self.model = self.model.to(device).to(self.dtype)
-                    else:
-                        self.model = self.model.to("cpu").to(self.dtype)
-                self.model.eval()
+                #if not self.offload_to_cpu:
+                #    self.model = self.model.to(device).to(self.dtype)
+                #else:
+                #    # If offload_to_cpu is True, check if we should keep DiT on GPU
+                #    if not self.offload_dit_to_cpu:
+                #        logger.info(f"[initialize_service] Keeping main model on {device} (persistent)")
+                #        self.model = self.model.to(device).to(self.dtype)
+                #    else:
+                #        self.model = self.model.to("cpu").to(self.dtype)
+                #self.model.eval()
                 
                 if compile_model:
                     # Add __len__ method to model to support torch.compile
@@ -672,6 +688,14 @@ class AceStepHandler:
             yield
             return
 
+        # If model uses device_map="auto" (Accelerate), do not manually move it.
+        if hasattr(model, "hf_device_map") and model.hf_device_map:
+            # Still ensure silence_latent and other ancillary tensors are on device if needed
+            if model_name == "model" and hasattr(self, "silence_latent"):
+                 self.silence_latent = self.silence_latent.to(self.device).to(self.dtype)
+            yield
+            return
+
         # Load to GPU
         logger.info(f"[_load_model_context] Loading {model_name} to {self.device}")
         start_time = time.time()
@@ -770,16 +794,27 @@ class AceStepHandler:
             quantizer = self.model.tokenizer.quantizer
             detokenizer = self.model.detokenizer
             
+            # Get the model's first device (important for device_map="auto")
+            model_device = next(self.model.parameters()).device
+            
             num_quantizers = getattr(quantizer, "num_quantizers", 1)
             # Create indices tensor: [T_5Hz]
             # Note: code_ids are already clamped to [0, 63999] by _parse_audio_code_string()
-            indices = torch.tensor(code_ids, device=self.device, dtype=torch.long)  # [T_5Hz]
+            # Use model's device instead of self.device for device_map="auto" compatibility
+            indices = torch.tensor(code_ids, device=model_device, dtype=torch.long)  # [T_5Hz]
             
             indices = indices.unsqueeze(0).unsqueeze(-1)  # [1, T_5Hz, 1]
             
             # Get quantized representation from indices
             # The quantizer expects [batch, T_5Hz] format and handles quantizer dimension internally
-            quantized = quantizer.get_output_from_indices(indices)
+            # When using device_map="auto" with bfloat16, we need to use autocast to ensure
+            # the quantizer's internal operations use bfloat16, otherwise intermediate tensors
+            # will be float32 and clash with bfloat16 Linear layer weights
+            device_type = "cuda" if model_device.type == "cuda" else "cpu"
+            with torch.autocast(device_type=device_type, dtype=self.dtype):
+                quantized = quantizer.get_output_from_indices(indices)
+            
+            # Ensure output is in model's dtype
             if quantized.dtype != self.dtype:
                 quantized = quantized.to(self.dtype)
             
@@ -2932,8 +2967,10 @@ class AceStepHandler:
                     del pred_latents_for_decode
                     
                     # Cast output to float32 for audio processing/saving (in-place if possible)
-                    if pred_wavs.dtype != torch.float32:
-                        pred_wavs = pred_wavs.float()
+                    # Optimization: Skip GPU float32 conversion to save VRAM.
+                    # Conversion happens later during CPU transfer (pred_wavs[i].cpu().float())
+                    # if pred_wavs.dtype != torch.float32:
+                    #     pred_wavs = pred_wavs.float()
                     
                     torch.cuda.empty_cache()
             end_time = time.time()

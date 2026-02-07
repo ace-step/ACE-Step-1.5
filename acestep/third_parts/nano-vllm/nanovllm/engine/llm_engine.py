@@ -1,4 +1,5 @@
 import atexit
+import threading
 from dataclasses import fields
 from time import perf_counter
 from tqdm.auto import tqdm
@@ -20,6 +21,15 @@ class LLMEngine:
         config = Config(model, **config_kwargs)
         self.ps = []
         self.events = []
+        # Thread-safety lock for generate().
+        # The scheduler, block manager, model runner, and CUDA graph buffers are all
+        # shared mutable state that is NOT thread-safe. In concurrent serving scenarios
+        # (API server with ThreadPoolExecutor, multiple queue workers, Gradio with
+        # concurrent requests), multiple threads can call generate() simultaneously.
+        # Without this lock, concurrent access corrupts scheduler state, block tables,
+        # and CUDA graph input buffers, leading to intermittent CUDA device-side
+        # assertion failures (illegal memory access in KV cache).
+        self._generate_lock = threading.Lock()
         ctx = mp.get_context("spawn")
         for i in range(1, config.tensor_parallel_size):
             event = ctx.Event()
@@ -103,6 +113,20 @@ class LLMEngine:
                 self.scheduler.block_manager.deallocate(seq)
 
     def generate(
+        self,
+        prompts: list[str] | list[list[int]],
+        sampling_params: SamplingParams | list[SamplingParams],
+        use_tqdm: bool = True,
+        unconditional_prompts: list[str] | list[list[int]] | None = None,
+    ) -> list[str]:
+        # Serialize access to the engine to prevent concurrent corruption of
+        # scheduler state, block manager, CUDA graph buffers, and KV cache.
+        # This is the primary defense against the intermittent CUDA device-side
+        # assertion error that occurs in concurrent serving scenarios.
+        with self._generate_lock:
+            return self._generate_impl(prompts, sampling_params, use_tqdm, unconditional_prompts)
+
+    def _generate_impl(
         self,
         prompts: list[str] | list[list[int]],
         sampling_params: SamplingParams | list[SamplingParams],

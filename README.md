@@ -638,10 +638,15 @@ We provide multiple ways to use ACE-Step:
 | Method | Description | Documentation |
 |--------|-------------|---------------|
 | 🖥️ **Gradio Web UI** | Interactive web interface for music generation | [Gradio Guide](./docs/en/GRADIO_GUIDE.md) |
+| 🎚️ **Studio UI (Experimental)** | Optional HTML frontend for REST API (DAW-like) | [Studio UI](./docs/en/studio.md) |
 | 🐍 **Python API** | Programmatic access for integration | [Inference API](./docs/en/INFERENCE.md) |
 | 🌐 **REST API** | HTTP-based async API for services | [REST API](./docs/en/API.md) |
 
 **📚 Documentation available in:** [English](./docs/en/) | [中文](./docs/zh/) | [日本語](./docs/ja/)
+
+### Experimental Studio UI
+
+An optional, frontend-only HTML Studio UI is available for users who prefer a more structured interface. It uses the same REST API and does not change backend behavior. Start the API server, then open `ui/studio.html` in a browser and point it at your API URL. See [Studio UI](./docs/en/studio.md).
 
 ## 📖 Tutorial
 

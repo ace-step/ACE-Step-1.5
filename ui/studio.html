@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACE-Step Studio (Experimental)</title>
+  <style>
+    :root { --bg: #1a1a2e; --card: #16213e; --accent: #0f3460; --text: #e8e8e8; --muted: #a0a0a0; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1rem; }
+    h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+    .badge { font-size: 0.7rem; background: var(--accent); padding: 0.2rem 0.5rem; border-radius: 4px; margin-left: 0.5rem; }
+    section { background: var(--card); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    section h2 { font-size: 0.9rem; margin: 0 0 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; }
+    input[type="text"], input[type="number"], input[type="url"], textarea { width: 100%; padding: 0.5rem; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 0.9rem; }
+    textarea { min-height: 80px; resize: vertical; }
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .row > * { flex: 1 1 200px; }
+    button { background: var(--accent); color: var(--text); border: none; padding: 0.6rem 1.2rem; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+    button:hover { filter: brightness(1.1); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .checkbox { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .checkbox input { width: auto; }
+    #log { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+    #results { margin-top: 1rem; }
+    .result-item { margin-bottom: 1rem; padding: 0.75rem; background: var(--bg); border-radius: 4px; }
+    .result-item audio { width: 100%; margin-top: 0.5rem; }
+    .result-item .meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+    .error { color: #e57373; }
+    .success { color: #81c784; }
+  </style>
+</head>
+<body>
+  <h1>ACE-Step Studio <span class="badge">Experimental</span></h1>
+  <p style="color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem;">Optional frontend for the ACE-Step REST API. Start the API server, then open this file in a browser.</p>
+
+  <section>
+    <h2>Connection</h2>
+    <label for="apiBase">API base URL</label>
+    <input type="url" id="apiBase" value="http://localhost:8001" placeholder="http://localhost:8001">
+  </section>
+
+  <section>
+    <h2>Prompt</h2>
+    <label for="prompt">Music description (prompt)</label>
+    <input type="text" id="prompt" placeholder="e.g. upbeat pop song with electric guitar">
+    <label for="lyrics" style="margin-top: 0.5rem;">Lyrics (optional)</label>
+    <textarea id="lyrics" placeholder="[Verse 1]&#10;..."></textarea>
+    <div class="checkbox">
+      <input type="checkbox" id="sampleMode">
+      <label for="sampleMode" style="margin:0;">Sample mode (generate from description only)</label>
+    </div>
+    <div id="sampleQueryRow" style="display: none;">
+      <label for="sampleQuery">Sample query</label>
+      <input type="text" id="sampleQuery" placeholder="e.g. a soft Bengali love song">
+    </div>
+  </section>
+
+  <section>
+    <h2>Options</h2>
+    <div class="row">
+      <div>
+        <label for="vocalLanguage">Vocal language</label>
+        <input type="text" id="vocalLanguage" value="en" placeholder="en">
+      </div>
+      <div>
+        <label for="audioDuration">Duration (seconds)</label>
+        <input type="number" id="audioDuration" min="10" max="600" placeholder="30">
+      </div>
+      <div>
+        <label for="batchSize">Batch size</label>
+        <input type="number" id="batchSize" value="1" min="1" max="8">
+      </div>
+    </div>
+    <div class="checkbox">
+      <input type="checkbox" id="thinking" checked>
+      <label for="thinking" style="margin:0;">Thinking (LM generates codes + metas)</label>
+    </div>
+  </section>
+
+  <section>
+    <button id="submitBtn">Generate</button>
+    <div id="log"></div>
+    <div id="results"></div>
+  </section>
+
+  <script>
+    const apiBaseEl = document.getElementById('apiBase');
+    const promptEl = document.getElementById('prompt');
+    const lyricsEl = document.getElementById('lyrics');
+    const sampleModeEl = document.getElementById('sampleMode');
+    const sampleQueryRow = document.getElementById('sampleQueryRow');
+    const sampleQueryEl = document.getElementById('sampleQuery');
+    const vocalLanguageEl = document.getElementById('vocalLanguage');
+    const audioDurationEl = document.getElementById('audioDuration');
+    const batchSizeEl = document.getElementById('batchSize');
+    const thinkingEl = document.getElementById('thinking');
+    const submitBtn = document.getElementById('submitBtn');
+    const logEl = document.getElementById('log');
+    const resultsEl = document.getElementById('results');
+
+    sampleModeEl.addEventListener('change', function () {
+      sampleQueryRow.style.display = this.checked ? 'block' : 'none';
+    });
+
+    function log(msg, type) {
+      const p = document.createElement('div');
+      p.className = type || '';
+      p.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+      logEl.appendChild(p);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function clearLog() { logEl.innerHTML = ''; }
+    function clearResults() { resultsEl.innerHTML = ''; }
+
+    function getBase() {
+      let base = (apiBaseEl.value || '').trim().replace(/\/+$/, '');
+      if (!base) base = 'http://localhost:8001';
+      return base;
+    }
+
+    async function releaseTask(body) {
+      const base = getBase();
+      const res = await fetch(base + '/release_task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.code !== 200 || !data.data || !data.data.task_id) {
+        throw new Error(data.error || data.data?.message || 'Release task failed');
+      }
+      return data.data.task_id;
+    }
+
+    async function queryResult(taskIdList) {
+      const base = getBase();
+      const res = await fetch(base + '/query_result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id_list: taskIdList }),
+      });
+      const data = await res.json();
+      if (data.code !== 200) throw new Error(data.error || 'Query failed');
+      return data.data;
+    }
+
+    function renderResult(taskId, item, base) {
+      const file = item.file || '';
+      const url = file.startsWith('http') ? file : base + (file.startsWith('/') ? '' : '/') + file;
+      const meta = item.metas || {};
+      const metaStr = [meta.bpm && 'BPM ' + meta.bpm, meta.keyscale, meta.timesignature, meta.duration && meta.duration + 's'].filter(Boolean).join(' · ');
+      const div = document.createElement('div');
+      div.className = 'result-item';
+      div.innerHTML = '<div><strong>' + (item.prompt || '—').replace(/</g, '&lt;') + '</strong></div>' +
+        (metaStr ? '<div class="meta">' + metaStr + '</div>' : '') +
+        '<audio controls src="' + url + '"></audio>';
+      resultsEl.appendChild(div);
+    }
+
+    submitBtn.addEventListener('click', async function () {
+      clearLog();
+      clearResults();
+      submitBtn.disabled = true;
+      const base = getBase();
+
+      const body = {
+        prompt: promptEl.value.trim() || '',
+        lyrics: lyricsEl.value.trim() || '',
+        vocal_language: vocalLanguageEl.value.trim() || 'en',
+        thinking: thinkingEl.checked,
+        batch_size: Math.min(8, Math.max(1, parseInt(batchSizeEl.value, 10) || 1)),
+      };
+      const dur = parseInt(audioDurationEl.value, 10);
+      if (dur >= 10 && dur <= 600) body.audio_duration = dur;
+      if (sampleModeEl.checked) {
+        body.sample_mode = true;
+        body.sample_query = sampleQueryEl.value.trim() || '';
+      }
+
+      try {
+        log('Submitting task...');
+        const taskId = await releaseTask(body);
+        log('Task ID: ' + taskId, 'success');
+
+        const pollInterval = 1500;
+        const maxWait = 600000;
+        const start = Date.now();
+        let list;
+
+        while (Date.now() - start < maxWait) {
+          await new Promise(function (r) { setTimeout(r, pollInterval); });
+          list = await queryResult([taskId]);
+          if (!list || !list.length) { log('No result in response'); continue; }
+          const item = list[0];
+          const status = item.status;
+          if (item.progress_text) log(item.progress_text);
+          if (status === 1) {
+            log('Done.', 'success');
+            try {
+              const result = typeof item.result === 'string' ? JSON.parse(item.result) : item.result;
+              const arr = Array.isArray(result) ? result : [result];
+              arr.forEach(function (r) { renderResult(taskId, r, base); });
+            } catch (e) {
+              log('Parse result: ' + e.message, 'error');
+            }
+            break;
+          }
+          if (status === 2) {
+            log('Task failed.', 'error');
+            break;
+          }
+        }
+        if (Date.now() - start >= maxWait) log('Timeout.', 'error');
+      } catch (e) {
+        log(e.message || 'Error', 'error');
+      }
+      submitBtn.disabled = false;
+    });
+  </script>
+</body>
+</html>

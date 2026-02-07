@@ -33,6 +33,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
+from loguru import logger
 
 try:
     from dotenv import load_dotenv
@@ -66,6 +67,7 @@ from acestep.gpu_config import (
     get_recommended_lm_model,
     is_lm_model_supported,
     GPUConfig,
+    VRAM_16GB_MIN_GB,
 )
 
 
@@ -75,17 +77,17 @@ from acestep.gpu_config import (
 
 # Model name to repository mapping
 MODEL_REPO_MAPPING = {
-    # Main unified repository
+    # Main unified repository (contains: acestep-v15-turbo, acestep-5Hz-lm-1.7B, Qwen3-Embedding-0.6B, vae)
     "acestep-v15-turbo": "ACE-Step/Ace-Step1.5",
-    "acestep-5Hz-lm-0.6B": "ACE-Step/Ace-Step1.5",
     "acestep-5Hz-lm-1.7B": "ACE-Step/Ace-Step1.5",
     "vae": "ACE-Step/Ace-Step1.5",
     "Qwen3-Embedding-0.6B": "ACE-Step/Ace-Step1.5",
     # Separate model repositories
+    "acestep-5Hz-lm-0.6B": "ACE-Step/acestep-5Hz-lm-0.6B",
+    "acestep-5Hz-lm-4B": "ACE-Step/acestep-5Hz-lm-4B",
     "acestep-v15-base": "ACE-Step/acestep-v15-base",
     "acestep-v15-sft": "ACE-Step/acestep-v15-sft",
     "acestep-v15-turbo-shift3": "ACE-Step/acestep-v15-turbo-shift3",
-    "acestep-5Hz-lm-4B": "ACE-Step/acestep-5Hz-lm-4B",
 }
 
 DEFAULT_REPO_ID = "ACE-Step/Ace-Step1.5"
@@ -94,12 +96,15 @@ DEFAULT_REPO_ID = "ACE-Step/Ace-Step1.5"
 def _can_access_google(timeout: float = 3.0) -> bool:
     """Check if Google is accessible (to determine HuggingFace vs ModelScope)."""
     import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        socket.setdefaulttimeout(timeout)
-        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("www.google.com", 443))
+        sock.settimeout(timeout)
+        sock.connect(("www.google.com", 443))
         return True
     except (socket.timeout, socket.error, OSError):
         return False
+    finally:
+        sock.close()
 
 
 def _download_from_huggingface(repo_id: str, local_dir: str, model_name: str) -> str:
@@ -139,10 +144,23 @@ def _download_from_modelscope(repo_id: str, local_dir: str, model_name: str) -> 
         os.makedirs(download_dir, exist_ok=True)
         print(f"[Model Download] Downloading {model_name} from ModelScope {repo_id} to {download_dir}...")
 
-    snapshot_download(
-        model_id=repo_id,
-        local_dir=download_dir,
-    )
+    # ModelScope snapshot_download returns the cache path
+    # Use cache_dir parameter for better compatibility across versions
+    try:
+        # Try with local_dir first (newer versions)
+        result_path = snapshot_download(
+            model_id=repo_id,
+            local_dir=download_dir,
+        )
+        print(f"[Model Download] ModelScope download completed: {result_path}")
+    except TypeError:
+        # Fallback to cache_dir for older versions
+        print("[Model Download] Retrying with cache_dir parameter...")
+        result_path = snapshot_download(
+            model_id=repo_id,
+            cache_dir=download_dir,
+        )
+        print(f"[Model Download] ModelScope download completed: {result_path}")
 
     return os.path.join(local_dir, model_name)
 
@@ -170,11 +188,22 @@ def _ensure_model_downloaded(model_name: str, checkpoint_dir: str) -> str:
 
     print(f"[Model Download] Model {model_name} not found, checking network...")
 
+    # Check for user preference
+    prefer_source = os.environ.get("ACESTEP_DOWNLOAD_SOURCE", "").lower()
+
     # Determine download source
-    use_huggingface = _can_access_google()
+    if prefer_source == "huggingface":
+        use_huggingface = True
+        print("[Model Download] User preference: HuggingFace Hub")
+    elif prefer_source == "modelscope":
+        use_huggingface = False
+        print("[Model Download] User preference: ModelScope")
+    else:
+        use_huggingface = _can_access_google()
+        print(f"[Model Download] Auto-detected: {'HuggingFace Hub' if use_huggingface else 'ModelScope'}")
 
     if use_huggingface:
-        print("[Model Download] Google accessible, using HuggingFace Hub...")
+        print("[Model Download] Using HuggingFace Hub...")
         try:
             return _download_from_huggingface(repo_id, checkpoint_dir, model_name)
         except Exception as e:
@@ -182,7 +211,7 @@ def _ensure_model_downloaded(model_name: str, checkpoint_dir: str) -> str:
             print("[Model Download] Falling back to ModelScope...")
             return _download_from_modelscope(repo_id, checkpoint_dir, model_name)
     else:
-        print("[Model Download] Google not accessible, using ModelScope...")
+        print("[Model Download] Using ModelScope...")
         try:
             return _download_from_modelscope(repo_id, checkpoint_dir, model_name)
         except Exception as e:
@@ -316,6 +345,8 @@ PARAM_ALIASES = {
     "prompt": ["prompt", "caption"],
     "lyrics": ["lyrics"],
     "thinking": ["thinking"],
+    "analysis_only": ["analysis_only", "analysisOnly"],
+    "full_analysis_only": ["full_analysis_only", "fullAnalysisOnly"],
     "sample_mode": ["sample_mode", "sampleMode"],
     "sample_query": ["sample_query", "sampleQuery", "description", "desc"],
     "use_format": ["use_format", "useFormat", "format"],
@@ -460,6 +491,8 @@ class GenerateMusicRequest(BaseModel):
     instruction: str = DEFAULT_DIT_INSTRUCTION
     audio_cover_strength: float = 1.0
     task_type: str = "text2music"
+    analysis_only: bool = False
+    full_analysis_only: bool = False
 
     use_adg: bool = False
     cfg_interval_start: float = 0.0
@@ -504,7 +537,8 @@ class CreateJobResponse(BaseModel):
     task_id: str
     status: JobStatus
     queue_position: int = 0  # 1-based best-effort position when queued
-
+    progress_text: Optional[str] = ""
+    
 
 class JobResult(BaseModel):
     first_audio_path: Optional[str] = None
@@ -552,6 +586,8 @@ class _JobRecord:
     finished_at: Optional[float] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    progress_text: str = ""
+    status_text: str = ""
     env: str = "development"
     progress: float = 0.0  # 0.0 - 1.0
     stage: str = "queued"
@@ -675,7 +711,16 @@ class _JobStore:
                 if rec.status in stats:
                     stats[rec.status] += 1
             return stats
+    
+    def update_status_text(self, job_id: str, text: str) -> None:
+        with self._lock:
+            if job_id in self._jobs:
+                self._jobs[job_id].status_text = text
 
+    def update_progress_text(self, job_id: str, text: str) -> None:
+        with self._lock:
+            if job_id in self._jobs:
+                self._jobs[job_id].progress_text = text
 
 def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
@@ -702,14 +747,20 @@ def _get_model_name(config_path: str) -> str:
     return os.path.basename(normalized)
 
 
+_project_env_loaded = False
+
+
 def _load_project_env() -> None:
-    if load_dotenv is None:
+    """Load .env at most once per process to avoid epoch-boundary stalls (e.g. Windows LoRA training)."""
+    global _project_env_loaded
+    if _project_env_loaded or load_dotenv is None:
         return
     try:
         project_root = _get_project_root()
         env_path = os.path.join(project_root, ".env")
         if os.path.exists(env_path):
             load_dotenv(env_path, override=False)
+        _project_env_loaded = True
     except Exception:
         # Optional best-effort: continue even if .env loading fails.
         pass
@@ -861,6 +912,35 @@ async def _save_upload_to_temp(upload: StarletteUploadFile, *, prefix: str) -> s
             pass
     return path
 
+class LogBuffer:
+    def __init__(self):
+        self.last_message = "Waiting"
+
+    def write(self, message):
+        msg = message.strip()
+        if msg:
+            self.last_message = msg
+
+    def flush(self):
+        pass
+
+log_buffer = LogBuffer()
+logger.add(lambda msg: log_buffer.write(msg), format="{time:HH:mm:ss} | {level} | {message}")
+
+class StderrLogger:
+    def __init__(self, original_stderr, buffer):
+        self.original_stderr = original_stderr
+        self.buffer = buffer
+
+    def write(self, message):
+        self.original_stderr.write(message) # Print to terminal
+        self.buffer.write(message)          # Send to API buffer
+
+    def flush(self):
+        self.original_stderr.flush()
+
+sys.stderr = StderrLogger(sys.stderr, log_buffer)
+
 
 def create_app() -> FastAPI:
     store = _JobStore()
@@ -929,6 +1009,7 @@ def create_app() -> FastAPI:
         app.state._llm_initialized = False
         app.state._llm_init_error = None
         app.state._llm_init_lock = Lock()
+        app.state._llm_lazy_load_disabled = False  # Will be set to True if LLM skipped due to GPU config
 
         # Multi-model support: secondary DiT handlers
         handler2 = None
@@ -1012,34 +1093,57 @@ def create_app() -> FastAPI:
             status_int = _map_status(status)
 
             if status == "succeeded" and result:
-                audio_paths = result.get("audio_paths", [])
-                # Final prompt/lyrics (may be modified by thinking/format)
-                final_prompt = result.get("prompt", "")
-                final_lyrics = result.get("lyrics", "")
-                # Original user input from metas
-                metas_raw = result.get("metas", {}) or {}
-                original_prompt = metas_raw.get("prompt", "")
-                original_lyrics = metas_raw.get("lyrics", "")
-                # metas contains original input + other metadata
-                metas = {
-                    "bpm": metas_raw.get("bpm"),
-                    "duration": metas_raw.get("duration"),
-                    "genres": metas_raw.get("genres", ""),
-                    "keyscale": metas_raw.get("keyscale", ""),
-                    "timesignature": metas_raw.get("timesignature", ""),
-                    "prompt": original_prompt,
-                    "lyrics": original_lyrics,
-                }
-                # Extra fields for Discord bot
-                generation_info = result.get("generation_info", "")
-                seed_value = result.get("seed_value", "")
-                lm_model = result.get("lm_model", "")
-                dit_model = result.get("dit_model", "")
+                # Check if it's a "Full Analysis" result
+                if result.get("status_message") == "Full Hardware Analysis Success":
+                    result_data = [result]
+                else:
+                    audio_paths = result.get("audio_paths", [])
+                    # Final prompt/lyrics (may be modified by thinking/format)
+                    final_prompt = result.get("prompt", "")
+                    final_lyrics = result.get("lyrics", "")
+                    # Original user input from metas
+                    metas_raw = result.get("metas", {}) or {}
+                    original_prompt = metas_raw.get("prompt", "")
+                    original_lyrics = metas_raw.get("lyrics", "")
+                    # metas contains original input + other metadata
+                    metas = {
+                        "bpm": metas_raw.get("bpm"),
+                        "duration": metas_raw.get("duration"),
+                        "genres": metas_raw.get("genres", ""),
+                        "keyscale": metas_raw.get("keyscale", ""),
+                        "timesignature": metas_raw.get("timesignature", ""),
+                        "prompt": original_prompt,
+                        "lyrics": original_lyrics,
+                    }
+                    # Extra fields for Discord bot
+                    generation_info = result.get("generation_info", "")
+                    seed_value = result.get("seed_value", "")
+                    lm_model = result.get("lm_model", "")
+                    dit_model = result.get("dit_model", "")
 
-                if audio_paths:
-                    result_data = [
-                        {
-                            "file": p,
+                    if audio_paths:
+                        result_data = [
+                            {
+                                "file": p,
+                                "wave": "",
+                                "status": status_int,
+                                "create_time": int(create_time),
+                                "env": env,
+                                "prompt": final_prompt,
+                                "lyrics": final_lyrics,
+                                "metas": metas,
+                                "generation_info": generation_info,
+                                "seed_value": seed_value,
+                                "lm_model": lm_model,
+                                "dit_model": dit_model,
+                                "progress": 1.0,
+                                "stage": "succeeded",
+                            }
+                            for p in audio_paths
+                        ]
+                    else:
+                        result_data = [{
+                            "file": "",
                             "wave": "",
                             "status": status_int,
                             "create_time": int(create_time),
@@ -1053,26 +1157,7 @@ def create_app() -> FastAPI:
                             "dit_model": dit_model,
                             "progress": 1.0,
                             "stage": "succeeded",
-                        }
-                        for p in audio_paths
-                    ]
-                else:
-                    result_data = [{
-                        "file": "",
-                        "wave": "",
-                        "status": status_int,
-                        "create_time": int(create_time),
-                        "env": env,
-                        "prompt": final_prompt,
-                        "lyrics": final_lyrics,
-                        "metas": metas,
-                        "generation_info": generation_info,
-                        "seed_value": seed_value,
-                        "lm_model": lm_model,
-                        "dit_model": dit_model,
-                        "progress": 1.0,
-                        "stage": "succeeded",
-                    }]
+                        }]
             else:
                 result_data = [{
                     "file": "",
@@ -1159,7 +1244,7 @@ def create_app() -> FastAPI:
 
             def _blocking_generate() -> Dict[str, Any]:
                 """Generate music using unified inference logic from acestep.inference"""
-                
+
                 def _ensure_llm_ready() -> None:
                     """Ensure LLM handler is initialized when needed"""
                     with app.state._llm_init_lock:
@@ -1168,6 +1253,16 @@ def create_app() -> FastAPI:
                         if initialized or had_error is not None:
                             return
                         print("[API Server] reloading.")
+
+                        # Check if lazy loading is disabled (GPU memory insufficient)
+                        if getattr(app.state, "_llm_lazy_load_disabled", False):
+                            app.state._llm_init_error = (
+                                "LLM not initialized at startup. To enable LLM, set ACESTEP_INIT_LLM=true "
+                                "in .env or environment variables. For this request, optional LLM features "
+                                "(use_cot_caption, use_cot_language) will be auto-disabled."
+                            )
+                            print(f"[API Server] LLM lazy load blocked: LLM was not initialized at startup")
+                            return
 
                         project_root = _get_project_root()
                         checkpoint_dir = os.path.join(project_root, "checkpoints")
@@ -1228,7 +1323,9 @@ def create_app() -> FastAPI:
                 use_format = bool(req.use_format)
                 use_cot_caption = bool(req.use_cot_caption)
                 use_cot_language = bool(req.use_cot_language)
-                
+
+                full_analysis_only = bool(req.full_analysis_only)
+
                 # Unload LM for cover tasks on MPS to reduce memory; reload lazily when needed.
                 if req.task_type == "cover" and h.device == "mps":
                     if getattr(app.state, "_llm_initialized", False) and getattr(llm, "llm_initialized", False):
@@ -1240,19 +1337,35 @@ def create_app() -> FastAPI:
                         except Exception as e:
                             print(f"[API Server] Failed to unload LM: {e}")
 
-                # LLM is needed for:
+                # LLM is REQUIRED for these features (fail if unavailable):
                 # - thinking mode (LM generates audio codes)
                 # - sample_mode (LM generates random caption/lyrics/metas)
                 # - sample_query/description (LM generates from description)
                 # - use_format (LM enhances caption/lyrics)
-                # - use_cot_caption or use_cot_language (LM enhances metadata)
-                need_llm = thinking or sample_mode or has_sample_query or use_format or use_cot_caption or use_cot_language
+                # - full_analysis_only (LM understands audio codes)
+                require_llm = thinking or sample_mode or has_sample_query or use_format or full_analysis_only
 
-                # Ensure LLM is ready if needed
-                if need_llm:
+                # LLM is OPTIONAL for these features (auto-disable if unavailable):
+                # - use_cot_caption or use_cot_language (LM enhances metadata)
+                want_llm = use_cot_caption or use_cot_language
+
+                # Check if LLM is available
+                llm_available = True
+                if require_llm or want_llm:
                     _ensure_llm_ready()
                     if getattr(app.state, "_llm_init_error", None):
-                        raise RuntimeError(f"5Hz LM init failed: {app.state._llm_init_error}")
+                        llm_available = False
+
+                # Fail if LLM is required but unavailable
+                if require_llm and not llm_available:
+                    raise RuntimeError(f"5Hz LM init failed: {app.state._llm_init_error}")
+
+                # Auto-disable optional LLM features if unavailable
+                if want_llm and not llm_available:
+                    if use_cot_caption or use_cot_language:
+                        print(f"[API Server] LLM unavailable, auto-disabling: use_cot_caption={use_cot_caption}->False, use_cot_language={use_cot_language}->False")
+                    use_cot_caption = False
+                    use_cot_language = False
 
                 # Handle sample mode or description: generate caption/lyrics/metas via LM
                 caption = req.prompt
@@ -1397,12 +1510,12 @@ def create_app() -> FastAPI:
                     lm_negative_prompt=req.lm_negative_prompt,
                     # use_cot_metas logic:
                     # - sample_mode: metas already generated, skip Phase 1
-                    # - format with duration: metas already generated, skip Phase 1  
+                    # - format with duration: metas already generated, skip Phase 1
                     # - format without duration: need Phase 1 to generate duration
                     # - no format: need Phase 1 to generate all metas
                     use_cot_metas=not sample_mode and not format_has_duration,
-                    use_cot_caption=req.use_cot_caption,
-                    use_cot_language=req.use_cot_language,
+                    use_cot_caption=use_cot_caption,  # Use local var (may be auto-disabled)
+                    use_cot_language=use_cot_language,  # Use local var (may be auto-disabled)
                     use_constrained_decoding=True,
                 )
 
@@ -1442,6 +1555,73 @@ def create_app() -> FastAPI:
                         last_progress["stage"] = stage
                         job_store.update_progress(job_id, value_f, stage=stage)
                         _update_local_cache_progress(job_id, value_f, stage)
+
+                if req.full_analysis_only:
+                    store.update_progress_text(job_id, "Starting Deep Analysis...")
+                    # Step A: Convert source audio to semantic codes
+                    # We use params.src_audio which is the server-side path
+                    audio_codes = h.convert_src_audio_to_codes(params.src_audio)
+
+                    if not audio_codes or audio_codes.startswith("❌"):
+                        raise RuntimeError(f"Audio encoding failed: {audio_codes}")
+
+                    # Step B: LLM Understanding of those specific codes
+                    # This yields the deep metadata and lyrics transcription
+                    metadata_dict, status_string = llm_to_pass.understand_audio_from_codes(
+                        audio_codes=audio_codes,
+                        temperature=0.3,
+                        use_constrained_decoding=True,
+                        constrained_decoding_debug=config.constrained_decoding_debug
+                    )
+
+                    if not metadata_dict:
+                        raise RuntimeError(f"LLM Understanding failed: {status_string}")
+
+                    return {
+                        "status_message": "Full Hardware Analysis Success",
+                        "bpm": metadata_dict.get("bpm"),
+                        "keyscale": metadata_dict.get("keyscale"),
+                        "timesignature": metadata_dict.get("timesignature"),
+                        "duration": metadata_dict.get("duration"),
+                        "genre": metadata_dict.get("genres") or metadata_dict.get("genre"),
+                        "prompt": metadata_dict.get("caption", ""),
+                        "lyrics": metadata_dict.get("lyrics", ""),
+                        "language": metadata_dict.get("language", "unknown"),
+                        "metas": metadata_dict,
+                        "audio_paths": []
+                    }
+
+                if req.analysis_only:
+                    lm_res = llm_to_pass.generate_with_stop_condition(
+                        caption=params.caption,
+                        lyrics=params.lyrics,
+                        infer_type="dit",
+                        temperature=req.lm_temperature,
+                        top_p=req.lm_top_p,
+                        use_cot_metas=True,
+                        use_cot_caption=req.use_cot_caption,
+                        use_cot_language=req.use_cot_language,
+                        use_constrained_decoding=True
+                    )
+
+                    if not lm_res.get("success"):
+                        raise RuntimeError(f"Analysis Failed: {lm_res.get('error')}")
+
+                    metas_found = lm_res.get("metadata", {})
+                    return {
+                        "first_audio_path": None,
+                        "audio_paths": [],
+                        "generation_info": "Analysis Only Mode Complete",
+                        "status_message": "Success",
+                        "metas": metas_found,
+                        "bpm": metas_found.get("bpm"),
+                        "keyscale": metas_found.get("keyscale"),
+                        "duration": metas_found.get("duration"),
+                        "prompt": metas_found.get("caption", params.caption),
+                        "lyrics": params.lyrics,
+                        "lm_model": os.getenv("ACESTEP_LM_MODEL_PATH", ""),
+                        "dit_model": "None (Analysis Only)"
+                    }
 
                 # Generate music using unified interface
                 sequential_runs = 1
@@ -1603,8 +1783,11 @@ def create_app() -> FastAPI:
 
                 # Update local cache
                 _update_local_cache(job_id, result, "succeeded")
-            except Exception:
-                job_store.mark_failed(job_id, traceback.format_exc())
+            except Exception as e:
+                error_traceback = traceback.format_exc()
+                print(f"[API Server] Job {job_id} FAILED: {e}")
+                print(f"[API Server] Traceback:\n{error_traceback}")
+                job_store.mark_failed(job_id, error_traceback)
 
                 # Update local cache
                 _update_local_cache(job_id, None, "failed")
@@ -1671,7 +1854,7 @@ def create_app() -> FastAPI:
         app.state.gpu_config = gpu_config
 
         gpu_memory_gb = gpu_config.gpu_memory_gb
-        auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < 16
+        auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_16GB_MIN_GB
 
         # Print GPU configuration info
         print(f"\n{'='*60}")
@@ -1804,13 +1987,34 @@ def create_app() -> FastAPI:
                 app.state._initialized3 = False
 
         # Initialize LLM model based on GPU configuration
-        # Auto-determine whether to initialize LM based on GPU config
-        init_llm_env = os.getenv("ACESTEP_INIT_LLM")
-        if init_llm_env is not None:
-            init_llm = _env_bool("ACESTEP_INIT_LLM", True)
+        # ACESTEP_INIT_LLM controls LLM initialization:
+        #   - "auto" / empty / not set: Use GPU config default (auto-detect)
+        #   - "true"/"1"/"yes": Force enable LLM after GPU config is applied
+        #   - "false"/"0"/"no": Force disable LLM
+        #
+        # Flow: GPU detection → model validation → ACESTEP_INIT_LLM override
+        # This ensures GPU optimizations (offload, quantization, etc.) are always applied.
+        init_llm_env = os.getenv("ACESTEP_INIT_LLM", "").strip().lower()
+
+        # Step 1: Start with GPU auto-detection result
+        init_llm = gpu_config.init_lm_default
+        print(f"[API Server] GPU auto-detection: init_llm={init_llm} (VRAM: {gpu_config.gpu_memory_gb:.1f}GB, tier: {gpu_config.tier})")
+
+        # Step 2: Apply user override if set
+        if not init_llm_env or init_llm_env == "auto":
+            print(f"[API Server] ACESTEP_INIT_LLM=auto, using GPU auto-detection result")
+        elif init_llm_env in {"1", "true", "yes", "y", "on"}:
+            if init_llm:
+                print(f"[API Server] ACESTEP_INIT_LLM=true (GPU already supports LLM, no override needed)")
+            else:
+                init_llm = True
+                print(f"[API Server] ACESTEP_INIT_LLM=true, overriding GPU auto-detection (force enable)")
         else:
-            init_llm = gpu_config.init_lm_default
-            print(f"[API Server] Auto-setting init_llm={init_llm} based on GPU configuration")
+            if not init_llm:
+                print(f"[API Server] ACESTEP_INIT_LLM=false (GPU already disabled LLM, no override needed)")
+            else:
+                init_llm = False
+                print(f"[API Server] ACESTEP_INIT_LLM=false, overriding GPU auto-detection (force disable)")
 
         if init_llm:
             print("[API Server] Loading LLM model...")
@@ -1819,6 +2023,7 @@ def create_app() -> FastAPI:
             lm_model_path_env = os.getenv("ACESTEP_LM_MODEL_PATH", "").strip()
             if lm_model_path_env:
                 lm_model_path = lm_model_path_env
+                print(f"[API Server] Using user-specified LM model: {lm_model_path}")
             else:
                 # Get recommended LM model for this GPU tier
                 recommended_lm = get_recommended_lm_model(gpu_config)
@@ -1826,21 +2031,22 @@ def create_app() -> FastAPI:
                     lm_model_path = recommended_lm
                     print(f"[API Server] Auto-selected LM model: {lm_model_path} based on GPU tier")
                 else:
+                    # No recommended model (GPU tier too low), default to smallest
                     lm_model_path = "acestep-5Hz-lm-0.6B"
-                    print(f"[API Server] Using default LM model: {lm_model_path}")
+                    print(f"[API Server] No recommended model for this GPU tier, using smallest: {lm_model_path}")
 
-            # Validate LM model is supported for this GPU
+            # Validate LM model support (warning only, does not block)
             is_supported, warning_msg = is_lm_model_supported(lm_model_path, gpu_config)
             if not is_supported:
                 print(f"[API Server] Warning: {warning_msg}")
-                # Try to use a supported model instead
+                # Try to fall back to a supported model
                 recommended_lm = get_recommended_lm_model(gpu_config)
                 if recommended_lm:
                     lm_model_path = recommended_lm
                     print(f"[API Server] Falling back to supported LM model: {lm_model_path}")
                 else:
-                    print("[API Server] No supported LM models for this GPU, skipping LM initialization")
-                    init_llm = False
+                    # No supported model, but user may have forced init
+                    print(f"[API Server] No GPU-validated LM model available, attempting {lm_model_path} anyway (may cause OOM)")
 
         if init_llm:
             lm_backend = os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower()
@@ -1877,6 +2083,11 @@ def create_app() -> FastAPI:
         else:
             print("[API Server] Skipping LLM initialization (disabled or not supported for this GPU)")
             app.state._llm_initialized = False
+            # Disable lazy loading of LLM - don't try to load it later during requests
+            app.state._llm_lazy_load_disabled = True
+            print("[API Server] LLM lazy loading disabled. To enable LLM:")
+            print("[API Server]   - Set ACESTEP_INIT_LLM=true in .env or environment")
+            print("[API Server]   - Or use --init-llm command line flag")
 
         print("[API Server] All models initialized successfully!")
 
@@ -1915,6 +2126,8 @@ def create_app() -> FastAPI:
                 prompt=p.str("prompt"),
                 lyrics=p.str("lyrics"),
                 thinking=p.bool("thinking"),
+                analysis_only=p.bool("analysis_only"),
+                full_analysis_only=p.bool("full_analysis_only"),
                 sample_mode=p.bool("sample_mode"),
                 sample_query=p.str("sample_query"),
                 use_format=p.bool("use_format"),
@@ -2130,6 +2343,7 @@ def create_app() -> FastAPI:
                                 "task_id": task_id,
                                 "result": data,
                                 "status": int(status) if status is not None else 1,
+                                "progress_text": log_buffer.last_message
                             })
                     continue
 
@@ -2141,11 +2355,29 @@ def create_app() -> FastAPI:
                 status_int = _map_status(rec.status)
 
                 if rec.result and rec.status == "succeeded":
-                    audio_paths = rec.result.get("audio_paths", [])
-                    metas = rec.result.get("metas", {}) or {}
-                    result_data = [
-                        {
-                            "file": p, "wave": "", "status": status_int,
+                    # Check if it's a "Full Analysis" result
+                    if rec.result.get("status_message") == "Full Hardware Analysis Success":
+                         result_data = [rec.result]
+                    else:
+                        audio_paths = rec.result.get("audio_paths", [])
+                        metas = rec.result.get("metas", {}) or {}
+                        result_data = [
+                            {
+                                "file": p, "wave": "", "status": status_int,
+                                "create_time": int(create_time), "env": env,
+                                "prompt": metas.get("caption", ""),
+                                "lyrics": metas.get("lyrics", ""),
+                                "metas": {
+                                    "bpm": metas.get("bpm"),
+                                    "duration": metas.get("duration"),
+                                    "genres": metas.get("genres", ""),
+                                    "keyscale": metas.get("keyscale", ""),
+                                    "timesignature": metas.get("timesignature", ""),
+                                }
+                            }
+                            for p in audio_paths
+                        ] if audio_paths else [{
+                            "file": "", "wave": "", "status": status_int,
                             "create_time": int(create_time), "env": env,
                             "prompt": metas.get("caption", ""),
                             "lyrics": metas.get("lyrics", ""),
@@ -2156,21 +2388,7 @@ def create_app() -> FastAPI:
                                 "keyscale": metas.get("keyscale", ""),
                                 "timesignature": metas.get("timesignature", ""),
                             }
-                        }
-                        for p in audio_paths
-                    ] if audio_paths else [{
-                        "file": "", "wave": "", "status": status_int,
-                        "create_time": int(create_time), "env": env,
-                        "prompt": metas.get("caption", ""),
-                        "lyrics": metas.get("lyrics", ""),
-                        "metas": {
-                            "bpm": metas.get("bpm"),
-                            "duration": metas.get("duration"),
-                            "genres": metas.get("genres", ""),
-                            "keyscale": metas.get("keyscale", ""),
-                            "timesignature": metas.get("timesignature", ""),
-                        }
-                    }]
+                        }]
                 else:
                     result_data = [{
                         "file": "", "wave": "", "status": status_int,
@@ -2179,12 +2397,15 @@ def create_app() -> FastAPI:
                         "metas": {},
                         "progress": float(rec.progress) if rec else 0.0,
                         "stage": rec.stage if rec else "queued",
+                        "error": rec.error if rec.error else None,
                     }]
 
+                current_log = log_buffer.last_message if status_int == 0 else rec.progress_text
                 data_list.append({
                     "task_id": task_id,
                     "result": json.dumps(result_data, ensure_ascii=False),
                     "status": status_int,
+                    "progress_text": current_log
                 })
             else:
                 data_list.append({"task_id": task_id, "result": "[]", "status": 0})
@@ -2304,6 +2525,13 @@ def create_app() -> FastAPI:
                 if getattr(app.state, "_llm_init_error", None):
                     raise HTTPException(status_code=500, detail=f"LLM init failed: {app.state._llm_init_error}")
 
+                # Check if lazy loading is disabled
+                if getattr(app.state, "_llm_lazy_load_disabled", False):
+                    raise HTTPException(
+                        status_code=503,
+                        detail="LLM not initialized. Set ACESTEP_INIT_LLM=true in .env to enable."
+                    )
+
                 project_root = _get_project_root()
                 checkpoint_dir = os.path.join(project_root, "checkpoints")
                 lm_model_path = os.getenv("ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-0.6B").strip()
@@ -2407,14 +2635,19 @@ def create_app() -> FastAPI:
             return _wrap_response(None, code=500, error=f"format_sample error: {str(e)}")
 
     @app.get("/v1/audio")
-    async def get_audio(path: str, _: None = Depends(verify_api_key)):
+    async def get_audio(path: str, request: Request, _: None = Depends(verify_api_key)):
         """Serve audio file by path."""
         from fastapi.responses import FileResponse
 
-        if not os.path.exists(path):
-            raise HTTPException(status_code=404, detail=f"Audio file not found: {path}")
+        # Security: Validate path is within allowed directory to prevent path traversal
+        resolved_path = os.path.realpath(path)
+        allowed_dir = os.path.realpath(request.app.state.temp_audio_dir)
+        if not resolved_path.startswith(allowed_dir + os.sep) and resolved_path != allowed_dir:
+            raise HTTPException(status_code=403, detail="Access denied: path outside allowed directory")
+        if not os.path.exists(resolved_path):
+            raise HTTPException(status_code=404, detail="Audio file not found")
 
-        ext = os.path.splitext(path)[1].lower()
+        ext = os.path.splitext(resolved_path)[1].lower()
         media_types = {
             ".mp3": "audio/mpeg",
             ".wav": "audio/wav",
@@ -2423,7 +2656,7 @@ def create_app() -> FastAPI:
         }
         media_type = media_types.get(ext, "audio/mpeg")
 
-        return FileResponse(path, media_type=media_type)
+        return FileResponse(resolved_path, media_type=media_type)
 
     return app
 
@@ -2453,11 +2686,46 @@ def main() -> None:
         default=os.getenv("ACESTEP_API_KEY", None),
         help="API key for authentication (default from ACESTEP_API_KEY)",
     )
+    parser.add_argument(
+        "--download-source",
+        type=str,
+        choices=["huggingface", "modelscope", "auto"],
+        default=os.getenv("ACESTEP_DOWNLOAD_SOURCE", "auto"),
+        help="Preferred model download source: auto (default), huggingface, or modelscope",
+    )
+    parser.add_argument(
+        "--init-llm",
+        action="store_true",
+        default=_env_bool("ACESTEP_INIT_LLM", False),
+        help="Initialize LLM even if GPU memory is insufficient (may cause OOM). "
+             "Can also be set via ACESTEP_INIT_LLM=true environment variable.",
+    )
+    parser.add_argument(
+        "--lm-model-path",
+        type=str,
+        default=os.getenv("ACESTEP_LM_MODEL_PATH", ""),
+        help="LM model to load (e.g., 'acestep-5Hz-lm-0.6B'). Default from ACESTEP_LM_MODEL_PATH.",
+    )
     args = parser.parse_args()
 
     # Set API key from command line argument
     if args.api_key:
         os.environ["ACESTEP_API_KEY"] = args.api_key
+
+    # Set download source preference
+    if args.download_source and args.download_source != "auto":
+        os.environ["ACESTEP_DOWNLOAD_SOURCE"] = args.download_source
+        print(f"Using preferred download source: {args.download_source}")
+
+    # Set init LLM flag
+    if args.init_llm:
+        os.environ["ACESTEP_INIT_LLM"] = "true"
+        print("[API Server] LLM initialization enabled via --init-llm")
+
+    # Set LM model path
+    if args.lm_model_path:
+        os.environ["ACESTEP_LM_MODEL_PATH"] = args.lm_model_path
+        print(f"[API Server] Using LM model: {args.lm_model_path}")
 
     # IMPORTANT: in-memory queue/store -> workers MUST be 1
     uvicorn.run(

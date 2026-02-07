@@ -643,6 +643,7 @@ def generate_music(
                     params.cot_caption = caption
                 if not params.lyrics:
                     params.cot_lyrics = lyrics
+                dit_input_lyrics = lyrics
 
             # set cot caption and language if needed
             if params.use_cot_caption:

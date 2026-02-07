@@ -75,6 +75,48 @@ Star ACE-Step on GitHub and be instantly notified of new releases
 
 > **Requirements:** Python 3.11, CUDA GPU recommended (works on CPU/MPS but slower)
 
+### AMD / ROCm GPUs
+
+ACE-Step works with AMD GPUs via PyTorch ROCm builds.
+
+**Important:** The `uv run acestep` workflow currently installs CUDA PyTorch wheels and may overwrite an existing ROCm setup. `uv run acestep` is optimized for CUDA environments and may override ROCm PyTorch installations.
+
+#### Recommended workflow for AMD / ROCm users
+
+1. Create and activate a virtual environment manually:
+
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+
+2. Install a ROCm-compatible PyTorch build:
+
+   ```bash
+   pip install torch --index-url https://download.pytorch.org/whl/rocm6.0
+   ```
+
+3. Install ACE-Step dependencies without using uv run:
+
+   ```bash
+   pip install -e .
+   ```
+
+4. Start the service directly:
+
+   ```bash
+   python -m acestep.acestep_v15_pipeline --port 7680
+   ```
+
+This avoids CUDA wheel replacement and has been confirmed to work on ROCm systems. On Windows, use `.venv\Scripts\activate` and the same steps.
+
+### AMD / ROCM Linux Specific (cachy-os tested)
+Date of the program this worked:
+07.02.2026 - 10:40 am UTC +1
+
+ACE-Step1.5 Rocm Manual for cachy-os and tested with RDNA4.
+Look into docs\en\ACE-Step1.5-Rocm-Manual-Linux.md
+
 ### 🪟 Windows Portable Package (Recommended for Windows)
 
 For Windows users, we provide a portable package with pre-installed dependencies:
@@ -83,19 +125,149 @@ For Windows users, we provide a portable package with pre-installed dependencies
 2. The package includes `python_embeded` with all dependencies pre-installed
 3. **Requirements:** CUDA 12.8
 
-**Launch:**
+#### 🚀 Quick Start Scripts
+
+The portable package includes convenient batch scripts for easy operation:
+
+| Script | Description | Usage |
+|--------|-------------|-------|
+| **start_gradio_ui.bat** | Launch Gradio Web UI | Double-click or run from terminal |
+| **start_api_server.bat** | Launch REST API Server | Double-click or run from terminal |
+
+**Basic Usage:**
 
 ```bash
-# Gradio Web UI
-python_embeded\python acestep\acestep_v15_pipeline.py
+# Launch Gradio Web UI (Recommended)
+start_gradio_ui.bat
 
-# REST API Server
-python_embeded\python acestep\api_server.py
+# Launch REST API Server
+start_api_server.bat
 ```
+
+Both scripts support:
+- ✅ Auto environment detection (`python_embeded` or `uv`)
+- ✅ Auto install `uv` if needed (via winget or PowerShell)
+- ✅ Configurable download source (HuggingFace/ModelScope)
+- ✅ Optional Git update check before startup
+- ✅ Customizable language, models, and parameters
+
+#### 📝 Configuration
+
+Edit the scripts to customize settings:
+
+**start_gradio_ui.bat:**
+```batch
+REM UI language (en, zh, ja)
+set LANGUAGE=zh
+
+REM Download source (auto, huggingface, modelscope)
+set DOWNLOAD_SOURCE=--download-source modelscope
+
+REM Git update check (true/false) - requires PortableGit
+set CHECK_UPDATE=true
+
+REM Model configuration
+set CONFIG_PATH=--config_path acestep-v15-turbo
+set LM_MODEL_PATH=--lm_model_path acestep-5Hz-lm-1.7B
+
+REM LLM initialization (auto/true/false)
+REM Auto: enabled if VRAM > 6GB, disabled otherwise
+REM set INIT_LLM=--init_llm true   # Force enable (may cause OOM on low VRAM)
+REM set INIT_LLM=--init_llm false  # Force disable (DiT-only mode)
+```
+
+**start_api_server.bat:**
+```batch
+REM LLM initialization via environment variable
+REM set ACESTEP_INIT_LLM=true   # Force enable LLM
+REM set ACESTEP_INIT_LLM=false  # Force disable LLM (DiT-only mode)
+
+REM LM model path (optional)
+REM set LM_MODEL_PATH=--lm-model-path acestep-5Hz-lm-0.6B
+```
+
+#### 🔄 Update & Maintenance Tools
+
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| **check_update.bat** | Check and update from GitHub | When you want to update to the latest version |
+| **merge_config.bat** | Merge backed-up configurations | After updating when config conflicts occur |
+| **install_uv.bat** | Install uv package manager | If uv installation failed during startup |
+| **quick_test.bat** | Test environment setup | To verify your environment is working |
+| **test_git_update.bat** | Test Git update functionality | To verify PortableGit is working correctly |
+
+**Update Workflow:**
+
+```bash
+# 1. Check for updates (requires PortableGit/)
+check_update.bat
+
+# 2. If conflicts occur, your changes are backed up automatically
+# 3. After update, merge your settings back
+merge_config.bat
+
+# Options:
+# - Compare backup with current files (side-by-side in Notepad)
+# - Restore files from backup
+# - List all backed-up files
+# - Delete old backups
+```
+
+**Environment Testing:**
+
+```bash
+# Test your setup
+quick_test.bat
+
+# This checks:
+# - Python installation (python_embeded or system Python)
+# - uv installation and PATH
+# - GPU availability (CUDA/ROCm)
+# - Basic imports
+```
+
+#### 📦 Portable Git Support
+
+If you have `PortableGit/` folder in your package, you can:
+
+1. **Enable Auto-Updates:** Edit `start_gradio_ui.bat` or `start_api_server.bat`
+   ```batch
+   set CHECK_UPDATE=true
+   ```
+
+2. **Manual Update Check:**
+   ```bash
+   check_update.bat
+   ```
+
+3. **Conflict Handling:** When your modified files conflict with GitHub updates:
+   - Files are automatically backed up to `.update_backup_YYYYMMDD_HHMMSS/`
+   - Use `merge_config.bat` to compare and merge changes
+   - Supports all file types: `.bat`, `.py`, `.yaml`, `.json`, etc.
+
+**Update Features:**
+- ⏱️ 10-second timeout protection (won't block startup if GitHub is unreachable)
+- 💾 Smart conflict detection and backup
+- 🔄 Automatic rollback on failure
+- 📁 Preserves directory structure in backups
+
+#### 🛠️ Advanced Options
+
+**Environment Detection Priority:**
+1. `python_embeded\python.exe` (if exists)
+2. `uv run acestep` (if uv is installed)
+3. Auto-install uv via winget or PowerShell
+
+**Download Source:**
+- `auto`: Auto-detect best source (checks Google accessibility)
+- `huggingface`: Use HuggingFace Hub
+- `modelscope`: Use ModelScope
 
 ---
 
 ### Standard Installation (All Platforms)
+
+> **AMD / ROCm users:** `uv run acestep` is optimized for CUDA and may override ROCm PyTorch. Use the [AMD / ROCm workflow](#amd--rocm-gpus) above instead.
 
 ### 1. Install uv (Package Manager)
 
@@ -119,16 +291,46 @@ uv sync
 
 #### 🖥️ Gradio Web UI (Recommended)
 
+**Using uv:**
 ```bash
 uv run acestep
+```
+
+**Using Python directly:**
+
+> **Note:** Make sure to activate your Python environment first:
+> - **Windows portable package**: Use `python_embeded\python.exe` instead of `python`
+> - **Conda environment**: Run `conda activate your_env_name` first
+> - **venv**: Run `source venv/bin/activate` (Linux/Mac) or `venv\Scripts\activate` (Windows) first
+> - **System Python**: Use `python` or `python3` directly
+
+```bash
+# Windows portable package
+python_embeded\python.exe acestep\acestep_v15_pipeline.py
+
+# Conda/venv/system Python
+python acestep/acestep_v15_pipeline.py
 ```
 
 Open http://localhost:7860 in your browser. Models will be downloaded automatically on first run.
 
 #### 🌐 REST API Server
 
+**Using uv:**
 ```bash
 uv run acestep-api
+```
+
+**Using Python directly:**
+
+> **Note:** Make sure to activate your Python environment first (see note above).
+
+```bash
+# Windows portable package
+python_embeded\python.exe acestep\api_server.py
+
+# Conda/venv/system Python
+python acestep/api_server.py
 ```
 
 API runs at http://localhost:8001. See [API Documentation](./docs/en/API.md) for endpoints.
@@ -144,9 +346,11 @@ API runs at http://localhost:8001. See [API Documentation](./docs/en/API.md) for
 | `--share` | false | Create public Gradio link |
 | `--language` | en | UI language: `en`, `zh`, `ja` |
 | `--init_service` | false | Auto-initialize models on startup |
+| `--init_llm` | auto | LLM initialization: `true` (force), `false` (disable), omit for auto |
 | `--config_path` | auto | DiT model (e.g., `acestep-v15-turbo`, `acestep-v15-turbo-shift3`) |
 | `--lm_model_path` | auto | LM model (e.g., `acestep-5Hz-lm-0.6B`, `acestep-5Hz-lm-1.7B`) |
 | `--offload_to_cpu` | auto | CPU offload (auto-enabled if VRAM < 16GB) |
+| `--download-source` | auto | Model download source: `auto`, `huggingface`, or `modelscope` |
 | `--enable-api` | false | Enable REST API endpoints alongside Gradio UI |
 | `--api-key` | none | API key for API endpoints authentication |
 | `--auth-username` | none | Username for Gradio authentication |
@@ -154,18 +358,89 @@ API runs at http://localhost:8001. See [API Documentation](./docs/en/API.md) for
 
 **Examples:**
 
+> **Note for Python users:** Replace `python` with your environment's Python executable:
+> - Windows portable package: `python_embeded\python.exe`
+> - Conda: Activate environment first, then use `python`
+> - venv: Activate environment first, then use `python`
+> - System: Use `python` or `python3`
+
 ```bash
 # Public access with Chinese UI
 uv run acestep --server-name 0.0.0.0 --share --language zh
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --server-name 0.0.0.0 --share --language zh
 
 # Pre-initialize models on startup
 uv run acestep --init_service true --config_path acestep-v15-turbo
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --init_service true --config_path acestep-v15-turbo
 
 # Enable API endpoints with authentication
 uv run acestep --enable-api --api-key sk-your-secret-key --port 8001
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --enable-api --api-key sk-your-secret-key --port 8001
 
 # Enable both Gradio auth and API auth
 uv run acestep --enable-api --api-key sk-123456 --auth-username admin --auth-password password
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --enable-api --api-key sk-123456 --auth-username admin --auth-password password
+
+# Use ModelScope as download source
+uv run acestep --download-source modelscope
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --download-source modelscope
+
+# Use HuggingFace Hub as download source
+uv run acestep --download-source huggingface
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --download-source huggingface
+```
+
+### Environment Variables (.env)
+
+For `uv` or Python users, you can configure ACE-Step using environment variables in a `.env` file:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env with your settings
+```
+
+**Key environment variables:**
+
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `ACESTEP_INIT_LLM` | (empty), `true`, `false` | LLM initialization mode |
+| `ACESTEP_CONFIG_PATH` | model name | DiT model path |
+| `ACESTEP_LM_MODEL_PATH` | model name | LM model path |
+| `ACESTEP_DOWNLOAD_SOURCE` | `auto`, `huggingface`, `modelscope` | Download source |
+| `ACESTEP_API_KEY` | string | API authentication key |
+
+**LLM Initialization (`ACESTEP_INIT_LLM`):**
+
+Processing flow: `GPU Detection (full) → ACESTEP_INIT_LLM Override → Model Loading`
+
+GPU optimizations (offload, quantization, batch limits) are **always applied**. The override only controls whether to attempt LLM loading.
+
+| Value | Behavior |
+|-------|----------|
+| `auto` (or empty) | Use GPU auto-detection result (recommended) |
+| `true` / `1` / `yes` | Force enable LLM after GPU detection (may cause OOM) |
+| `false` / `0` / `no` | Force disable for pure DiT mode, faster generation |
+
+**Example `.env` for different scenarios:**
+
+```bash
+# Auto mode (recommended) - let GPU detection decide
+ACESTEP_INIT_LLM=auto
+
+# Force enable on low VRAM GPU (GPU optimizations still applied)
+ACESTEP_INIT_LLM=true
+ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-0.6B
+
+# Force disable LLM for faster generation
+ACESTEP_INIT_LLM=false
 ```
 
 ### Development
@@ -179,7 +454,7 @@ uv add --dev package-name
 uv sync --upgrade
 ```
 
-## � Other GPU Support
+## 🎮 Other GPU Support
 
 ### Intel GPU
 Currently, we support Intel GPUs.
@@ -193,24 +468,94 @@ Currently, we support Intel GPUs.
 - **Test Environment**: PyTorch 2.8.0 from [Intel Extension for PyTorch](https://pytorch-extension.intel.com/?request=platform).
 - **Intel Discrete GPUs**: Expected to work, but not tested yet as the developer does not have available devices. Waiting for community feedback.
 
-## �📥 Model Download
+## 📥 Model Download
 
 Models are automatically downloaded from [HuggingFace](https://huggingface.co/ACE-Step/Ace-Step1.5) or [ModelScope](https://modelscope.cn/organization/ACE-Step) on first run. You can also manually download models using the CLI or `huggingface-cli`.
+
+### Download Source Configuration
+
+ACE-Step supports multiple download sources with automatic fallback:
+
+| Source | Description | Configuration |
+|--------|-------------|---------------|
+| **auto** (default) | Automatic detection based on network, selects best source | `--download-source auto` or omit |
+| **modelscope** | Use ModelScope as download source | `--download-source modelscope` |
+| **huggingface** | Use HuggingFace Hub as download source | `--download-source huggingface` |
+
+**How it works:**
+- **Auto mode** (default): Tests Google connectivity. If accessible → HuggingFace Hub; if not → ModelScope
+- **Manual mode**: Uses your specified source, with automatic fallback to alternate source on failure
+- **Fallback protection**: If primary source fails, automatically tries the other source
+
+**Examples:**
+
+> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
+
+```bash
+# Use ModelScope
+uv run acestep --download-source modelscope
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --download-source modelscope
+
+# Use HuggingFace Hub
+uv run acestep --download-source huggingface
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py --download-source huggingface
+
+# Auto-detect (default, no configuration needed)
+uv run acestep
+# Or using Python directly:
+python acestep/acestep_v15_pipeline.py
+```
+
+**For Windows portable package users**, edit `start_gradio_ui.bat` or `start_api_server.bat`:
+
+```batch
+REM Use ModelScope
+set DOWNLOAD_SOURCE=--download-source modelscope
+
+REM Use HuggingFace Hub
+set DOWNLOAD_SOURCE=--download-source huggingface
+
+REM Auto-detect (default)
+set DOWNLOAD_SOURCE=
+```
+
+**For command line users:**
+
+> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
+
+```bash
+# Using uv
+uv run acestep --download-source modelscope
+
+# Using Python directly
+python acestep/acestep_v15_pipeline.py --download-source modelscope
+```
 
 ### Automatic Download
 
 When you run `acestep` or `acestep-api`, the system will:
 1. Check if the required models exist in `./checkpoints`
-2. If not found, automatically download them from HuggingFace
+2. If not found, automatically download them using the configured source (or auto-detect)
 
 ### Manual Download with CLI
 
+> **Note for Python users:** Replace `python` with your environment's Python executable (see note in Launch section above).
+
+**Using uv:**
 ```bash
 # Download main model (includes everything needed to run)
 uv run acestep-download
 
 # Download all available models (including optional variants)
 uv run acestep-download --all
+
+# Download from ModelScope
+uv run acestep-download --download-source modelscope
+
+# Download from HuggingFace Hub
+uv run acestep-download --download-source huggingface
 
 # Download a specific model
 uv run acestep-download --model acestep-v15-sft
@@ -220,6 +565,30 @@ uv run acestep-download --list
 
 # Download to a custom directory
 uv run acestep-download --dir /path/to/checkpoints
+```
+
+**Using Python directly:**
+```bash
+# Download main model (includes everything needed to run)
+python -m acestep.model_downloader
+
+# Download all available models (including optional variants)
+python -m acestep.model_downloader --all
+
+# Download from ModelScope
+python -m acestep.model_downloader --download-source modelscope
+
+# Download from HuggingFace Hub
+python -m acestep.model_downloader --download-source huggingface
+
+# Download a specific model
+python -m acestep.model_downloader --model acestep-v15-sft
+
+# List all available models
+python -m acestep.model_downloader --list
+
+# Download to a custom directory
+python -m acestep.model_downloader --dir /path/to/checkpoints
 ```
 
 ### Manual Download with huggingface-cli
@@ -276,10 +645,15 @@ We provide multiple ways to use ACE-Step:
 | Method | Description | Documentation |
 |--------|-------------|---------------|
 | 🖥️ **Gradio Web UI** | Interactive web interface for music generation | [Gradio Guide](./docs/en/GRADIO_GUIDE.md) |
+| 🎚️ **Studio UI (Experimental)** | Optional HTML frontend for REST API (DAW-like) | [Studio UI](./docs/en/studio.md) |
 | 🐍 **Python API** | Programmatic access for integration | [Inference API](./docs/en/INFERENCE.md) |
 | 🌐 **REST API** | HTTP-based async API for services | [REST API](./docs/en/API.md) |
 
 **📚 Documentation available in:** [English](./docs/en/) | [中文](./docs/zh/) | [日本語](./docs/ja/)
+
+### Experimental Studio UI
+
+An optional, frontend-only HTML Studio UI is available for users who prefer a more structured interface. It uses the same REST API and does not change backend behavior. Start the API server, then open `ui/studio.html` in a browser and point it at your API URL. See [Studio UI](./docs/en/studio.md).
 
 ## 📖 Tutorial
 

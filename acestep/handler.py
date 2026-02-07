@@ -83,6 +83,7 @@ class AceStepHandler:
         self.custom_layers_config = {2: [6], 3: [10, 11], 4: [3], 5: [8, 9], 6: [8]}
         self.offload_to_cpu = False
         self.offload_dit_to_cpu = False
+        self.compiled = False
         self.current_offload_cost = 0.0
         self.disable_tqdm = os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes") or not sys.stderr.isatty()
         self.debug_stats = os.environ.get("ACESTEP_DEBUG_STATS", "").lower() in ("1", "true", "yes")
@@ -320,7 +321,7 @@ class AceStepHandler:
         }
     
     def initialize_service(
-        self, 
+        self,
         project_root: str,
         config_path: str,
         device: str = "auto",
@@ -329,10 +330,11 @@ class AceStepHandler:
         offload_to_cpu: bool = False,
         offload_dit_to_cpu: bool = False,
         quantization: Optional[str] = None,
+        prefer_source: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Initialize DiT model service
-        
+
         Args:
             project_root: Project root path (may be checkpoints directory, will be handled automatically)
             config_path: Model config directory name (e.g., "acestep-v15-turbo")
@@ -341,7 +343,8 @@ class AceStepHandler:
             compile_model: Whether to use torch.compile to optimize the model
             offload_to_cpu: Whether to offload models to CPU when not in use
             offload_dit_to_cpu: Whether to offload DiT model to CPU when not in use (only effective if offload_to_cpu is True)
-        
+            prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
         Returns:
             (status_message, enable_generate_button)
         """
@@ -391,8 +394,13 @@ class AceStepHandler:
             self.device = device
             self.offload_to_cpu = offload_to_cpu
             self.offload_dit_to_cpu = offload_dit_to_cpu
-            # Set dtype based on device: bfloat16 for cuda, float32 for cpu
-            self.dtype = torch.bfloat16 if device in ["cuda","xpu"] else torch.float32
+            self.compiled = compile_model
+            # Set dtype based on device: bfloat16 for cuda/xpu/mps, float32 for cpu
+            # Models are trained in bfloat16; MPS supports bfloat16 natively since PyTorch 2.3+
+            if device in ["cuda", "xpu", "mps"]:
+                self.dtype = torch.bfloat16
+            else:
+                self.dtype = torch.float32
             self.quantization = quantization
             if self.quantization is not None:
                 assert compile_model, "Quantization requires compile_model to be True"
@@ -413,15 +421,15 @@ class AceStepHandler:
             # Check and download main model components (vae, text_encoder, default DiT)
             if not check_main_model_exists(checkpoint_path):
                 logger.info("[initialize_service] Main model not found, starting auto-download...")
-                success, msg = ensure_main_model(checkpoint_path)
+                success, msg = ensure_main_model(checkpoint_path, prefer_source=prefer_source)
                 if not success:
                     return f"❌ Failed to download main model: {msg}", False
                 logger.info(f"[initialize_service] {msg}")
-            
+
             # Check and download the requested DiT model
             if not check_model_exists(config_path, checkpoint_path):
                 logger.info(f"[initialize_service] DiT model '{config_path}' not found, starting auto-download...")
-                success, msg = ensure_dit_model(config_path, checkpoint_path)
+                success, msg = ensure_dit_model(config_path, checkpoint_path, prefer_source=prefer_source)
                 if not success:
                     return f"❌ Failed to download DiT model '{config_path}': {msg}", False
                 logger.info(f"[initialize_service] {msg}")
@@ -571,6 +579,41 @@ class AceStepHandler:
             logger.exception("[initialize_service] Error initializing model")
             return error_msg, False
     
+    def _empty_cache(self):
+        """Clear accelerator memory cache (CUDA, XPU, or MPS)."""
+        device_type = self.device if isinstance(self.device, str) else self.device.type
+        if device_type == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif device_type == "xpu" and hasattr(torch, 'xpu') and torch.xpu.is_available():
+            torch.xpu.empty_cache()
+        elif device_type == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+
+    def _synchronize(self):
+        """Synchronize accelerator operations (CUDA, XPU, or MPS)."""
+        device_type = self.device if isinstance(self.device, str) else self.device.type
+        if device_type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
+        elif device_type == "xpu" and hasattr(torch, 'xpu') and torch.xpu.is_available():
+            torch.xpu.synchronize()
+        elif device_type == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.synchronize()
+
+    def _memory_allocated(self):
+        """Get current accelerator memory usage in bytes, or 0 for unsupported backends."""
+        device_type = self.device if isinstance(self.device, str) else self.device.type
+        if device_type == "cuda" and torch.cuda.is_available():
+            return torch.cuda.memory_allocated()
+        # MPS and XPU don't expose per-tensor memory tracking
+        return 0
+
+    def _max_memory_allocated(self):
+        """Get peak accelerator memory usage in bytes, or 0 for unsupported backends."""
+        device_type = self.device if isinstance(self.device, str) else self.device.type
+        if device_type == "cuda" and torch.cuda.is_available():
+            return torch.cuda.max_memory_allocated()
+        return 0
+
     def _is_on_target_device(self, tensor, target_device):
         """Check if tensor is on the target device (handles cuda vs cuda:0 comparison)."""
         if tensor is None:
@@ -671,14 +714,9 @@ class AceStepHandler:
                     moved_state_dict[key] = value
             model.load_state_dict(moved_state_dict)
         
-        # Synchronize to ensure all transfers are complete
+        # Synchronize accelerator to ensure all transfers are complete
         if device != "cpu":
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            elif device == "mps" and hasattr(torch, "mps") and hasattr(torch.mps, "synchronize"):
-                torch.mps.synchronize()
-            elif hasattr(torch, "xpu") and torch.xpu.is_available():
-                torch.xpu.synchronize()
+            self._synchronize()
         
         # Final verification
         if device != "cpu":
@@ -1301,7 +1339,9 @@ class AceStepHandler:
     def _get_vae_dtype(self, device: Optional[str] = None) -> torch.dtype:
         """Get VAE dtype based on device."""
         device = device or self.device
-        return torch.bfloat16 if device in ["cuda", "xpu"] else self.dtype
+        if device in ["cuda", "xpu", "mps"]:
+            return torch.bfloat16
+        return self.dtype
     
     def _format_instruction(self, instruction: str) -> str:
         """Format instruction to ensure it ends with colon."""
@@ -1895,7 +1935,11 @@ class AceStepHandler:
 
         # Normalize audio_code_hints to batch list
         audio_code_hints = self._normalize_audio_code_hints(audio_code_hints, batch_size)
-        
+
+        # Guard: refer_audios can be None when reference audio UI path didn't populate it (e.g. TEXT2MUSIC)
+        if refer_audios is None:
+            refer_audios = [[torch.zeros(2, 30 * self.sample_rate)] for _ in range(batch_size)]
+
         for ii, refer_audio_list in enumerate(refer_audios):
             if isinstance(refer_audio_list, list):
                 for idx, refer_audio in enumerate(refer_audio_list):
@@ -2653,6 +2697,22 @@ class AceStepHandler:
             offload_wav_to_cpu = self._should_offload_wav_to_cpu()
         B, C, T = latents.shape
         
+        # Check device type (handle both string and torch.device)
+        device_type = self.device if isinstance(self.device, str) else self.device.type
+        if device_type == "mps":
+            # MPS conv1d has an output length limit; use smaller chunks to avoid it.
+            max_chunk_size = 32
+            if chunk_size > max_chunk_size:
+                orig_chunk_size = chunk_size
+                orig_overlap = overlap
+                chunk_size = max_chunk_size
+                overlap = min(overlap, max(1, chunk_size // 4))
+                logger.warning(
+                    f"[tiled_decode] MPS device detected; reducing chunk_size from {orig_chunk_size} "
+                    f"to {max_chunk_size} and overlap from {orig_overlap} to {overlap} "
+                    f"to avoid MPS conv output limit."
+                )
+        
         # If short enough, decode directly
         if T <= chunk_size:
             # Decode and immediately extract .sample to avoid keeping DecoderOutput object
@@ -3220,8 +3280,7 @@ class AceStepHandler:
                     del pred_latents
                     self._empty_cache()
                     
-                    if self.device.startswith("cuda") and torch.cuda.is_available():
-                        logger.debug(f"[generate_music] Before VAE decode: allocated={torch.cuda.memory_allocated()/1024**3:.2f}GB, max={torch.cuda.max_memory_allocated()/1024**3:.2f}GB")
+                    logger.debug(f"[generate_music] Before VAE decode: allocated={self._memory_allocated()/1024**3:.2f}GB, max={self._max_memory_allocated()/1024**3:.2f}GB")
                     
                     if use_tiled_decode:
                         logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
@@ -3231,8 +3290,7 @@ class AceStepHandler:
                         pred_wavs = decoder_output.sample
                         del decoder_output
                     
-                    if self.device.startswith("cuda") and torch.cuda.is_available():
-                        logger.debug(f"[generate_music] After VAE decode: allocated={torch.cuda.memory_allocated()/1024**3:.2f}GB, max={torch.cuda.max_memory_allocated()/1024**3:.2f}GB")
+                    logger.debug(f"[generate_music] After VAE decode: allocated={self._memory_allocated()/1024**3:.2f}GB, max={self._max_memory_allocated()/1024**3:.2f}GB")
                     
                     # Release pred_latents_for_decode after decode
                     del pred_latents_for_decode
@@ -3241,6 +3299,11 @@ class AceStepHandler:
                     if pred_wavs.dtype != torch.float32:
                         pred_wavs = pred_wavs.float()
                     
+                    # Anti-clipping normalization: scale down audio that exceeds [-1, 1] range
+                    # Uses 5*std as an estimate of peak amplitude; if already within range, leave unchanged
+                    std = torch.std(pred_wavs, dim=[1, 2], keepdim=True) * 5.0
+                    std[std < 1.0] = 1.0
+                    pred_wavs /= std
                     self._empty_cache()
             end_time = time.time()
             time_costs["vae_decode_time_cost"] = end_time - start_time
@@ -3400,8 +3463,10 @@ class AceStepHandler:
             if seed is None:
                 x0 = torch.randn_like(x1)
             else:
-                generator = torch.Generator(device=device).manual_seed(int(seed))
-                x0 = torch.randn(x1.shape, generator=generator, device=device, dtype=dtype)
+                # MPS doesn't support torch.Generator(device="mps"); use CPU generator and move result
+                gen_device = "cpu" if (isinstance(device, str) and device == "mps") or (hasattr(device, 'type') and device.type == "mps") else device
+                generator = torch.Generator(device=gen_device).manual_seed(int(seed))
+                x0 = torch.randn(x1.shape, generator=generator, device=gen_device, dtype=dtype).to(device)
             
             # Add noise to pred_latent: xt = t * noise + (1 - t) * x1
             xt = t_last_val * x0 + (1.0 - t_last_val) * x1
@@ -3606,8 +3671,10 @@ class AceStepHandler:
             if seed is None:
                 x0 = torch.randn_like(pred_latent)
             else:
-                generator = torch.Generator(device=device).manual_seed(int(seed))
-                x0 = torch.randn(pred_latent.shape, generator=generator, device=device, dtype=dtype)
+                # MPS doesn't support torch.Generator(device="mps"); use CPU generator and move result
+                gen_device = "cpu" if (isinstance(device, str) and device == "mps") or (hasattr(device, 'type') and device.type == "mps") else device
+                generator = torch.Generator(device=gen_device).manual_seed(int(seed))
+                x0 = torch.randn(pred_latent.shape, generator=generator, device=gen_device, dtype=dtype).to(device)
 
             # --- Input A: LM Score ---
             # t = 1.0, xt = Pure Noise

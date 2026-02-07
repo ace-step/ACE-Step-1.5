@@ -23,6 +23,11 @@ from loguru import logger
 DEBUG_MAX_CUDA_VRAM_ENV = "MAX_CUDA_VRAM"
 DEBUG_MAX_MPS_VRAM_ENV = "MAX_MPS_VRAM"
 
+# Tolerance for 16GB detection: reported VRAM like 15.5GB is effectively 16GB hardware
+# Real-world 16GB GPUs often report 15.7-15.9GB due to system/driver reservations
+VRAM_16GB_TOLERANCE_GB = 0.5
+VRAM_16GB_MIN_GB = 16.0 - VRAM_16GB_TOLERANCE_GB  # treat as 16GB class if >= this
+
 
 @dataclass
 class GPUConfig:
@@ -151,6 +156,12 @@ def get_gpu_memory_gb() -> float:
             # Get total memory of the first GPU in GB
             total_memory = torch.cuda.get_device_properties(0).total_memory
             memory_gb = total_memory / (1024**3)  # Convert bytes to GB
+            device_name = torch.cuda.get_device_name(0)
+            is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
+            if is_rocm:
+                logger.info(f"ROCm GPU detected: {device_name} ({memory_gb:.1f} GB, HIP {torch.version.hip})")
+            else:
+                logger.info(f"CUDA GPU detected: {device_name} ({memory_gb:.1f} GB)")
             return memory_gb
         elif hasattr(torch, 'xpu') and torch.xpu.is_available():
             # Get total memory of the first XPU in GB
@@ -172,8 +183,22 @@ def get_gpu_memory_gb() -> float:
                         return memory_gb
             except Exception as e:
                 logger.warning(f"Failed to detect MPS memory: {e}")
-            logger.warning(f"MPS available but total memory not exposed. Set {DEBUG_MAX_MPS_VRAM_ENV} to enable tiering.")
-            return 0
+
+            # Fallback: estimate from system unified memory (Apple Silicon shares CPU/GPU RAM)
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["sysctl", "-n", "hw.memsize"],
+                    capture_output=True, text=True, timeout=5
+                )
+                total_system_bytes = int(result.stdout.strip())
+                # MPS can use up to ~75% of unified memory for GPU workloads
+                memory_gb = (total_system_bytes / (1024**3)) * 0.75
+                return memory_gb
+            except Exception:
+                logger.warning(f"MPS available but total memory not exposed. Set {DEBUG_MAX_MPS_VRAM_ENV} to enable tiering.")
+                # Conservative fallback for M1/M2
+                return 8.0
         else:
             return 0
     except Exception as e:
@@ -202,9 +227,11 @@ def get_gpu_tier(gpu_memory_gb: float) -> str:
         return "tier3"
     elif gpu_memory_gb <= 12:
         return "tier4"
-    elif gpu_memory_gb <= 16:
+    elif gpu_memory_gb < VRAM_16GB_MIN_GB:
         return "tier5"
     elif gpu_memory_gb <= 24:
+        if gpu_memory_gb < 16.0:
+            logger.info(f"Detected {gpu_memory_gb:.2f}GB VRAM — treating as 16GB class GPU")
         return "tier6"
     else:
         return "unlimited"

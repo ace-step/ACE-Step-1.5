@@ -836,7 +836,14 @@ class MusicLyricScorer:
         """
         # Ensure Inputs are Tensors on the correct device
         if not isinstance(energy_matrix, torch.Tensor):
-            energy_matrix = torch.tensor(energy_matrix, device='cuda', dtype=torch.float32)
+            # Use available accelerator device; fallback to CPU if none
+            if torch.cuda.is_available():
+                _score_device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                _score_device = "mps"
+            else:
+                _score_device = "cpu"
+            energy_matrix = torch.tensor(energy_matrix, device=_score_device, dtype=torch.float32)
 
         device = energy_matrix.device
 

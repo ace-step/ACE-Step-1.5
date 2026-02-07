@@ -1,9 +1,9 @@
 """
 ACE-Step Model Downloader
 
-This module provides functionality to download models from HuggingFace Hub.
+This module provides functionality to download models from HuggingFace Hub or ModelScope.
 It supports automatic downloading when models are not found locally,
-as well as a CLI for manual downloads.
+with intelligent fallback between download sources.
 """
 
 import os
@@ -12,11 +12,159 @@ import argparse
 from typing import Optional, List, Dict, Tuple
 from pathlib import Path
 
-from huggingface_hub import snapshot_download, HfApi
 from loguru import logger
 
 
-# Model registry: maps local directory names to HuggingFace repo IDs
+# =============================================================================
+# Network Detection & Smart Download
+# =============================================================================
+
+def _can_access_google(timeout: float = 3.0) -> bool:
+    """
+    Check if Google is accessible (to determine HuggingFace vs ModelScope).
+
+    Args:
+        timeout: Connection timeout in seconds
+
+    Returns:
+        True if Google is accessible, False otherwise
+    """
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(timeout)
+        sock.connect(("www.google.com", 443))
+        return True
+    except (socket.timeout, socket.error, OSError):
+        return False
+    finally:
+        sock.close()
+
+
+def _download_from_huggingface_internal(
+    repo_id: str,
+    local_dir: Path,
+    token: Optional[str] = None,
+) -> None:
+    """
+    Internal function to download from HuggingFace Hub.
+
+    Args:
+        repo_id: HuggingFace repository ID (e.g., "ACE-Step/Ace-Step1.5")
+        local_dir: Local directory to save the model
+        token: HuggingFace token for private repos (optional)
+
+    Raises:
+        Exception: If download fails
+    """
+    from huggingface_hub import snapshot_download
+
+    logger.info(f"[Model Download] Downloading from HuggingFace: {repo_id} -> {local_dir}")
+
+    snapshot_download(
+        repo_id=repo_id,
+        local_dir=str(local_dir),
+        local_dir_use_symlinks=False,
+        token=token,
+    )
+
+
+def _download_from_modelscope_internal(
+    repo_id: str,
+    local_dir: Path,
+) -> None:
+    """
+    Internal function to download from ModelScope.
+
+    Args:
+        repo_id: ModelScope repository ID (e.g., "ACE-Step/Ace-Step1.5")
+        local_dir: Local directory to save the model
+
+    Raises:
+        Exception: If download fails
+    """
+    from modelscope import snapshot_download
+
+    logger.info(f"[Model Download] Downloading from ModelScope: {repo_id} -> {local_dir}")
+
+    snapshot_download(
+        model_id=repo_id,
+        local_dir=str(local_dir),
+    )
+
+
+def _smart_download(
+    repo_id: str,
+    local_dir: Path,
+    token: Optional[str] = None,
+    prefer_source: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    Smart download with automatic fallback between HuggingFace and ModelScope.
+
+    Automatically detects network environment and chooses the best download source.
+    If the primary source fails, automatically falls back to the alternative.
+
+    Args:
+        repo_id: Repository ID (same format for both HF and ModelScope)
+        local_dir: Local directory to save the model
+        token: HuggingFace token for private repos (optional)
+        prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
+    Returns:
+        Tuple of (success, message)
+    """
+    # Ensure directory exists
+    local_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine primary source
+    if prefer_source == "huggingface":
+        use_huggingface_first = True
+        logger.info("[Model Download] User preference: HuggingFace Hub")
+    elif prefer_source == "modelscope":
+        use_huggingface_first = False
+        logger.info("[Model Download] User preference: ModelScope")
+    else:
+        # Auto-detect network environment
+        can_access_google = _can_access_google()
+        use_huggingface_first = can_access_google
+        logger.info(f"[Model Download] Auto-detected: {'HuggingFace Hub' if can_access_google else 'ModelScope'}")
+
+    if use_huggingface_first:
+        logger.info("[Model Download] Using HuggingFace Hub...")
+        try:
+            _download_from_huggingface_internal(repo_id, local_dir, token)
+            return True, f"Successfully downloaded from HuggingFace: {repo_id}"
+        except Exception as e:
+            logger.warning(f"[Model Download] HuggingFace download failed: {e}")
+            logger.info("[Model Download] Falling back to ModelScope...")
+            try:
+                _download_from_modelscope_internal(repo_id, local_dir)
+                return True, f"Successfully downloaded from ModelScope: {repo_id}"
+            except Exception as e2:
+                error_msg = f"Both HuggingFace and ModelScope downloads failed. HF: {e}, MS: {e2}"
+                logger.error(error_msg)
+                return False, error_msg
+    else:
+        logger.info("[Model Download] Using ModelScope...")
+        try:
+            _download_from_modelscope_internal(repo_id, local_dir)
+            return True, f"Successfully downloaded from ModelScope: {repo_id}"
+        except Exception as e:
+            logger.warning(f"[Model Download] ModelScope download failed: {e}")
+            logger.info("[Model Download] Falling back to HuggingFace Hub...")
+            try:
+                _download_from_huggingface_internal(repo_id, local_dir, token)
+                return True, f"Successfully downloaded from HuggingFace: {repo_id}"
+            except Exception as e2:
+                error_msg = f"Both ModelScope and HuggingFace downloads failed. MS: {e}, HF: {e2}"
+                logger.error(error_msg)
+                return False, error_msg
+
+
+# =============================================================================
+# Model Registry
+# =============================================================================
 # Main model contains core components (vae, text_encoder, default DiT)
 MAIN_MODEL_REPO = "ACE-Step/Ace-Step1.5"
 
@@ -111,51 +259,41 @@ def download_main_model(
     checkpoints_dir: Optional[Path] = None,
     force: bool = False,
     token: Optional[str] = None,
+    prefer_source: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
-    Download the main ACE-Step model from HuggingFace.
-    
+    Download the main ACE-Step model from HuggingFace or ModelScope.
+
     The main model includes:
     - acestep-v15-turbo (default DiT model)
     - vae (audio encoder/decoder)
     - Qwen3-Embedding-0.6B (text encoder)
     - acestep-5Hz-lm-1.7B (default LM model)
-    
+
     Args:
         checkpoints_dir: Custom checkpoints directory (optional)
         force: Force re-download even if model exists
         token: HuggingFace token for private repos (optional)
-    
+        prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
     Returns:
         Tuple of (success, message)
     """
     if checkpoints_dir is None:
         checkpoints_dir = get_checkpoints_dir()
-    
+
     # Ensure checkpoints directory exists
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
-    
+
     if not force and check_main_model_exists(checkpoints_dir):
         return True, f"Main model already exists at {checkpoints_dir}"
-    
-    try:
-        print(f"Downloading main model from {MAIN_MODEL_REPO}...")
-        print(f"Destination: {checkpoints_dir}")
-        print("This may take a while depending on your internet connection...")
-        
-        # Download the main model
-        snapshot_download(
-            repo_id=MAIN_MODEL_REPO,
-            local_dir=str(checkpoints_dir),
-            local_dir_use_symlinks=False,
-            token=token,
-        )
-        
-        return True, f"Successfully downloaded main model to {checkpoints_dir}"
-    except Exception as e:
-        error_msg = f"Failed to download main model: {str(e)}"
-        logger.error(error_msg)
-        return False, error_msg
+
+    print(f"Downloading main model from {MAIN_MODEL_REPO}...")
+    print(f"Destination: {checkpoints_dir}")
+    print("This may take a while depending on your internet connection...")
+
+    # Use smart download with automatic fallback
+    return _smart_download(MAIN_MODEL_REPO, checkpoints_dir, token, prefer_source)
 
 
 def download_submodel(
@@ -163,52 +301,43 @@ def download_submodel(
     checkpoints_dir: Optional[Path] = None,
     force: bool = False,
     token: Optional[str] = None,
+    prefer_source: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
-    Download a specific sub-model from HuggingFace.
-    
+    Download a specific sub-model from HuggingFace or ModelScope.
+
     Args:
         model_name: Name of the model to download (must be in SUBMODEL_REGISTRY)
         checkpoints_dir: Custom checkpoints directory (optional)
         force: Force re-download even if model exists
         token: HuggingFace token for private repos (optional)
-    
+        prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
     Returns:
         Tuple of (success, message)
     """
     if model_name not in SUBMODEL_REGISTRY:
         available = ", ".join(SUBMODEL_REGISTRY.keys())
         return False, f"Unknown model '{model_name}'. Available models: {available}"
-    
+
     if checkpoints_dir is None:
         checkpoints_dir = get_checkpoints_dir()
-    
+
     # Ensure checkpoints directory exists
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
-    
+
     model_path = checkpoints_dir / model_name
-    
+
     if not force and model_path.exists():
         return True, f"Model '{model_name}' already exists at {model_path}"
-    
+
     repo_id = SUBMODEL_REGISTRY[model_name]
-    
-    try:
-        print(f"Downloading {model_name} from {repo_id}...")
-        print(f"Destination: {model_path}")
-        
-        snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(model_path),
-            local_dir_use_symlinks=False,
-            token=token,
-        )
-        
-        return True, f"Successfully downloaded {model_name} to {model_path}"
-    except Exception as e:
-        error_msg = f"Failed to download {model_name}: {str(e)}"
-        logger.error(error_msg)
-        return False, error_msg
+
+    print(f"Downloading {model_name} from {repo_id}...")
+    print(f"Destination: {model_path}")
+
+    # Use smart download with automatic fallback
+    return _smart_download(repo_id, model_path, token, prefer_source)
 
 
 def download_all_models(
@@ -252,58 +381,62 @@ def download_all_models(
 def ensure_main_model(
     checkpoints_dir: Optional[Path] = None,
     token: Optional[str] = None,
+    prefer_source: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
     Ensure the main model is available, downloading if necessary.
-    
+
     This function is designed to be called during initialization.
     It will only download if the model doesn't exist.
-    
+
     Args:
         checkpoints_dir: Custom checkpoints directory (optional)
         token: HuggingFace token for private repos (optional)
-    
+        prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
     Returns:
         Tuple of (success, message)
     """
     if checkpoints_dir is None:
         checkpoints_dir = get_checkpoints_dir()
-    
+
     if check_main_model_exists(checkpoints_dir):
         return True, "Main model is available"
-    
+
     print("\n" + "=" * 60)
     print("Main model not found. Starting automatic download...")
     print("=" * 60 + "\n")
-    
-    return download_main_model(checkpoints_dir, token=token)
+
+    return download_main_model(checkpoints_dir, token=token, prefer_source=prefer_source)
 
 
 def ensure_lm_model(
     model_name: Optional[str] = None,
     checkpoints_dir: Optional[Path] = None,
     token: Optional[str] = None,
+    prefer_source: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
     Ensure an LM model is available, downloading if necessary.
-    
+
     Args:
         model_name: Name of the LM model (defaults to DEFAULT_LM_MODEL)
         checkpoints_dir: Custom checkpoints directory (optional)
         token: HuggingFace token for private repos (optional)
-    
+        prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
     Returns:
         Tuple of (success, message)
     """
     if model_name is None:
         model_name = DEFAULT_LM_MODEL
-    
+
     if checkpoints_dir is None:
         checkpoints_dir = get_checkpoints_dir()
-    
+
     if check_model_exists(model_name, checkpoints_dir):
         return True, f"LM model '{model_name}' is available"
-    
+
     # Check if this is a known LM model
     if model_name not in SUBMODEL_REGISTRY:
         # Check if it might be a variant name
@@ -313,47 +446,49 @@ def ensure_lm_model(
                 break
         else:
             return False, f"Unknown LM model: {model_name}"
-    
+
     print("\n" + "=" * 60)
     print(f"LM model '{model_name}' not found. Starting automatic download...")
     print("=" * 60 + "\n")
-    
-    return download_submodel(model_name, checkpoints_dir, token=token)
+
+    return download_submodel(model_name, checkpoints_dir, token=token, prefer_source=prefer_source)
 
 
 def ensure_dit_model(
     model_name: str,
     checkpoints_dir: Optional[Path] = None,
     token: Optional[str] = None,
+    prefer_source: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
     Ensure a DiT model is available, downloading if necessary.
-    
+
     Args:
         model_name: Name of the DiT model
         checkpoints_dir: Custom checkpoints directory (optional)
         token: HuggingFace token for private repos (optional)
-    
+        prefer_source: Preferred download source ("huggingface", "modelscope", or None for auto-detect)
+
     Returns:
         Tuple of (success, message)
     """
     if checkpoints_dir is None:
         checkpoints_dir = get_checkpoints_dir()
-    
+
     if check_model_exists(model_name, checkpoints_dir):
         return True, f"DiT model '{model_name}' is available"
-    
+
     # Check if this is the default turbo model (part of main)
     if model_name == "acestep-v15-turbo":
-        return ensure_main_model(checkpoints_dir, token)
-    
+        return ensure_main_model(checkpoints_dir, token, prefer_source)
+
     # Check if it's a known sub-model
     if model_name in SUBMODEL_REGISTRY:
         print("\n" + "=" * 60)
         print(f"DiT model '{model_name}' not found. Starting automatic download...")
         print("=" * 60 + "\n")
-        return download_submodel(model_name, checkpoints_dir, token=token)
-    
+        return download_submodel(model_name, checkpoints_dir, token=token, prefer_source=prefer_source)
+
     return False, f"Unknown DiT model: {model_name}"
 
 
@@ -361,28 +496,29 @@ def print_model_list():
     """Print formatted list of available models."""
     print("\nAvailable Models for Download:")
     print("=" * 60)
-    
+    print("\nSupported Sources: HuggingFace Hub <-> ModelScope (auto-fallback)")
+
     print("\n[Main Model]")
     print(f"  main -> {MAIN_MODEL_REPO}")
     print("  Contains: vae, Qwen3-Embedding-0.6B, acestep-v15-turbo, acestep-5Hz-lm-1.7B")
-    
+
     print("\n[Optional LM Models]")
     for name, repo in SUBMODEL_REGISTRY.items():
         if "lm" in name.lower():
             print(f"  {name} -> {repo}")
-    
+
     print("\n[Optional DiT Models]")
     for name, repo in SUBMODEL_REGISTRY.items():
         if "lm" not in name.lower():
             print(f"  {name} -> {repo}")
-    
+
     print("\n" + "=" * 60)
 
 
 def main():
     """CLI entry point for model downloading."""
     parser = argparse.ArgumentParser(
-        description="Download ACE-Step models from HuggingFace Hub",
+        description="Download ACE-Step models with automatic fallback (HuggingFace <-> ModelScope)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -390,6 +526,11 @@ Examples:
   acestep-download --all                    # Download all available models
   acestep-download --model acestep-v15-sft  # Download a specific model
   acestep-download --list                   # List all available models
+
+Network Detection:
+  Automatically detects network environment and chooses the best download source:
+  - Google accessible -> HuggingFace (fallback to ModelScope)
+  - Google blocked -> ModelScope (fallback to HuggingFace)
 
 Alternative using huggingface-cli:
   huggingface-cli download ACE-Step/Ace-Step1.5 --local-dir ./checkpoints

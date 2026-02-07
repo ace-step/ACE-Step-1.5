@@ -58,7 +58,11 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             height: 100%;
             width: 100%;
         }
-        """
+        /* Position Audio time labels lower to avoid scrollbar overlap */
+        .component-wrapper > .timestamps {
+            transform: translateY(15px);
+        }
+        """,
     ) as demo:
         
         gr.HTML(f"""

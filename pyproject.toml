@@ -7,13 +7,13 @@ requires-python = "==3.11.*"
 license = {text = "MIT"}
 dependencies = [
     # PyTorch for Windows with CUDA 12.8
-    "torch==2.7.1; sys_platform == 'win32'",
-    "torchvision; sys_platform == 'win32'",
-    "torchaudio==2.7.1; sys_platform == 'win32'",
+    "torch==2.7.1+cu128; sys_platform == 'win32'",
+    "torchvision==0.22.1+cu128; sys_platform == 'win32'",
+    "torchaudio==2.7.1+cu128; sys_platform == 'win32'",
     # PyTorch for Linux with CUDA 12.8
-    "torch==2.10.0; sys_platform == 'linux'",
-    "torchvision; sys_platform == 'linux'",
-    "torchaudio==2.10.0; sys_platform == 'linux'",
+    "torch==2.10.0+cu128; sys_platform == 'linux'",
+    "torchvision==0.25.0+cu128; sys_platform == 'linux'",
+    "torchaudio==2.10.0+cu128; sys_platform == 'linux'",
     # PyTorch for macOS (CPU / MPS)
     "torch>=2.9.1; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "torchvision; sys_platform == 'darwin' and platform_machine == 'arm64'",
@@ -33,13 +33,15 @@ dependencies = [
     "uvicorn[standard]>=0.27.0",
     "numba>=0.63.1",
     "vector-quantize-pytorch>=1.27.15",
-    "torchcodec>=0.9.1; sys_platform != 'darwin'",
+    "torchcodec>=0.9.1",
     "torchao",
+    "toml",
     # Training dependencies
     "peft>=0.7.0",
     "lightning>=2.0.0",
     # Local third-party packages
-    "nano-vllm; sys_platform != 'darwin'",
+    # nano-vllm is a local package - install separately: pip install -e acestep/third_parts/nano-vllm
+    # For uv users: automatically handled via [tool.uv.sources]
     "modelscope",
     "tensorboard>=2.20.0",
 ]
@@ -52,8 +54,6 @@ explicit = true
 [tool.uv]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
-    "sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "sys_platform == 'win32' and platform_machine == 'AMD64'",
 ]
 
 [tool.uv.sources]

@@ -1,3 +1,10 @@
+#Exclude potential (c) training data
+*_lyrics.txt
+*.mp3
+AlbumArt*.jpg
+Folder.jpg
+
+
 data/
 *.mp3
 *.wav
@@ -227,3 +234,7 @@ datasets/
 python_embeded/
 checkpoints_pack/
 issues/
+PortableGit/
+proxy_config.txt
+gradio_outputs/
+acestep/third_parts/vllm/

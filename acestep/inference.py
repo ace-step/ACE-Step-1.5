@@ -13,7 +13,7 @@ from typing import Optional, Union, List, Dict, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from loguru import logger
 
-from acestep.audio_utils import AudioSaver, generate_uuid_from_params
+from acestep.audio_utils import AudioSaver, generate_uuid_from_params, is_audio_silent
 
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
@@ -618,6 +618,7 @@ def generate_music(
         # Build audios list for GenerationResult with params and save files
         # Audio saving and UUID generation handled here, outside of handler
         audios = []
+        silent_warnings = []
         for idx, dit_audio in enumerate(dit_audios):
             # Create a copy of params dict for this audio
             audio_params = base_params_dict.copy()
@@ -642,9 +643,23 @@ def generate_music(
 
             audio_key = generate_uuid_from_params(audio_params)
 
-            # Save audio file (handled outside handler)
+            silent_check = False
+            if audio_tensor is not None:
+                silent_check, rms_val, peak_val = is_audio_silent(audio_tensor, channels_first=True)
+                if silent_check:
+                    logger.warning(
+                        f"[generate_music] Silent output detected (idx={idx}, RMS={rms_val:.2e}, peak={peak_val:.2e}). "
+                        "Likely cause: LLM backend returned empty conditioning, or incompatible torch/triton/flash-attn. "
+                        "Suggest running with --backend pt."
+                    )
+                    silent_warnings.append(
+                        f"Output {idx + 1}: silent or near-silent (RMS≈{rms_val:.2e}). "
+                        "Likely causes: LLM backend failure, incompatible torch/triton/flash-attn, or CPU/fallback path. "
+                        "Try running with --backend pt."
+                    )
+
             audio_path = None
-            if audio_tensor is not None and save_dir is not None:
+            if audio_tensor is not None and save_dir is not None and not silent_check:
                 try:
                     audio_file = os.path.join(save_dir, f"{audio_key}.{audio_format}")
                     audio_path = audio_saver.save_audio(audio_tensor,
@@ -654,14 +669,15 @@ def generate_music(
                                                         channels_first=True)
                 except Exception as e:
                     logger.error(f"[generate_music] Failed to save audio file: {e}")
-                    audio_path = ""  # Fallback to empty path
+                    audio_path = ""
 
             audio_dict = {
-                "path": audio_path or "",  # File path (saved here, not in handler)
-                "tensor": audio_tensor,  # Audio tensor [channels, samples], CPU, float32
+                "path": audio_path or "",
+                "tensor": audio_tensor,
                 "key": audio_key,
                 "sample_rate": sample_rate,
                 "params": audio_params,
+                "silent": silent_check,
             }
 
             audios.append(audio_dict)
@@ -697,6 +713,8 @@ def generate_music(
             status_message = "\n".join(lm_status) + "\n" + status_message
         else:
             status_message = status_message
+        if silent_warnings:
+            status_message = "⚠️ Silent output detected:\n" + "\n".join(silent_warnings) + "\n\nSuggested fix: try running with --backend pt\n\n" + (status_message or "")
         # Create and return GenerationResult
         return GenerationResult(
             audios=audios,

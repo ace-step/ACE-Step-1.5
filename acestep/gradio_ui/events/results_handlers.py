@@ -698,19 +698,22 @@ def generate_with_progress(
             audio_tensor = audios[i]["tensor"]
             sample_rate = audios[i]["sample_rate"]
             audio_params = audios[i]["params"]
-            # Use local output directory instead of system temp
+            is_silent = audios[i].get("silent", False)
             timestamp = int(time_module.time())
             temp_dir = os.path.join(DEFAULT_RESULTS_DIR, f"batch_{timestamp}")
             temp_dir = os.path.abspath(temp_dir).replace("\\", "/")
             os.makedirs(temp_dir, exist_ok=True)
             json_path = os.path.join(temp_dir, f"{key}.json").replace("\\", "/")
             audio_path = os.path.join(temp_dir, f"{key}.{audio_format}").replace("\\", "/")
-            save_audio(audio_data=audio_tensor, output_path=audio_path, sample_rate=sample_rate, format=audio_format, channels_first=True)
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(audio_params, f, indent=2, ensure_ascii=False)
-            audio_outputs[i] = audio_path
-            all_audio_paths.append(audio_path)
-            all_audio_paths.append(json_path)
+            if not is_silent and audio_tensor is not None:
+                save_audio(audio_data=audio_tensor, output_path=audio_path, sample_rate=sample_rate, format=audio_format, channels_first=True)
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(audio_params, f, indent=2, ensure_ascii=False)
+                audio_outputs[i] = audio_path
+                all_audio_paths.append(audio_path)
+                all_audio_paths.append(json_path)
+            else:
+                audio_outputs[i] = None
             
             code_str = audio_params.get("audio_codes", "")
             final_codes_list[i] = code_str

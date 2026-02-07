@@ -300,6 +300,33 @@ def generate_uuid_from_audio_data(
 # Global default instance
 _default_saver = AudioSaver(default_format="flac")
 
+SILENT_RMS_THRESHOLD = 1e-5
+SILENT_PEAK_THRESHOLD = 1e-5
+
+
+def is_audio_silent(
+    audio_data: Union[torch.Tensor, np.ndarray],
+    rms_threshold: float = SILENT_RMS_THRESHOLD,
+    peak_threshold: float = SILENT_PEAK_THRESHOLD,
+    channels_first: bool = True,
+) -> Tuple[bool, float, float]:
+    """
+    Check if audio is silent or near-silent (e.g. zeroed conditioning output).
+    Returns (is_silent, rms, peak) where rms/peak are computed over the full signal.
+    """
+    if audio_data is None:
+        return True, 0.0, 0.0
+    if isinstance(audio_data, np.ndarray):
+        x = np.asarray(audio_data, dtype=np.float64).ravel()
+    else:
+        x = audio_data.cpu().float().numpy().ravel()
+    if x.size == 0:
+        return True, 0.0, 0.0
+    rms = float(np.sqrt(np.mean(x * x)))
+    peak = float(np.max(np.abs(x)))
+    is_silent = rms <= rms_threshold and peak <= peak_threshold
+    return is_silent, rms, peak
+
 
 def save_audio(
     audio_data: Union[torch.Tensor, np.ndarray],

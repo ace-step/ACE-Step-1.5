@@ -245,7 +245,8 @@ class LLMHandler:
         """Apply top-p (nucleus) filtering to logits"""
         if top_p is not None and 0.0 < top_p < 1.0:
             sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+            # Upcast to float32 for stable softmax/cumsum (critical for float16/MPS)
+            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits.float(), dim=-1), dim=-1)
             sorted_indices_to_remove = cumulative_probs > top_p
             sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
             sorted_indices_to_remove[..., 0] = 0
@@ -254,9 +255,14 @@ class LLMHandler:
         return logits
     
     def _sample_tokens(self, logits: torch.Tensor, temperature: float) -> torch.Tensor:
-        """Sample tokens from logits with temperature"""
+        """Sample tokens from logits with temperature.
+        
+        Upcasts to float32 for numerical stability (float16 logits can overflow
+        during softmax, especially after CFG scaling).
+        """
         if temperature > 0:
-            logits = logits / temperature
+            # Upcast to float32 for stable softmax (critical for float16/MPS)
+            logits = logits.float() / temperature
             probs = torch.softmax(logits, dim=-1)
             return torch.multinomial(probs, num_samples=1).squeeze(1)
         else:
@@ -338,15 +344,24 @@ class LLMHandler:
                     device = "cuda"
                 elif hasattr(torch, 'xpu') and torch.xpu.is_available():
                     device = "xpu"
+                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    device = "mps"
                 else:
                     device = "cpu"
 
             self.device = device
             self.offload_to_cpu = offload_to_cpu
             
-            # Set dtype based on device: bfloat16 for cuda, float32 for cpu
+            # Set dtype based on device: bfloat16 for cuda/xpu, float32 for mps/cpu
+            # Note: LLM stays in float32 on MPS because autoregressive generation is
+            # latency-bound (not compute-bound), and many LLM weights trained in bfloat16
+            # produce NaN/inf when naively converted to float16 (different exponent range).
+            # The DiT and VAE use float16 on MPS where it actually helps throughput.
             if dtype is None:
-                self.dtype = torch.bfloat16 if device in ["cuda", "xpu"] else torch.float32
+                if device in ["cuda", "xpu"]:
+                    self.dtype = torch.bfloat16
+                else:
+                    self.dtype = torch.float32
             else:
                 self.dtype = dtype
 
@@ -736,8 +751,8 @@ class LLMHandler:
         
         generated_ids = generated_ids[input_length:]
         
-        # Move to CPU for decoding
-        if generated_ids.is_cuda:
+        # Move to CPU for decoding (tokenizer needs CPU tensors)
+        if not generated_ids.is_cpu:
             generated_ids = generated_ids.cpu()
         
         output_text = self.llm_tokenizer.decode(generated_ids, skip_special_tokens=False)
@@ -784,6 +799,8 @@ class LLMHandler:
                     torch.manual_seed(seeds[i])
                     if torch.cuda.is_available():
                         torch.cuda.manual_seed_all(seeds[i])
+                    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                        torch.mps.manual_seed(seeds[i])
                 
                 # Generate using single-item method with batch-mode defaults
                 output_text = self._run_pt_single(
@@ -2013,13 +2030,16 @@ class LLMHandler:
                         self.llm.reset()
                 except Exception:
                     pass  # Ignore errors during cleanup
-            # Clear CUDA or XPU cache to release any corrupted memory
+            # Clear accelerator cache to release any corrupted memory
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
             elif hasattr(torch, 'xpu') and torch.xpu.is_available():
                 torch.xpu.empty_cache()
                 torch.xpu.synchronize()
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+                torch.mps.synchronize()
             return "", f"❌ Error generating from formatted prompt: {type(e).__name__}: {e or error_detail.splitlines()[-1]}"
     
     def _generate_with_constrained_decoding(
@@ -2182,7 +2202,8 @@ class LLMHandler:
                 uncond_logits = next_token_logits[uncond_start_idx:uncond_start_idx+batch_size]
                 
                 # Apply CFG formula: cfg_logits = uncond_logits + cfg_scale * (cond_logits - uncond_logits)
-                cfg_logits = uncond_logits + cfg_scale * (cond_logits - uncond_logits)
+                # Upcast to float32 to prevent overflow in float16 (CFG scaling can exceed fp16 range)
+                cfg_logits = uncond_logits.float() + cfg_scale * (cond_logits.float() - uncond_logits.float())
                 
                 # Apply constrained processor FIRST (modifies logits based on FSM state)
                 if constrained_processor is not None:
@@ -2391,7 +2412,11 @@ class LLMHandler:
             start_time = time.time()
             if hasattr(model, "to"):
                 model.to("cpu")
-            torch.cuda.empty_cache()
+            # Clear accelerator cache after offloading
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
             offload_time = time.time() - start_time
             logger.info(f"Offloaded LLM to CPU in {offload_time:.4f}s")
     

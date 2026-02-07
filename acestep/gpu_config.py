@@ -147,6 +147,22 @@ def get_gpu_memory_gb() -> float:
             total_memory = torch.xpu.get_device_properties(0).total_memory
             memory_gb = total_memory / (1024**3)  # Convert bytes to GB
             return memory_gb
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            # MPS (Apple Silicon) - estimate from system unified memory
+            # Apple Silicon shares memory between CPU and GPU; report recommended allocation
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["sysctl", "-n", "hw.memsize"],
+                    capture_output=True, text=True, timeout=5
+                )
+                total_system_bytes = int(result.stdout.strip())
+                # MPS can use up to ~75% of unified memory for GPU workloads
+                memory_gb = (total_system_bytes / (1024**3)) * 0.75
+                return memory_gb
+            except Exception:
+                # Fallback: assume 8GB usable for GPU (conservative for M1/M2)
+                return 8.0
         else:
             return 0
     except Exception as e:

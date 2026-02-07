@@ -553,7 +553,7 @@ class MetadataConstrainedLogitsProcessor(LogitsProcessor):
                 continue
         
         if invalid_tokens_count > 0:
-            logger.warning(f"Found {invalid_tokens_count} audio code tokens with values outside valid range [0, {MAX_AUDIO_CODE}]")
+            logger.debug(f"Found {invalid_tokens_count} audio code tokens with values outside valid range [0, {MAX_AUDIO_CODE}]")
         
         # Log warning if no valid tokens found (this would prevent code generation)
         if len(self.audio_code_token_ids) == 0:

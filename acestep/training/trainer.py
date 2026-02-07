@@ -133,9 +133,12 @@ class PreprocessedLoRAModule(nn.Module):
         Returns:
             Loss tensor (float32 for stable backward)
         """
-        # Use autocast for bf16 mixed precision training (CUDA only)
-        if self.device.type == "cuda":
-            autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        # Use autocast for mixed precision training (bf16 on CUDA/XPU, fp16 on MPS)
+        _device_type = self.device if isinstance(self.device, str) else self.device.type
+        if _device_type in ("cuda", "xpu"):
+            autocast_ctx = torch.autocast(device_type=_device_type, dtype=torch.bfloat16)
+        elif _device_type == "mps":
+            autocast_ctx = torch.autocast(device_type=_device_type, dtype=torch.float16)
         else:
             autocast_ctx = nullcontext()
         with autocast_ctx:

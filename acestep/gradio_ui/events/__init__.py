@@ -113,13 +113,19 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
     
     generation_section["init_llm_checkbox"].change(
         fn=gen_h.update_audio_cover_strength_visibility,
-        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"]],
+        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"], generation_section["reference_audio"]],
         outputs=[generation_section["audio_cover_strength"]]
     )
     
     generation_section["task_type"].change(
         fn=gen_h.update_audio_cover_strength_visibility,
-        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"]],
+        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"], generation_section["reference_audio"]],
+        outputs=[generation_section["audio_cover_strength"]]
+    )
+    
+    generation_section["reference_audio"].change(
+        fn=gen_h.update_audio_cover_strength_visibility,
+        inputs=[generation_section["task_type"], generation_section["init_llm_checkbox"], generation_section["reference_audio"]],
         outputs=[generation_section["audio_cover_strength"]]
     )
     
@@ -147,7 +153,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
     )
     
     # ========== Instruction UI Updates ==========
-    for trigger in [generation_section["task_type"], generation_section["track_name"], generation_section["complete_track_classes"]]:
+    for trigger in [generation_section["task_type"], generation_section["track_name"], generation_section["complete_track_classes"], generation_section["reference_audio"]]:
         trigger.change(
             fn=lambda *args: gen_h.update_instruction_ui(dit_handler, *args),
             inputs=[
@@ -155,7 +161,8 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
                 generation_section["track_name"],
                 generation_section["complete_track_classes"],
                 generation_section["text2music_audio_code_string"],
-                generation_section["init_llm_checkbox"]
+                generation_section["init_llm_checkbox"],
+                generation_section["reference_audio"],
             ],
             outputs=[
                 generation_section["instruction_display_gen"],
@@ -928,6 +935,12 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
             training_section["edit_instrumental"],
             training_section["raw_lyrics_display"],
             training_section["has_raw_lyrics_state"],
+            # Update dataset-level settings
+            training_section["dataset_name"],
+            training_section["custom_tag"],
+            training_section["tag_position"],
+            training_section["all_instrumental"],
+            training_section["genre_ratio"],
         ]
     ).then(
         fn=lambda has_raw: gr.update(visible=has_raw),
@@ -975,6 +988,37 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
             training_section["label_progress"],
             training_section["dataset_builder_state"],
         ]
+    ).then(
+        # Refresh preview/edit fields after labeling completes
+        fn=train_h.get_sample_preview,
+        inputs=[
+            training_section["sample_selector"],
+            training_section["dataset_builder_state"],
+        ],
+        outputs=[
+            training_section["preview_audio"],
+            training_section["preview_filename"],
+            training_section["edit_caption"],
+            training_section["edit_genre"],
+            training_section["prompt_override"],
+            training_section["edit_lyrics"],
+            training_section["edit_bpm"],
+            training_section["edit_keyscale"],
+            training_section["edit_timesig"],
+            training_section["edit_duration"],
+            training_section["edit_language"],
+            training_section["edit_instrumental"],
+            training_section["raw_lyrics_display"],
+            training_section["has_raw_lyrics_state"],
+        ]
+    ).then(
+        fn=lambda status: f"{status or '✅ Auto-label complete.'}\n✅ Preview refreshed.",
+        inputs=[training_section["label_progress"]],
+        outputs=[training_section["label_progress"]],
+    ).then(
+        fn=lambda has_raw: gr.update(visible=bool(has_raw)),
+        inputs=[training_section["has_raw_lyrics_state"]],
+        outputs=[training_section["raw_lyrics_display"]],
     )
 
     # Mutual exclusion: format_lyrics and transcribe_lyrics cannot both be True
@@ -1065,7 +1109,10 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
             training_section["dataset_name"],
             training_section["dataset_builder_state"],
         ],
-        outputs=[training_section["save_status"]]
+        outputs=[
+            training_section["save_status"],
+            training_section["save_path"],
+        ]
     )
     
     # ========== Preprocess Handlers ==========
@@ -1098,6 +1145,12 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
             training_section["edit_instrumental"],
             training_section["raw_lyrics_display"],
             training_section["has_raw_lyrics_state"],
+            # Update dataset-level settings
+            training_section["dataset_name"],
+            training_section["custom_tag"],
+            training_section["tag_position"],
+            training_section["all_instrumental"],
+            training_section["genre_ratio"],
         ]
     ).then(
         fn=lambda has_raw: gr.update(visible=has_raw),

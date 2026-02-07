@@ -1,8 +1,17 @@
+import os
 from collections import deque
 import xxhash
 import numpy as np
 
 from nanovllm.engine.sequence import Sequence
+
+# Debug logging - enable with NANOVLLM_DEBUG=1
+_DEBUG = os.environ.get("NANOVLLM_DEBUG", "0") == "1"
+
+def _debug_log(msg: str):
+    """Print debug message if NANOVLLM_DEBUG is enabled"""
+    if _DEBUG:
+        print(f"[nanovllm block_mgr DEBUG] {msg}", flush=True)
 
 
 class Block:
@@ -57,6 +66,8 @@ class BlockManager:
         return len(self.free_block_ids) >= seq.num_blocks
 
     def allocate(self, seq: Sequence):
+        _debug_log(f"allocate: seq_id={seq.seq_id}, len={len(seq)}, num_blocks={seq.num_blocks}, "
+                  f"free_blocks={len(self.free_block_ids)}")
         assert not seq.block_table
         h = -1
         cache_miss = False
@@ -67,6 +78,8 @@ class BlockManager:
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
                 cache_miss = True
             if cache_miss:
+                if len(self.free_block_ids) == 0:
+                    _debug_log(f"  ERROR: no free blocks available!")
                 block_id = self.free_block_ids[0]
                 block = self._allocate_block(block_id)
             else:
@@ -80,11 +93,14 @@ class BlockManager:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id
             seq.block_table.append(block_id)
+        _debug_log(f"  allocated block_table: {seq.block_table}")
 
     def deallocate(self, seq: Sequence):
+        _debug_log(f"deallocate: seq_id={seq.seq_id}, block_table={seq.block_table}")
         for block_id in reversed(seq.block_table):
             block = self.blocks[block_id]
             block.ref_count -= 1
+            _debug_log(f"  block_id={block_id}, ref_count after decrement={block.ref_count}")
             if block.ref_count == 0:
                 # Fix: Clean up hash_to_block_id mapping to prevent stale references
                 # This prevents CUDA illegal memory access when prefix cache tries to
@@ -96,6 +112,7 @@ class BlockManager:
                 self._deallocate_block(block_id)
         seq.num_cached_tokens = 0
         seq.block_table.clear()
+        _debug_log(f"  deallocated, free_blocks={len(self.free_block_ids)}")
 
     def can_append(self, seq: Sequence) -> bool:
         return len(self.free_block_ids) >= (len(seq) % self.block_size == 1)

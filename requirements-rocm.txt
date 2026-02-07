@@ -1,0 +1,49 @@
+# ACE-Step 1.5 - AMD ROCm 7.2 Windows Dependencies
+# =================================================
+# Requires: Windows 11, Python 3.12, AMD RX 7000+ or RX 6000+ GPU
+# AMD driver: 26.1.1 or later
+#
+# STEP 1: Install ROCm SDK components
+#   pip install --no-cache-dir ^
+#     https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm_sdk_core-7.2.0.dev0-py3-none-win_amd64.whl ^
+#     https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm_sdk_devel-7.2.0.dev0-py3-none-win_amd64.whl ^
+#     https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm_sdk_libraries_custom-7.2.0.dev0-py3-none-win_amd64.whl ^
+#     https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm-7.2.0.dev0.tar.gz
+#
+# STEP 2: Install PyTorch for ROCm
+#   pip install --no-cache-dir ^
+#     https://repo.radeon.com/rocm/windows/rocm-rel-7.2/torch-2.9.1+rocmsdk20260116-cp312-cp312-win_amd64.whl ^
+#     https://repo.radeon.com/rocm/windows/rocm-rel-7.2/torchaudio-2.9.1+rocmsdk20260116-cp312-cp312-win_amd64.whl ^
+#     https://repo.radeon.com/rocm/windows/rocm-rel-7.2/torchvision-0.24.1+rocmsdk20260116-cp312-cp312-win_amd64.whl
+#
+# STEP 3: Install these dependencies
+#   pip install -r requirements-rocm.txt
+#
+# STEP 4: Launch with ROCm launcher
+#   start_gradio_ui_rocm.bat
+
+# Core dependencies
+transformers>=4.51.0,<4.58.0
+diffusers
+gradio>=6.5.1
+matplotlib>=3.7.5
+scipy>=1.10.1
+soundfile>=0.13.1
+loguru>=0.7.3
+einops>=0.8.1
+accelerate>=1.12.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+numba>=0.63.1
+vector-quantize-pytorch>=1.27.15
+# torchao excluded: imports torch.distributed which isn't available in ROCm Windows builds
+# Quantization features (--quantization flag) will not be available
+modelscope
+
+# Training dependencies (optional - for LoRA fine-tuning)
+peft>=0.7.0
+lightning>=2.0.0
+tensorboard>=2.0.0
+
+# nano-vllm tokenizer dependency (needed even with pt backend)
+xxhash

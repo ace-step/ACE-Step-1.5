@@ -12,8 +12,9 @@ description = "a lightweight vLLM implementation built from scratch"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "torch>=2.4.0",
-    "triton-windows>=3.0.0,<3.4; sys_platform == 'win32'",
-    "triton>=3.0.0; sys_platform == 'linux'",
+    # Triton and Flash Attention are optional on ROCm (Python 3.12) - SDPA fallback used instead
+    "triton-windows>=3.0.0,<3.4; sys_platform == 'win32' and python_version == '3.11'",
+    "triton>=3.0.0; sys_platform == 'linux' and python_version == '3.11'",
     "transformers>=4.51.0",
     "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.2/flash_attn-2.8.2+cu128torch2.7.1cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11' and platform_machine == 'AMD64'",
     "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.12/flash_attn-2.8.3+cu128torch2.10-cp311-cp311-linux_x86_64.whl ; sys_platform == 'linux' and python_version == '3.11' and platform_machine == 'x86_64'",

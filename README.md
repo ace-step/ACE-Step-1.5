@@ -179,7 +179,7 @@ Both scripts support:
 - ✅ Auto install `uv` if needed (via winget or PowerShell)
 - ✅ Configurable download source (HuggingFace/ModelScope)
 - ✅ Optional Git update check before startup
-- ✅ Customizable language, models, and parameters
+- ✅ Customizable , models, and parameters
 
 #### 📝 Configuration
 
@@ -187,7 +187,7 @@ Edit the scripts to customize settings:
 
 **start_gradio_ui.bat:**
 ```batch
-REM UI language (en, zh, ja)
+REM UI language (en, zh, he, ja)
 set LANGUAGE=zh
 
 REM Download source (auto, huggingface, modelscope)
@@ -374,7 +374,7 @@ API runs at http://localhost:8001. See [API Documentation](./docs/en/API.md) for
 | `--port` | 7860 | Server port |
 | `--server-name` | 127.0.0.1 | Server address (use `0.0.0.0` for network access) |
 | `--share` | false | Create public Gradio link |
-| `--language` | en | UI language: `en`, `zh`, `ja` |
+| `--language` | en | UI language: `en`, `zh`, `he`, `ja` |
 | `--init_service` | false | Auto-initialize models on startup |
 | `--init_llm` | auto | LLM initialization: `true` (force), `false` (disable), omit for auto |
 | `--config_path` | auto | DiT model (e.g., `acestep-v15-turbo`, `acestep-v15-turbo-shift3`) |

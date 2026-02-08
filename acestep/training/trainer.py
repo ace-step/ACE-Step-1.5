@@ -399,7 +399,7 @@ class LoRATrainer:
                         if adapter_weights_path.endswith(".safetensors"):
                             state_dict = load_file(adapter_weights_path)
                         else:
-                            state_dict = torch.load(adapter_weights_path, map_location=self.module.device)
+                            state_dict = torch.load(adapter_weights_path, map_location=self.module.device, weights_only=True)
 
                         # Get the decoder (might be wrapped by Fabric)
                         decoder = self.module.model.decoder

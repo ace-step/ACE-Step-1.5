@@ -225,7 +225,7 @@ def load_lora_weights(
         model, _ = inject_lora_into_dit(model, lora_config)
         
         # Load weights
-        lora_state_dict = torch.load(lora_path, map_location='cpu')
+        lora_state_dict = torch.load(lora_path, map_location='cpu', weights_only=True)
         
         # Load into model
         model_state = model.state_dict()
@@ -325,7 +325,7 @@ def load_training_checkpoint(
     state_path = os.path.join(checkpoint_dir, "training_state.pt")
     if os.path.exists(state_path):
         map_location = device if device else "cpu"
-        training_state = torch.load(state_path, map_location=map_location)
+        training_state = torch.load(state_path, map_location=map_location, weights_only=True)
 
         result["epoch"] = training_state.get("epoch", 0)
         result["global_step"] = training_state.get("global_step", 0)

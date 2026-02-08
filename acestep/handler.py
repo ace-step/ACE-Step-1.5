@@ -469,7 +469,7 @@ class AceStepHandler:
                     
                 silence_latent_path = os.path.join(acestep_v15_checkpoint_path, "silence_latent.pt")
                 if os.path.exists(silence_latent_path):
-                    self.silence_latent = torch.load(silence_latent_path).transpose(1, 2)
+                    self.silence_latent = torch.load(silence_latent_path, weights_only=True).transpose(1, 2)
                     # Always keep silence_latent on GPU - it's used in many places outside model context
                     # and is small enough that it won't significantly impact VRAM
                     self.silence_latent = self.silence_latent.to(device).to(self.dtype)

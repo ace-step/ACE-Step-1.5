@@ -82,7 +82,7 @@ class PreprocessedTensorDataset(Dataset):
             Dictionary containing all pre-computed tensors for training
         """
         tensor_path = self.valid_paths[idx]
-        data = torch.load(tensor_path, map_location='cpu')
+        data = torch.load(tensor_path, map_location='cpu', weights_only=True)
         
         return {
             "target_latents": data["target_latents"],  # [T, 64]

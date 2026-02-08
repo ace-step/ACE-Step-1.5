@@ -488,30 +488,54 @@ def init_service_wrapper(dit_handler, llm_handler, checkpoint, config_path, devi
     )
 
 
-def get_model_type_ui_settings(is_turbo: bool):
-    """Get UI settings based on whether the model is turbo or base"""
+def get_ui_control_config(is_turbo: bool) -> dict:
+    """Return UI control configuration (values, limits, visibility) for model type.
+    Used by both interactive init and service-mode startup so controls stay consistent.
+    """
     if is_turbo:
-        # Turbo model: max 20 steps, default 8, show shift with default 3.0, only show text2music/repaint/cover
-        return (
-            gr.update(value=8, maximum=20, minimum=1),  # inference_steps
-            gr.update(visible=False),  # guidance_scale
-            gr.update(visible=False),  # use_adg
-            gr.update(value=3.0, visible=True),  # shift (show with default 3.0)
-            gr.update(visible=False),  # cfg_interval_start
-            gr.update(visible=False),  # cfg_interval_end
-            gr.update(choices=TASK_TYPES_TURBO),  # task_type
-        )
+        return {
+            "inference_steps_value": 8,
+            "inference_steps_maximum": 20,
+            "inference_steps_minimum": 1,
+            "guidance_scale_visible": False,
+            "use_adg_visible": False,
+            "shift_value": 3.0,
+            "shift_visible": True,
+            "cfg_interval_start_visible": False,
+            "cfg_interval_end_visible": False,
+            "task_type_choices": TASK_TYPES_TURBO,
+        }
     else:
-        # Base model: max 200 steps, default 32, show CFG/ADG/shift, show all task types
-        return (
-            gr.update(value=32, maximum=200, minimum=1),  # inference_steps
-            gr.update(visible=True),  # guidance_scale
-            gr.update(visible=True),  # use_adg
-            gr.update(value=3.0, visible=True),  # shift (effective for base, default 3.0)
-            gr.update(visible=True),  # cfg_interval_start
-            gr.update(visible=True),  # cfg_interval_end
-            gr.update(choices=TASK_TYPES_BASE),  # task_type
-        )
+        return {
+            "inference_steps_value": 32,
+            "inference_steps_maximum": 200,
+            "inference_steps_minimum": 1,
+            "guidance_scale_visible": True,
+            "use_adg_visible": True,
+            "shift_value": 3.0,
+            "shift_visible": True,
+            "cfg_interval_start_visible": True,
+            "cfg_interval_end_visible": True,
+            "task_type_choices": TASK_TYPES_BASE,
+        }
+
+
+def get_model_type_ui_settings(is_turbo: bool):
+    """Get gr.update() tuple for model-type controls (used by init button / config_path change)."""
+    cfg = get_ui_control_config(is_turbo)
+    return (
+        gr.update(
+            value=cfg["inference_steps_value"],
+            maximum=cfg["inference_steps_maximum"],
+            minimum=cfg["inference_steps_minimum"],
+        ),
+        gr.update(visible=cfg["guidance_scale_visible"]),
+        gr.update(visible=cfg["use_adg_visible"]),
+        gr.update(value=cfg["shift_value"], visible=cfg["shift_visible"]),
+        gr.update(visible=cfg["cfg_interval_start_visible"]),
+        gr.update(visible=cfg["cfg_interval_end_visible"]),
+        gr.update(choices=cfg["task_type_choices"]),
+    )
 
 
 def update_negative_prompt_visibility(init_llm_checked):

@@ -11,6 +11,7 @@ from acestep.constants import (
     DEFAULT_DIT_INSTRUCTION,
 )
 from acestep.gradio_ui.i18n import t
+from acestep.gradio_ui.events.generation_handlers import get_ui_control_config
 from acestep.gpu_config import get_global_gpu_config, GPUConfig
 
 
@@ -227,14 +228,17 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
             with gr.Column(scale=2):
                 with gr.Accordion(t("generation.required_inputs"), open=True):
                     # Task type
-                    # Determine initial task_type choices based on actual model in use
-                    # When service is pre-initialized, use config_path from init_params
-                    actual_model = init_params.get('config_path', default_model) if service_pre_initialized else default_model
-                    actual_model_lower = (actual_model or "").lower()
-                    if "turbo" in actual_model_lower:
-                        initial_task_choices = TASK_TYPES_TURBO
+                    # When service is pre-initialized, use actual model type from handler so UI matches backend
+                    if service_pre_initialized and 'dit_handler' in init_params:
+                        ui_config = get_ui_control_config(init_params['dit_handler'].is_turbo_model())
+                        initial_task_choices = ui_config["task_type_choices"]
                     else:
-                        initial_task_choices = TASK_TYPES_BASE
+                        actual_model = init_params.get('config_path', default_model) if service_pre_initialized else default_model
+                        actual_model_lower = (actual_model or "").lower()
+                        if "turbo" in actual_model_lower:
+                            initial_task_choices = TASK_TYPES_TURBO
+                        else:
+                            initial_task_choices = TASK_TYPES_BASE
                     
                     with gr.Row(equal_height=True):
                         with gr.Column(scale=2):
@@ -486,14 +490,17 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                         )
         
         # Advanced Settings
-        # Default UI settings use turbo mode (max 20 steps, default 8, show shift with default 3)
-        # These will be updated after model initialization based on handler.is_turbo_model()
+        # When service is pre-initialized, use control config from actual model (SFT vs turbo)
+        if service_pre_initialized and 'dit_handler' in init_params:
+            _ui_config = get_ui_control_config(init_params['dit_handler'].is_turbo_model())
+        else:
+            _ui_config = get_ui_control_config(True)  # Default to turbo until model is loaded
         with gr.Accordion(t("generation.advanced_settings"), open=False):
             with gr.Row():
                 inference_steps = gr.Slider(
-                    minimum=1,
-                    maximum=20,
-                    value=8,
+                    minimum=_ui_config["inference_steps_minimum"],
+                    maximum=_ui_config["inference_steps_maximum"],
+                    value=_ui_config["inference_steps_value"],
                     step=1,
                     label=t("generation.inference_steps_label"),
                     info=t("generation.inference_steps_info")
@@ -505,7 +512,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     step=0.1,
                     label=t("generation.guidance_scale_label"),
                     info=t("generation.guidance_scale_info"),
-                    visible=False
+                    visible=_ui_config["guidance_scale_visible"]
                 )
                 with gr.Column():
                     seed = gr.Textbox(
@@ -531,16 +538,16 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     label=t("generation.use_adg_label"),
                     value=False,
                     info=t("generation.use_adg_info"),
-                    visible=False
+                    visible=_ui_config["use_adg_visible"]
                 )
                 shift = gr.Slider(
                     minimum=1.0,
                     maximum=5.0,
-                    value=3.0,
+                    value=_ui_config["shift_value"],
                     step=0.1,
                     label=t("generation.shift_label"),
                     info=t("generation.shift_info"),
-                    visible=True
+                    visible=_ui_config["shift_visible"]
                 )
                 infer_method = gr.Dropdown(
                     choices=["ode", "sde"],
@@ -564,7 +571,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     value=0.0,
                     step=0.01,
                     label=t("generation.cfg_interval_start"),
-                    visible=False
+                    visible=_ui_config["cfg_interval_start_visible"]
                 )
                 cfg_interval_end = gr.Slider(
                     minimum=0.0,
@@ -572,7 +579,7 @@ def create_generation_section(dit_handler, llm_handler, init_params=None, langua
                     value=1.0,
                     step=0.01,
                     label=t("generation.cfg_interval_end"),
-                    visible=False
+                    visible=_ui_config["cfg_interval_end_visible"]
                 )
 
             # LM (Language Model) Parameters

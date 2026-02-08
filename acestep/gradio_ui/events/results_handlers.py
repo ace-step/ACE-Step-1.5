@@ -1512,6 +1512,11 @@ def generate_with_batch_management(
     """
     Wrapper for generate_with_progress that adds batch queue management
     """
+    # Reset batch state for this run so UI shows 1/1 and new audio (Issue #163)
+    current_batch_index = 0
+    total_batches = 1
+    batch_queue = {}
+
     # Call the original generation function
     generator = generate_with_progress(
         dit_handler, llm_handler,
@@ -1666,19 +1671,21 @@ def generate_with_batch_management(
         next_batch_status_text = t("messages.autogen_enabled")
 
     # 4. Yield final result (includes Batch UI updates)
-    # Extract core 46 items from result (0-45)
+    # Extract core 46 items from result (0-45). Use fresh list/tuple refs so Gradio re-renders (Issue #163)
     # Structure: 0-7: audio, 8: all_audio_paths, 9: generation_info, 10: status, 11: seed,
     # 12-19: scores, 20-27: codes_display, 28-35: accordions, 36-43: lrc_display,
     # 44: lm_metadata, 45: is_format_caption
-    # (46: extra_outputs, 47: raw_codes_list are NOT included in UI yields)
-    ui_core = result[:46]
+    ui_core_list = list(result[:46])
+    if ui_core_list[8] is not None:
+        ui_core_list[8] = list(ui_core_list[8])  # Fresh list ref for all_audio_paths so UI updates
+    ui_core = tuple(ui_core_list)
 
     logger.info(f"[generate_with_batch_management] Final yield: {len(ui_core)} core + 9 state")
 
-    yield tuple(ui_core) + (
+    yield ui_core + (
         current_batch_index,
         total_batches,
-        batch_queue,
+        dict(batch_queue),  # New dict ref so Gradio sees state change
         next_params,
         batch_indicator_text,
         gr.update(interactive=can_go_previous),

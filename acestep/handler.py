@@ -2960,8 +2960,22 @@ class AceStepHandler:
             pred_latents = outputs["target_latents"]  # [batch, latent_length, latent_dim]
             time_costs = outputs["time_costs"]
             time_costs["offload_time_cost"] = self.current_offload_cost
-            logger.debug(f"[generate_music] pred_latents: {pred_latents.shape}, dtype={pred_latents.dtype} {pred_latents.min()=}, {pred_latents.max()=}, {pred_latents.mean()=} {pred_latents.std()=}")
+            logger.debug(f"[generate_music] pred_latents: {pred_latents.shape}, dtype={pred_latents.dtype} {pred_latents.min()=}, {pred_latents.max()=}, {pred_latents.mean()=}, {pred_latents.std()=}")
             logger.debug(f"[generate_music] time_costs: {time_costs}")
+
+            if torch.isnan(pred_latents).any() or torch.isinf(pred_latents).any():
+                raise RuntimeError(
+                    "Generation produced NaN or Inf latents. "
+                    "This usually indicates a checkpoint/config mismatch "
+                    "or unsupported quantization/backend combination. "
+                    "Try running with --backend pt or verify your model checkpoints match this release."
+                )
+            if pred_latents.numel() > 0 and pred_latents.abs().sum() == 0:
+                raise RuntimeError(
+                    "Generation produced zero latents. "
+                    "This usually indicates a checkpoint/config mismatch or unsupported setup."
+                )
+
             if progress:
                 progress(0.8, desc="Decoding audio...")
             logger.info("[generate_music] Decoding latents with VAE...")

@@ -98,6 +98,31 @@ class DiffusionMixinTests(unittest.TestCase):
         self.assertEqual(tuple(result["target_latents"].shape), (1, 2, 3))
         self.assertEqual(result["target_latents"].dtype, torch.float32)
 
+    def test_mlx_run_diffusion_wraps_scalar_tensor_timestep(self):
+        host = _Host(dtype=torch.float32)
+        encoder_hidden_states = torch.randn(1, 2, 3, dtype=torch.float32)
+        encoder_attention_mask = torch.ones(1, 2, dtype=torch.int64)
+        context_latents = torch.randn(1, 4, 3, dtype=torch.float32)
+        src_latents = torch.zeros(1, 2, 3, dtype=torch.float32)
+        scalar_timestep = torch.tensor(0.5, dtype=torch.float32)
+
+        def _fake_generate(**kwargs):
+            self.assertEqual(kwargs["timesteps"], [0.5])
+            return {"target_latents": np.zeros((1, 2, 3), dtype=np.float32), "time_costs": {}}
+
+        with patch("acestep.core.generation.handler.diffusion.mlx_generate_diffusion", side_effect=_fake_generate):
+            result = host._mlx_run_diffusion(
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=encoder_attention_mask,
+                context_latents=context_latents,
+                src_latents=src_latents,
+                seed=1,
+                timesteps=scalar_timestep,
+            )
+
+        self.assertEqual(tuple(result["target_latents"].shape), (1, 2, 3))
+        self.assertEqual(result["target_latents"].dtype, torch.float32)
+
     def test_mlx_run_diffusion_rejects_invalid_infer_method(self):
         host = _Host()
         x = torch.randn(1, 2, 3)

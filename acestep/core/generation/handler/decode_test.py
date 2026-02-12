@@ -1,3 +1,5 @@
+"""Unit tests for decode mixin extraction and boundary behavior."""
+
 import sys
 import types
 import unittest
@@ -10,13 +12,17 @@ from acestep.core.generation.handler.decode import DecodeMixin
 
 
 class _Host(DecodeMixin):
+    """Minimal host implementing attributes required by ``DecodeMixin``."""
+
     def __init__(self):
+        """Initialize host with decode defaults used by tests."""
         self.disable_tqdm = True
         self._mlx_vae_dtype = np.float32
         self.mlx_vae = types.SimpleNamespace(decode=lambda x: x)
 
 
 def _fake_mlx_modules():
+    """Build lightweight fake ``mlx`` modules for non-Apple test environments."""
     mx_core = types.ModuleType("mlx.core")
     mx_core.float32 = np.float32
     mx_core.issubdtype = np.issubdtype
@@ -31,6 +37,7 @@ def _fake_mlx_modules():
 
 class DecodeMixinTests(unittest.TestCase):
     def test_mlx_decode_single_short_path_uses_decode_fn_directly(self):
+        """Short path should call decode directly and preserve result."""
         host = _Host()
         z_nlc = np.zeros((1, 32, 8), dtype=np.float32)
 
@@ -41,6 +48,7 @@ class DecodeMixinTests(unittest.TestCase):
         self.assertTrue(np.allclose(result, 1.0))
 
     def test_mlx_decode_single_long_path_tiles_and_concatenates(self):
+        """Long path should tile/trim and reconstruct a continuous timeline."""
         host = _Host()
         z_nlc = np.zeros((1, 4096, 8), dtype=np.float32)
         call_counter = {"count": 0}
@@ -68,6 +76,7 @@ class DecodeMixinTests(unittest.TestCase):
         self.assertTrue(np.array_equal(result, expected))
 
     def test_mlx_decode_single_handles_collapsed_trim_window(self):
+        """Collapsed trim windows should still yield non-empty decoded output."""
         host = _Host()
         z_nlc = np.zeros((1, 4096, 8), dtype=np.float32)
         call_counter = {"count": 0}
@@ -89,6 +98,7 @@ class DecodeMixinTests(unittest.TestCase):
         self.assertGreater(result.shape[1], 0)
 
     def test_mlx_vae_decode_returns_torch_tensor_in_ncl_layout(self):
+        """Batch decode should return NCL torch tensor with expected shape."""
         host = _Host()
         host._mlx_compiled_decode = lambda chunk: np.ones((1, chunk.shape[1] * 2, 1), dtype=np.float32)
         latents = torch.zeros((2, 4, 16), dtype=torch.float32)  # [B, C, T]
@@ -102,7 +112,10 @@ class DecodeMixinTests(unittest.TestCase):
         self.assertEqual(result.dtype, torch.float32)
 
     def test_mlx_decode_single_requires_host_attributes(self):
+        """Decode helper should fail clearly when required host attrs are missing."""
         class _BrokenHost(DecodeMixin):
+            """Host missing required decode attributes."""
+
             pass
 
         host = _BrokenHost()
@@ -111,7 +124,10 @@ class DecodeMixinTests(unittest.TestCase):
                 host._mlx_decode_single(np.zeros((1, 32, 8), dtype=np.float32), decode_fn=lambda x: x)
 
     def test_mlx_vae_decode_requires_host_attributes(self):
+        """VAE decode should fail clearly when required host attrs are missing."""
         class _BrokenHost(DecodeMixin):
+            """Host missing required decode attributes."""
+
             pass
 
         host = _BrokenHost()

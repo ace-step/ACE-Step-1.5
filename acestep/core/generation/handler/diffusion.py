@@ -1,6 +1,6 @@
 """Diffusion-related handler helpers."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 from acestep.mlx_dit.generate import mlx_generate_diffusion
@@ -17,18 +17,18 @@ class DiffusionMixin:
 
     def _mlx_run_diffusion(
         self,
-        encoder_hidden_states,
-        encoder_attention_mask,
-        context_latents,
-        src_latents,
-        seed,
+        encoder_hidden_states: torch.Tensor,
+        encoder_attention_mask: Optional[torch.Tensor],
+        context_latents: torch.Tensor,
+        src_latents: torch.Tensor,
+        seed: Optional[int],
         infer_method: str = "ode",
         shift: float = 3.0,
-        timesteps=None,
+        timesteps: Optional[Any] = None,
         audio_cover_strength: float = 1.0,
-        encoder_hidden_states_non_cover=None,
-        encoder_attention_mask_non_cover=None,
-        context_latents_non_cover=None,
+        encoder_hidden_states_non_cover: Optional[torch.Tensor] = None,
+        encoder_attention_mask_non_cover: Optional[torch.Tensor] = None,
+        context_latents_non_cover: Optional[torch.Tensor] = None,
     ) -> Dict[str, Any]:
         """Run the MLX diffusion loop and return generated latents.
 
@@ -104,13 +104,19 @@ class DiffusionMixin:
             if context_latents_non_cover is not None else None
         )
 
-        # Convert timesteps tensor if present
+        # Convert timesteps tensor/iterable if present.
         ts_list = None
         if timesteps is not None:
             if hasattr(timesteps, "tolist"):
-                ts_list = timesteps.tolist()
+                ts_data = timesteps.tolist()
             else:
-                ts_list = list(timesteps)
+                ts_data = list(timesteps)
+            if isinstance(ts_data, (int, float)):
+                ts_list = [float(ts_data)]
+            elif isinstance(ts_data, tuple):
+                ts_list = list(ts_data)
+            else:
+                ts_list = ts_data
 
         result = mlx_generate_diffusion(
             mlx_decoder=self.mlx_decoder,

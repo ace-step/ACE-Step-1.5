@@ -1,6 +1,7 @@
 """Decode-related handler helpers."""
 
 import math
+from typing import Any, Callable, Optional
 
 import torch
 from loguru import logger
@@ -10,12 +11,23 @@ from tqdm import tqdm
 class DecodeMixin:
     """Mixin containing latent-to-audio decode helpers."""
 
-    def _require_decode_attr(self, attr_name: str):
+    def _require_decode_attr(self, attr_name: str) -> Any:
+        """Return required host attribute or raise a descriptive error.
+
+        Args:
+            attr_name: Name of a host attribute required by decode helpers.
+
+        Returns:
+            The resolved attribute value.
+
+        Raises:
+            AttributeError: If the host object does not define ``attr_name``.
+        """
         if not hasattr(self, attr_name):
             raise AttributeError(f"DecodeMixin host is missing required attribute '{attr_name}'")
         return getattr(self, attr_name)
 
-    def _mlx_vae_decode(self, latents_torch):
+    def _mlx_vae_decode(self, latents_torch: torch.Tensor) -> torch.Tensor:
         """Decode latents using native MLX VAE.
 
         Args:
@@ -76,7 +88,9 @@ class DecodeMixin:
 
         return torch.from_numpy(audio_ncl)
 
-    def _mlx_decode_single(self, z_nlc, decode_fn=None):
+    def _mlx_decode_single(
+        self, z_nlc: Any, decode_fn: Optional[Callable[[Any], Any]] = None
+    ) -> Any:
         """Decode a single sample with optional tiling for very long sequences.
 
         Args:

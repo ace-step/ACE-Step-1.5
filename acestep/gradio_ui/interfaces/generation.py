@@ -736,8 +736,8 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         generate_btn_interactive = init_params.get('enable_generate', False) if service_pre_initialized else False
         with gr.Row(equal_height=True, visible=True) as generate_btn_row:
             with gr.Column(scale=1, variant="compact"):
-                think_checkbox = gr.Checkbox(label=t("generation.think_label"), value=lm_initialized, scale=1, interactive=lm_initialized)
-                auto_score = gr.Checkbox(label=t("generation.auto_score_label"), value=False, scale=1, interactive=not service_mode)
+                think_checkbox = gr.Checkbox(label=t("generation.think_label"), value=lm_initialized, scale=1, interactive=lm_initialized, info=t("generation.think_info"))
+                auto_score = gr.Checkbox(label=t("generation.auto_score_label"), value=False, scale=1, interactive=not service_mode, info=t("generation.auto_score_info"))
             with gr.Column(scale=18):
                 generate_btn = gr.Button(t("generation.generate_btn"), variant="primary", size="lg", interactive=generate_btn_interactive)
             with gr.Column(scale=1, variant="compact"):

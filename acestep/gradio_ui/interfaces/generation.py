@@ -744,8 +744,9 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
                 autogen_checkbox = gr.Checkbox(
                     label=t("generation.autogen_label"), value=False, scale=1,
                     interactive=not service_mode,
+                    info=t("generation.autogen_info"),
                 )
-                auto_lrc = gr.Checkbox(label=t("generation.auto_lrc_label"), value=False, scale=1, interactive=not service_mode)
+                auto_lrc = gr.Checkbox(label=t("generation.auto_lrc_label"), value=False, scale=1, interactive=not service_mode, info=t("generation.auto_lrc_info"))
     
     return {
         "generation_mode": generation_mode,

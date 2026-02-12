@@ -197,10 +197,12 @@
     "score_sensitivity_label": "Quality Score Sensitivity",
     "score_sensitivity_info": "Lower = more sensitive (default: 1.0). Adjusts how PMI maps to [0,1]",
     "think_label": "Think",
+    "think_info": "Use the 5Hz Language Model to generate structured music codes (melody, rhythm, harmony) before diffusion, improving musical coherence and quality",
     "parallel_thinking_label": "ParallelThinking",
     "parallel_thinking_info": "Process batch samples in parallel for faster generation",
     "generate_btn": "🎵 Generate Music",
     "autogen_label": "AutoGen",
+    "autogen_info": "Automatically generate the next batch after the current one finishes, enabling continuous multi-batch generation",
     "caption_rewrite_label": "CaptionRewrite",
     "caption_rewrite_info": "Use LM to rewrite caption before generation"
   },

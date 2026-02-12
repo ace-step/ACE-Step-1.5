@@ -198,10 +198,12 @@
     "score_sensitivity_label": "品質スコア感度",
     "score_sensitivity_info": "低い = より敏感(デフォルト: 1.0)。PMIが[0,1]にマッピングする方法を調整",
     "think_label": "思考",
+    "think_info": "拡散の前に5Hz言語モデルを使用して構造化された音楽コード（メロディ、リズム、ハーモニー）を生成し、音楽の一貫性と品質を向上させます",
     "parallel_thinking_label": "並列思考",
     "parallel_thinking_info": "バッチサンプルを並列処理して高速生成",
     "generate_btn": "🎵 音楽を生成",
     "autogen_label": "自動生成",
+    "autogen_info": "現在のバッチ完了後に次のバッチを自動生成し、連続的なマルチバッチ生成を可能にします",
     "caption_rewrite_label": "キャプション書き換え",
     "caption_rewrite_info": "生成前にLMでキャプションを書き換え",
     "advanced_dit_params": "DiT 詳細パラメータ"

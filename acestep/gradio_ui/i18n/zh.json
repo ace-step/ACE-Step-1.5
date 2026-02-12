@@ -198,10 +198,12 @@
     "score_sensitivity_label": "质量评分敏感度",
     "score_sensitivity_info": "更低 = 更敏感(默认: 1.0). 调整PMI如何映射到[0,1]",
     "think_label": "思考",
+    "think_info": "使用5Hz语言模型在扩散前生成结构化音乐代码（旋律、节奏、和声），提高音乐连贯性和质量",
     "parallel_thinking_label": "并行思考",
     "parallel_thinking_info": "并行处理批量样本以加速生成",
     "generate_btn": "🎵 生成音乐",
     "autogen_label": "自动生成",
+    "autogen_info": "当前批次完成后自动生成下一批次，实现连续多批次生成",
     "caption_rewrite_label": "描述重写",
     "caption_rewrite_info": "生成前使用LM重写描述",
     "advanced_dit_params": "DiT 高级参数"

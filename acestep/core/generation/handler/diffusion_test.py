@@ -1,3 +1,5 @@
+"""Unit tests for diffusion mixin behavior and validation guards."""
+
 import unittest
 from unittest.mock import patch
 
@@ -8,22 +10,30 @@ from acestep.core.generation.handler.diffusion import DiffusionMixin
 
 
 class _Host(DiffusionMixin):
+    """Minimal host implementing attributes required by ``DiffusionMixin``."""
+
     def __init__(self, device: str = "cpu", dtype: torch.dtype = torch.float32):
+        """Initialize host with diffusion-runtime attributes used by tests."""
         self.mlx_decoder = object()
         self.device = device
         self.dtype = dtype
 
 
 class _IterableTimesteps:
+    """Simple iterable wrapper to validate non-list timestep handling."""
+
     def __init__(self, values):
+        """Store timestep values for iteration."""
         self._values = values
 
     def __iter__(self):
+        """Iterate over stored timesteps."""
         return iter(self._values)
 
 
 class DiffusionMixinTests(unittest.TestCase):
     def test_mlx_run_diffusion_converts_inputs_and_outputs_tensor(self):
+        """Diffusion call should convert inputs and return typed tensor output."""
         host = _Host(dtype=torch.float16)
         encoder_hidden_states = torch.randn(2, 4, 8, dtype=torch.float64)
         encoder_attention_mask = torch.ones(2, 4, dtype=torch.int64)
@@ -72,6 +82,7 @@ class DiffusionMixinTests(unittest.TestCase):
         self.assertTrue(torch.allclose(result["target_latents"], torch.ones_like(result["target_latents"])))
 
     def test_mlx_run_diffusion_handles_optional_and_iterable_timesteps(self):
+        """Optional non-cover tensors and iterable timesteps should be handled."""
         host = _Host(dtype=torch.float32)
         encoder_hidden_states = torch.randn(1, 2, 3, dtype=torch.float32)
         encoder_attention_mask = torch.ones(1, 2, dtype=torch.int64)
@@ -99,6 +110,7 @@ class DiffusionMixinTests(unittest.TestCase):
         self.assertEqual(result["target_latents"].dtype, torch.float32)
 
     def test_mlx_run_diffusion_wraps_scalar_tensor_timestep(self):
+        """Scalar tensor timestep should be wrapped into a one-item list."""
         host = _Host(dtype=torch.float32)
         encoder_hidden_states = torch.randn(1, 2, 3, dtype=torch.float32)
         encoder_attention_mask = torch.ones(1, 2, dtype=torch.int64)
@@ -124,6 +136,7 @@ class DiffusionMixinTests(unittest.TestCase):
         self.assertEqual(result["target_latents"].dtype, torch.float32)
 
     def test_mlx_run_diffusion_rejects_invalid_infer_method(self):
+        """Invalid diffusion method should raise ``ValueError``."""
         host = _Host()
         x = torch.randn(1, 2, 3)
         with self.assertRaises(ValueError):
@@ -137,6 +150,7 @@ class DiffusionMixinTests(unittest.TestCase):
             )
 
     def test_mlx_run_diffusion_rejects_non_iterable_timesteps(self):
+        """Non-iterable timestep input should raise ``TypeError``."""
         host = _Host()
         x = torch.randn(1, 2, 3)
         with self.assertRaises(TypeError):
@@ -150,6 +164,7 @@ class DiffusionMixinTests(unittest.TestCase):
             )
 
     def test_mlx_run_diffusion_rejects_batch_mismatch(self):
+        """Batch-size mismatches across tensors should raise ``ValueError``."""
         host = _Host()
         with self.assertRaises(ValueError):
             host._mlx_run_diffusion(
@@ -161,7 +176,10 @@ class DiffusionMixinTests(unittest.TestCase):
             )
 
     def test_mlx_run_diffusion_requires_host_attributes(self):
+        """Missing required host attributes should raise ``AttributeError``."""
         class _BrokenHost(DiffusionMixin):
+            """Host missing required diffusion attributes."""
+
             pass
 
         host = _BrokenHost()

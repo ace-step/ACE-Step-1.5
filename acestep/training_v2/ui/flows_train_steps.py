@@ -11,6 +11,7 @@ from acestep.training_v2.ui import console, is_rich_active
 from acestep.training_v2.ui.prompt_helpers import (
     IS_WINDOWS,
     DEFAULT_NUM_WORKERS,
+    _esc,
     menu,
     ask,
     ask_path,
@@ -219,7 +220,7 @@ def step_logging(a: dict) -> None:
             parent = os.path.dirname(resume_raw)
             if is_rich_active() and console is not None:
                 console.print(
-                    f"  [yellow]That's a file -- using checkpoint directory: {parent}[/]"
+                    f"  [yellow]That's a file -- using checkpoint directory: {_esc(parent)}[/]"
                 )
             else:
                 print(f"  That's a file -- using checkpoint directory: {parent}")

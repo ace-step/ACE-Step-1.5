@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 
 from acestep.training_v2.ui import console, is_rich_active
-from acestep.training_v2.ui.prompt_helpers import GoBack, menu, step_indicator
+from acestep.training_v2.ui.prompt_helpers import GoBack, _esc, menu, step_indicator
 from acestep.training_v2.ui.flows_common import build_train_namespace
 from acestep.training_v2.ui.flows_train_steps import (
     step_config_mode,
@@ -112,15 +112,15 @@ def _offer_save_preset(answers: dict) -> None:
             size = path.stat().st_size
             if is_rich_active() and console is not None:
                 console.print(
-                    f"  [green]Preset '{name}' saved ({size} bytes)[/]\n"
-                    f"  [dim]Location: {path}[/]\n"
+                    f"  [green]Preset '{_esc(name)}' saved ({size} bytes)[/]\n"
+                    f"  [dim]Location: {_esc(path)}[/]\n"
                 )
             else:
                 print(f"  Preset '{name}' saved ({size} bytes)")
                 print(f"  Location: {path}\n")
         else:
             if is_rich_active() and console is not None:
-                console.print(f"  [red]Warning: preset file not found after save: {path}[/]\n")
+                console.print(f"  [red]Warning: preset file not found after save: {_esc(path)}[/]\n")
             else:
                 print(f"  Warning: preset file not found after save: {path}\n")
     except (KeyboardInterrupt, EOFError):
@@ -128,7 +128,7 @@ def _offer_save_preset(answers: dict) -> None:
     except Exception as exc:
         # Catch ValueError (bad name), OSError/PermissionError, etc.
         if is_rich_active() and console is not None:
-            console.print(f"  [red]Failed to save preset: {exc}[/]\n")
+            console.print(f"  [red]Failed to save preset: {_esc(exc)}[/]\n")
         else:
             print(f"  Failed to save preset: {exc}\n")
 

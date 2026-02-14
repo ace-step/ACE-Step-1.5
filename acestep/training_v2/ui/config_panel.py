@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 from acestep.training_v2.configs import LoRAConfigV2, TrainingConfigV2
 from acestep.training_v2.ui import console, is_rich_active
+from acestep.training_v2.ui.prompt_helpers import _esc
 
 # ---- Default values (for highlighting non-default settings) -----------------
 
@@ -221,9 +222,9 @@ def _show_rich(
             formatted = _fmt_value(value)
             is_def = _is_default(key, value)
             if is_def:
-                table.add_row(f"  {label}", formatted)
+                table.add_row(f"  {label}", _esc(formatted))
             else:
-                table.add_row(f"  {label}", f"[bold yellow]{formatted}[/]")
+                table.add_row(f"  {label}", f"[bold yellow]{_esc(formatted)}[/]")
 
     console.print(
         Panel(

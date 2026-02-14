@@ -14,6 +14,7 @@ from acestep.training_v2.ui import console, is_rich_active
 from acestep.training_v2.ui.prompt_helpers import (
     DEFAULT_NUM_WORKERS,
     GoBack,
+    _esc,
     ask,
     ask_path,
     native_path,
@@ -154,8 +155,8 @@ def _resolve_dataset_json(raw_path: str) -> Path | None:
 def _print_found_nearby(original: str, found: Path) -> None:
     """Tell the user we found their file at a different path."""
     if is_rich_active() and console is not None:
-        console.print(f"  [yellow]'{original}' not at that exact path,[/]")
-        console.print(f"  [green]but found it at: {found}[/]")
+        console.print(f"  [yellow]'{_esc(original)}' not at that exact path,[/]")
+        console.print(f"  [green]but found it at: {_esc(found)}[/]")
     else:
         print(f"  '{original}' not at that exact path,")
         print(f"  but found it at: {found}")
@@ -164,7 +165,7 @@ def _print_found_nearby(original: str, found: Path) -> None:
 def _print_not_found(path: str) -> None:
     """Tell the user the file was not found anywhere."""
     if is_rich_active() and console is not None:
-        console.print(f"  [red]Not found: {path}[/]")
+        console.print(f"  [red]Not found: {_esc(path)}[/]")
         console.print("  [dim]Searched CWD, datasets/, data/, and one level deep.[/]")
     else:
         print(f"  Not found: {path}")

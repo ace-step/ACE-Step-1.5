@@ -244,9 +244,11 @@ def prompt_base_model(model_name: str) -> str:
     from acestep.training_v2.ui import console, is_rich_active
     from acestep.training_v2.ui.prompt_helpers import menu
 
+    from acestep.training_v2.ui.prompt_helpers import _esc
+
     if is_rich_active() and console is not None:
         console.print(
-            f"\n  [yellow]'{model_name}' appears to be a custom fine-tune.[/]"
+            f"\n  [yellow]'{_esc(model_name)}' appears to be a custom fine-tune.[/]"
         )
         console.print(
             "  [dim]Knowing the base model helps condition timestep sampling.[/]\n"

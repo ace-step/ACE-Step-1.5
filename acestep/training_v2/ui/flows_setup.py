@@ -17,6 +17,7 @@ from pathlib import Path
 
 from acestep.training_v2.ui import console, is_rich_active
 from acestep.training_v2.ui.prompt_helpers import (
+    _esc,
     ask_bool,
     ask_path,
     native_path,
@@ -96,7 +97,7 @@ def run_first_setup() -> dict:
         ckpt_dir = ask_path("Checkpoint directory", default=default_ckpt)
         ckpt_path = Path(ckpt_dir)
         if not ckpt_path.is_dir():
-            _print(f"  [red]Directory not found: {ckpt_dir}[/]")
+            _print(f"  [red]Directory not found: {_esc(ckpt_dir)}[/]")
             if not ask_bool("Try a different path?", default=True):
                 break
             continue
@@ -122,7 +123,7 @@ def run_first_setup() -> dict:
 
     # -- Summary ------------------------------------------------------------
     section("Setup Complete")
-    _print(f"  Checkpoint dir : [bold]{data['checkpoint_dir']}[/]")
+    _print(f"  Checkpoint dir : [bold]{_esc(data['checkpoint_dir'])}[/]")
     if data["vanilla_enabled"]:
         _print("  Vanilla mode   : [bold green]enabled[/]")
     else:

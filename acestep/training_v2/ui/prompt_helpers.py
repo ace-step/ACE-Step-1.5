@@ -22,6 +22,16 @@ DEFAULT_NUM_WORKERS = 0 if IS_WINDOWS else 4
 _BACK_KEYWORDS = {"b", "back"}
 
 
+def _esc(text: object) -> str:
+    """Escape Rich markup characters in user-provided text for safe display.
+
+    Replaces ``[`` with ``\\[`` so that paths and other user input containing
+    square brackets (e.g. ``/media/user/[volume]/path``) are not interpreted
+    as Rich markup tags.
+    """
+    return str(text).replace("[", "\\[")
+
+
 def native_path(path: str) -> str:
     """Convert a path string to use the native OS separator for display.
 
@@ -177,7 +187,9 @@ def ask(
         while True:
             if allow_back:
                 # Use raw console.input so we can intercept 'b'/'back'
-                default_str = f" [{default}]" if default is not None else ""
+                # Escape default value so paths with brackets aren't
+                # misinterpreted as Rich markup tags.
+                default_str = f" \\[{_esc(default)}]" if default is not None else ""
                 raw = console.input(f"  {label}{choice_str}{default_str}: ").strip()
                 if _is_back(raw):
                     raise GoBack()
@@ -249,7 +261,7 @@ def ask_path(
         val = ask(label, default=default, required=True, allow_back=allow_back)
         if must_exist and not Path(val).exists():
             if is_rich_active() and console is not None:
-                console.print(f"  [red]Path not found: {val}[/]")
+                console.print(f"  [red]Path not found: {_esc(val)}[/]")
             else:
                 print(f"  Path not found: {val}")
             continue

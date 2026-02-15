@@ -199,6 +199,11 @@ echo "Starting ACE-Step Gradio Web UI..."
 echo "Server will be available at: http://${SERVER_NAME}:${PORT}"
 echo
 
+# ==================== Standard uv Workflow ====================
+# Works on all platforms: x86_64 Linux (cu128), aarch64 Linux/DGX Spark (cu130),
+# macOS (MPS), Windows (cu128). uv resolves the correct PyTorch wheels via
+# platform-specific index mappings in pyproject.toml.
+
 # Check if uv is installed
 if ! command -v uv &>/dev/null; then
     # Try common install locations

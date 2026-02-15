@@ -1,6 +1,7 @@
-# PyTorch with CUDA 12.8 (for Windows/Linux)
+# PyTorch with CUDA 12.8 / 13.0
 safetensors==0.7.0
 --extra-index-url https://download.pytorch.org/whl/cu128
+--extra-index-url https://download.pytorch.org/whl/cu130
 torch==2.7.1+cu128; sys_platform == 'win32'
 torchvision==0.22.1+cu128; sys_platform == 'win32'
 torchaudio==2.7.1+cu128; sys_platform == 'win32'
@@ -8,10 +9,14 @@ torchaudio==2.7.1+cu128; sys_platform == 'win32'
 torch>=2.9.1; sys_platform == 'darwin' and platform_machine == 'arm64'
 torchaudio>=2.9.1; sys_platform == 'darwin' and platform_machine == 'arm64'
 torchvision; sys_platform == 'darwin' and platform_machine == 'arm64'
-# Other non-Windows platforms (Linux)
-torch==2.10.0+cu128; sys_platform != 'win32' and sys_platform != 'darwin'
-torchvision==0.25.0+cu128; sys_platform != 'win32' and sys_platform != 'darwin'
-torchaudio==2.10.0+cu128; sys_platform != 'win32' and sys_platform != 'darwin'
+# Linux x86_64 with CUDA 12.8
+torch==2.10.0+cu128; sys_platform == 'linux' and platform_machine == 'x86_64'
+torchvision==0.25.0+cu128; sys_platform == 'linux' and platform_machine == 'x86_64'
+torchaudio==2.10.0+cu128; sys_platform == 'linux' and platform_machine == 'x86_64'
+# Linux aarch64 with CUDA 13.0 (e.g. NVIDIA DGX Spark)
+torch==2.10.0+cu130; sys_platform == 'linux' and platform_machine == 'aarch64'
+torchvision==0.25.0+cu130; sys_platform == 'linux' and platform_machine == 'aarch64'
+torchaudio==2.10.0+cu130; sys_platform == 'linux' and platform_machine == 'aarch64'
 
 # Core dependencies
 transformers>=4.51.0,<4.58.0
@@ -27,7 +32,7 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 numba>=0.63.1
 vector-quantize-pytorch>=1.27.15
-torchcodec>=0.9.1; sys_platform != 'darwin' or platform_machine == 'arm64'
+torchcodec>=0.9.1; platform_machine != 'aarch64'
 torchao
 toml
 modelscope
@@ -45,9 +50,9 @@ mlx-lm>=0.20.0; sys_platform == 'darwin' and platform_machine == 'arm64'
 
 # nano-vllm dependencies
 triton-windows>=3.0.0,<3.4; sys_platform == 'win32'
-triton>=3.0.0; sys_platform != 'win32'
+triton>=3.0.0; sys_platform == 'linux'
 flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.2/flash_attn-2.8.2+cu128torch2.7.1cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11' and platform_machine == 'AMD64'
-flash-attn; sys_platform != 'win32'
+flash-attn; sys_platform == 'linux' and platform_machine == 'x86_64'
 xxhash
 
 # Local package - install with: pip install -e acestep/third_parts/nano-vllm

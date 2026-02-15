@@ -48,6 +48,8 @@ def ensure_lora_registry(self) -> None:
         self._lora_active_adapter = None
     if not hasattr(self, "_lora_scale_state"):
         self._lora_scale_state = {}
+    if not hasattr(self, "_active_loras"):
+        self._active_loras = {}
     if not hasattr(self, "_lora_last_scale_report"):
         self._lora_last_scale_report = {}
 

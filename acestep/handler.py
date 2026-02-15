@@ -128,8 +128,9 @@ class AceStepHandler(
         # LoRA state
         self.lora_loaded = False
         self.use_lora = False
-        self.lora_scale = 1.0  # LoRA influence scale (0-1)
+        self.lora_scale = 1.0  # LoRA influence scale (0-1), mirrors active adapter's scale
         self._base_decoder = None  # Backup of original decoder state_dict (CPU) for memory efficiency
+        self._active_loras = {}  # adapter_name -> scale (per-adapter)
         self._lora_adapter_registry = {}  # adapter_name -> explicit scaling targets
         self._lora_active_adapter = None
 
@@ -169,7 +170,7 @@ class AceStepHandler(
             self.mlx_decoder = None
             self.use_mlx_dit = False
             return False
-
+    
     # ------------------------------------------------------------------
     # MLX VAE acceleration helpers
     # ------------------------------------------------------------------
@@ -192,7 +193,7 @@ class AceStepHandler(
             from acestep.mlx_vae import mlx_available
             if not mlx_available():
                 logger.info("[MLX-VAE] MLX not available on this platform; skipping.")
-                return False
+            return False
 
             import os
             import mlx.core as mx
@@ -252,10 +253,10 @@ class AceStepHandler(
 
     def _mlx_vae_decode(self, latents_torch):
         """Decode latents using native MLX VAE.
-
+        
         Args:
             latents_torch: PyTorch tensor [B, C, T] (NCL format).
-
+            
         Returns:
             PyTorch tensor [B, C_audio, T_audio] (NCL format).
         """
@@ -314,7 +315,7 @@ class AceStepHandler(
             z_nlc: MLX array [1, T, C] in NLC format.
             decode_fn: Compiled or plain decode callable.  Falls back to
                        ``self._mlx_compiled_decode`` or ``self.mlx_vae.decode``.
-
+        
         Returns:
             MLX array [1, T_audio, C_audio] in NLC format.
         """
@@ -365,10 +366,10 @@ class AceStepHandler(
 
     def _mlx_vae_encode_sample(self, audio_torch):
         """Encode audio and sample latent using native MLX VAE.
-
+        
         Args:
             audio_torch: PyTorch tensor [B, C, S] (NCL format).
-
+            
         Returns:
             PyTorch tensor [B, C_latent, T_latent] (NCL format).
         """
@@ -431,14 +432,14 @@ class AceStepHandler(
 
     def _mlx_encode_single(self, audio_nlc, pbar=None, encode_fn=None):
         """Encode a single audio sample with optional tiling.
-
+        
         Args:
             audio_nlc: MLX array [1, S, C_audio] in NLC format.
             pbar: Optional tqdm progress bar to update.
             encode_fn: Compiled or plain encode callable.  Falls back to
                        ``self._mlx_compiled_encode_sample`` or
                        ``self.mlx_vae.encode_and_sample``.
-
+            
         Returns:
             MLX array [1, T_latent, C_latent] in NLC format.
         """
@@ -493,7 +494,7 @@ class AceStepHandler(
                 pbar.update(1)
 
         return mx.concatenate(encoded_parts, axis=1)
-
+    
     def initialize_service(
         self,
         project_root: str,
@@ -857,7 +858,7 @@ class AceStepHandler(
             error_msg = f"❌ Error initializing model: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
             logger.exception("[initialize_service] Error initializing model")
             return error_msg, False
-
+    
     def switch_to_training_preset(self) -> Tuple[str, bool]:
         """Best-effort switch to a training-safe preset (non-quantized DiT)."""
         if self.quantization is None:
@@ -883,7 +884,7 @@ class AceStepHandler(
         if ok:
             return f"Switched to training preset (quantization disabled).\n{status}", True
         return f"Failed to switch to training preset.\n{status}", False
-    
+
     def _prepare_batch(
         self,
         captions: List[str],
@@ -922,7 +923,7 @@ class AceStepHandler(
 
         # Normalize audio_code_hints to batch list
         audio_code_hints = self._normalize_audio_code_hints(audio_code_hints, batch_size)
-
+        
         # Guard: refer_audios can be None when reference audio UI path didn't populate it (e.g. TEXT2MUSIC)
         if refer_audios is None:
             refer_audios = [[torch.zeros(2, 30 * self.sample_rate)] for _ in range(batch_size)]
@@ -1753,7 +1754,7 @@ class AceStepHandler(
                 else:
                     logger.info("[service_generate] DiT diffusion via PyTorch (%s)...", self.device)
                     outputs = self.model.generate_audio(**generate_kwargs)
-        
+
         # Add intermediate information to outputs for extra_outputs
         outputs["src_latents"] = src_latents
         outputs["target_latents_input"] = target_latents  # Input target latents (before generation)
@@ -2597,7 +2598,7 @@ class AceStepHandler(
                             self.vae = self.vae.cpu()
                             pred_latents_for_decode = pred_latents_for_decode.cpu()
                             self._empty_cache()
-
+                    
                     if use_tiled_decode:
                         logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
                         pred_wavs = self.tiled_decode(pred_latents_for_decode)  # [batch, channels, samples]
@@ -2614,7 +2615,7 @@ class AceStepHandler(
                         decoder_output = self.vae.decode(pred_latents_for_decode)
                         pred_wavs = decoder_output.sample
                         del decoder_output
-
+                    
                     if _vae_cpu:
                         logger.info("[generate_music] VAE decode on CPU complete, restoring to GPU...")
                         self.vae = self.vae.to(_vae_device)
@@ -2630,7 +2631,7 @@ class AceStepHandler(
                     # Cast output to float32 for audio processing/saving (in-place if possible)
                     if pred_wavs.dtype != torch.float32:
                         pred_wavs = pred_wavs.float()
-
+                    
                     # Anti-clipping normalization: only scale if peak exceeds [-1, 1].
                     peak = pred_wavs.abs().amax(dim=[1, 2], keepdim=True)
                     if torch.any(peak > 1.0):

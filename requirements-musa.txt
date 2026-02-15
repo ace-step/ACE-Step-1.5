@@ -1,0 +1,29 @@
+# Note: For installing torch_musa, please refer to https://github.com/MooreThreads/torch_musa
+# For installing torchaudio/torchvision, please refer to https://github.com/MooreThreads/torch_musa?tab=readme-ov-file#musa-supported-repositories
+
+# Core dependencies
+transformers>=4.51.0,<4.58.0
+diffusers
+gradio==6.2.0
+matplotlib>=3.7.5
+scipy>=1.10.1
+soundfile>=0.13.1
+loguru>=0.7.3
+einops>=0.8.1
+accelerate>=1.12.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+numba>=0.63.1
+vector-quantize-pytorch>=1.27.15
+# torch_musa does not support torchcodec - soundfile fallback will be used
+# torchcodec>=0.9.1; sys_platform != 'darwin' or platform_machine == 'arm64'
+torchao
+toml
+modelscope
+
+# Training dependencies (required for LoRA/LoKr training)
+peft>=0.18.0
+lycoris-lora
+# For lightning, please refer to https://github.com/MooreThreads/torch_musa?tab=readme-ov-file#musa-supported-repositories
+# lightning>=2.0.0
+tensorboard>=2.0.0

@@ -53,6 +53,15 @@ def is_mps_platform() -> bool:
         return False
 
 
+def is_musa_platform() -> bool:
+    """Check if running on Moore Threads GPU (MUSA)."""
+    try:
+        import torch
+        return hasattr(torch, "musa") and torch.musa.is_available()
+    except Exception:
+        return False
+
+
 # ===========================================================================
 # Empirical VRAM measurements (GB) -- model weights only, bf16 precision
 # These values should be calibrated using scripts/profile_vram.py
@@ -359,6 +368,11 @@ def get_gpu_memory_gb() -> float:
             else:
                 logger.info(f"CUDA GPU detected: {device_name} ({memory_gb:.1f} GB)")
             return memory_gb
+        elif hasattr(torch, 'musa') and torch.musa.is_available():
+            # Get total memory of the first MTGPU in GB
+            total_memory = torch.musa.get_device_properties(0).total_memory
+            memory_gb = total_memory / (1024**3)  # Convert bytes to GB
+            return memory_gb
         elif hasattr(torch, 'xpu') and torch.xpu.is_available():
             # Get total memory of the first XPU in GB
             total_memory = torch.xpu.get_device_properties(0).total_memory
@@ -418,6 +432,7 @@ def _log_gpu_diagnostic_info(torch_module):
     # Check PyTorch build type
     is_rocm_build = hasattr(torch_module.version, 'hip') and torch_module.version.hip is not None
     is_cuda_build = hasattr(torch_module.version, 'cuda') and torch_module.version.cuda is not None
+    is_musa_build = hasattr(torch_module.version, 'musa') and torch_module.version.musa is not None
     
     if is_rocm_build:
         logger.warning("✓ PyTorch ROCm build detected")
@@ -471,6 +486,15 @@ def _log_gpu_diagnostic_info(torch_module):
         logger.warning("  2. Check CUDA version compatibility")
         logger.warning("  3. Reinstall PyTorch with CUDA support:")
         logger.warning(f"     pip install torch --index-url {PYTORCH_CUDA_INSTALL_URL}")
+        
+    elif is_musa_build:
+         logger.warning("✓ PyTorch MUSA build detected")
+         logger.warning(f"  MUSA version: {torch_module.version.musa}")
+         logger.warning("")
+         logger.warning("❌ torch.musa.is_available() returned False")
+         logger.warning("")
+         logger.warning("Please check: https://github.com/MooreThreads/torch_musa/issues")
+         logger.warning("For more information.")
         
     else:
         logger.warning("⚠️ PyTorch build type: CPU-only")
@@ -562,6 +586,10 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
             "mlx backend, no CPU offload."
         )
     
+    _musa = is_musa_platform()
+    if _musa:
+        logger.info(f"MUSA GPU detected ({gpu_memory_gb:.1f} GB, tier={tier}). Applying MUSA specific settings.")
+    
     return GPUConfig(
         tier=tier,
         gpu_memory_gb=gpu_memory_gb,
@@ -574,7 +602,7 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
         recommended_lm_model=config.get("recommended_lm_model", ""),
         # MPS: vllm requires CUDA, restrict to pt/mlx; prefer mlx for native acceleration
         lm_backend_restriction="pt_mlx_only" if _mps else config.get("lm_backend_restriction", "all"),
-        recommended_backend="mlx" if _mps else config.get("recommended_backend", "vllm"),
+        recommended_backend="mlx" if _mps else ("pt" if _musa else config.get("recommended_backend", "vllm")),
         # MPS: unified memory — offloading to CPU is pointless overhead
         offload_to_cpu_default=False if _mps else config.get("offload_to_cpu_default", True),
         offload_dit_to_cpu_default=False if _mps else config.get("offload_dit_to_cpu_default", True),
@@ -919,7 +947,11 @@ def get_effective_free_vram_gb(device_index: int = 0) -> float:
                 return max(0.0, (total_bytes - reserved_bytes) / (1024 ** 3))
             except Exception:
                 return 0.0
-        
+
+        elif hasattr(torch, 'musa') and torch.musa.is_available():
+            device_free_bytes, _ = torch.musa.mem_get_info(device_index)
+            return device_free_bytes / (1024 ** 3)
+
         return 0.0
     except Exception:
         return 0.0
@@ -1131,6 +1163,8 @@ def get_gpu_device_name() -> str:
         elif hasattr(torch, 'xpu') and torch.xpu.is_available():
             props = torch.xpu.get_device_properties(0)
             return getattr(props, 'name', 'Intel XPU')
+        elif hasattr(torch, 'musa') and torch.musa.is_available():
+            return torch.musa.get_device_name(0)
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             # MPS doesn't expose a device name; use platform info
             try:

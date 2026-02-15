@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from loguru import logger
 from transformers.models.qwen3.modeling_qwen3 import Qwen3MLP
 
 
@@ -11,6 +12,7 @@ class MusaFusedQwen3MLP(nn.Module):
     """
     def __init__(self, original_mlp: Qwen3MLP):
         super().__init__()
+        logger.info("Under the Musa backend, use MusaFusedQwen3MLP instead of Qwen3MLP")
         self.hidden_size = original_mlp.hidden_size
         self.intermediate_size = original_mlp.intermediate_size
         
@@ -48,5 +50,5 @@ def apply_fused_musa_mlp(model):
             setattr(parent_module, child_name, fused_mlp)
             replaced_count += 1
             
-    print(f"A total of {replaced_count} Qwen3MLP modules were replaced.")
+    logger.info(f"A total of {replaced_count} Qwen3MLP modules were replaced.")
     return model

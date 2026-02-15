@@ -607,7 +607,7 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
         offload_to_cpu_default=False if _mps else config.get("offload_to_cpu_default", True),
         offload_dit_to_cpu_default=False if _mps else config.get("offload_dit_to_cpu_default", True),
         # MPS: torchao quantization is not supported
-        quantization_default=False if _mps else config.get("quantization_default", True),
+        quantization_default=False if (_mps or _musa) else config.get("quantization_default", True),
         # MPS: torch.compile unsupported (redirected to mx.compile at runtime);
         # default to False — user can opt in via the UI checkbox.
         compile_model_default=False if _mps else config.get("compile_model_default", True),

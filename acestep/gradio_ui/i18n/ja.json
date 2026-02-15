@@ -406,7 +406,7 @@
     "lora_exported": "✅ LoRA を {path} にエクスポートしました",
     "export_failed": "❌ エクスポートに失敗しました: {error}",
     "lokr_output_dir_required": "⚠️ 最初にLoKr出力ディレクトリを入力してください",
-    "lokr_no_checkpoints_use_latest": "ℹ チェックポイントが見つかりません。エクスポートは最新の利用可能な重みを使用します",
+    "lokr_no_checkpoints_use_latest": "ℹ チェックポイントが見つかりません。エクスポートには最新の利用可能な重みが使用されます",
     "lokr_no_exportable_checkpoints": "ℹ エクスポート可能なエポックチェックポイントが見つかりません",
     "lokr_found_checkpoints": "✅ {count} 個のLoKrチェックポイントが見つかりました",
     "lokr_selected_epoch_not_found": "❌ 選択したエポックが見つかりません: {chosen}。利用可能: {available}",

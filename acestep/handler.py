@@ -64,9 +64,38 @@ from acestep.core.generation.handler import (
     ServiceGenerateOutputsMixin,
 )
 from acestep.gpu_config import get_gpu_memory_gb, get_global_gpu_config, get_effective_free_vram_gb
+from acestep.fused_musa_mlp import apply_fused_musa_mlp
 
 
 warnings.filterwarnings("ignore")
+
+
+def resolve_device(device: str) -> str:
+    """
+    Based on the requested device string, return the actual available devices.
+    
+    Parameters: 
+        device: Can be "auto", "cuda", "mps", "xpu", "musa", "cpu". 
+    
+    Return: 
+        The name of the device actually selected.
+    """
+    priority = ['cuda', 'mps', 'xpu', 'musa', 'cpu']
+    checks = {
+        'cuda': lambda: torch.cuda.is_available(),
+        'mps': lambda: hasattr(torch.backends, 'mps') and torch.backends.mps.is_available(),
+        'xpu': lambda: hasattr(torch, 'xpu') and torch.xpu.is_available(),
+        'musa': lambda: hasattr(torch, 'musa') and torch.musa.is_available(),
+        'cpu': lambda: True,
+    }
+    available = [d for d in priority if checks[d]()]
+    if device == "auto":
+        return available[0]
+    if device in available:
+        return device
+    fallback = available[0] if available else 'cpu'
+    logger.warning(f"[initialize] {device} requested but unavailable. Falling back to {fallback}.")
+    return fallback
 
 
 class AceStepHandler(
@@ -563,45 +592,7 @@ class AceStepHandler(
                 logger.warning(
                     "[initialize_service] config_path not set; defaulting to 'acestep-v15-turbo'."
                 )
-            if device == "auto":
-                if torch.cuda.is_available():
-                    device = "cuda"
-                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    device = "mps"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    device = "xpu"
-                else:
-                    device = "cpu"
-            elif device == "cuda" and not torch.cuda.is_available():
-                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to MPS.")
-                    device = "mps"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to XPU.")
-                    device = "xpu"
-                else:
-                    logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
-            elif device == "mps" and not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
-                if torch.cuda.is_available():
-                    logger.warning("[initialize_service] MPS requested but unavailable. Falling back to CUDA.")
-                    device = "cuda"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    logger.warning("[initialize_service] MPS requested but unavailable. Falling back to XPU.")
-                    device = "xpu"
-                else:
-                    logger.warning("[initialize_service] MPS requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
-            elif device == "xpu" and not (hasattr(torch, 'xpu') and torch.xpu.is_available()):
-                if torch.cuda.is_available():
-                    logger.warning("[initialize_service] XPU requested but unavailable. Falling back to CUDA.")
-                    device = "cuda"
-                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    logger.warning("[initialize_service] XPU requested but unavailable. Falling back to MPS.")
-                    device = "mps"
-                else:
-                    logger.warning("[initialize_service] XPU requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
+            device = resolve_device(device)
 
             status_msg = ""
             
@@ -746,6 +737,9 @@ class AceStepHandler(
                         self.model = self.model.to(device).to(self.dtype)
                     else:
                         self.model = self.model.to("cpu").to(self.dtype)
+                if hasattr(torch, 'musa') and torch.musa.is_available():
+                    logger.info("Under the MUSA backend, use MusaFusedQwen3MLP instead of Qwen3MLP")
+                    self.model = apply_fused_musa_mlp(self.model)
                 self.model.eval()
                 
                 if compile_model:

@@ -56,8 +56,11 @@ DEFAULT_PROMPT_DESCRIBE_FULL = (
     "Write a single-paragraph track card (no line breaks), 90-120 words. Include: genre + overall vibe + broad instrumentation/production + vocals (if present). Add metadata inline exactly like: (Key: X; BPM: Y; Meter: Z) using unknown if unsure. Do NOT quote lyrics or include example lines. For themes, use one short paraphrase sentence only. Avoid: verse/chorus/drop structure, stereo imaging, EQ/compression/mastering jargon, and overly specific vocal type labels (no \"tenor/baritone\"). Output only the paragraph."
 )
 
-DEFAULT_PROMPT_LYRICS = "Extract the lyrics"
-
+DEFAULT_PROMPT_LYRICS = (
+    "Return ONLY the sung/spoken words as plain text. "
+    "No analysis, no commentary, no song structure labels (verse/chorus/bridge), and no timestamps. "
+    "If the track is instrumental OR you cannot reliably transcribe the words, output exactly: [Instrumental]"
+)
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 _UNQUOTED_KEY_RE = re.compile(r"([\{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)\s*")
 _SINGLE_QUOTED_STR_RE = re.compile(r"'([^'\\]*(?:\\.[^'\\]*)*)'")
@@ -295,18 +298,122 @@ def detect_language_from_lyrics(lyrics: str) -> str:
     return "unknown"
 
 
+
+
+_MOOD_WORDS = {
+    "energetic", "uplifting", "melancholic", "moody", "happy", "sad", "dark", "bright",
+    "aggressive", "calm", "relaxed", "chill", "dreamy", "romantic", "anthemic", "epic",
+    "introspective", "nostalgic", "playful", "groovy", "funky", "jazzy", "warm", "cold",
+}
+
+_STRUCTURE_WORDS_RE = re.compile(
+    r"\b(verse|chorus|pre[-\s]?chorus|post[-\s]?chorus|bridge|intro|outro|breakdown|drop|instrumental\s+break)\b",
+    re.IGNORECASE,
+)
+_TIMESTAMP_RE = re.compile(r"\b\d{1,2}:\d{2}\b")
+
+
+def _sanitize_genres(genres: str, caption_fallback: str = "") -> str:
+    """Sanitize a genre string and avoid returning pure mood adjectives.
+
+    If the returned genres look like mood-only labels, try extracting a genre from the caption instead.
+    """
+    g = (genres or "").strip()
+    if not g:
+        return _pick_genre_from_description(caption_fallback)
+
+    # Normalize separators
+    norm = re.sub(r"[\\/|]+", " ", g)
+    norm = re.sub(r"\s+", " ", norm).strip()
+
+    # Single token mood words are not valid genres.
+    if norm and len(norm.split()) == 1 and norm.lower() in _MOOD_WORDS:
+        extracted = _pick_genre_from_description(caption_fallback)
+        return extracted or ""
+
+    # Remove leading mood adjectives like "energetic Indie Rock"
+    parts = norm.split()
+    while parts and parts[0].lower() in _MOOD_WORDS:
+        parts = parts[1:]
+    cleaned = " ".join(parts).strip()
+    return cleaned or _pick_genre_from_description(caption_fallback) or ""
+
+
+def _sanitize_lyrics_text(text: str) -> str:
+    """Reject structural analysis accidentally returned as lyrics."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    if raw.strip().lower() in {"[instrumental]", "instrumental"}:
+        return "[Instrumental]"
+
+    # If it looks like a structure breakdown (timestamps/section labels), drop it.
+    if _TIMESTAMP_RE.search(raw) and _STRUCTURE_WORDS_RE.search(raw):
+        return ""
+    if _STRUCTURE_WORDS_RE.search(raw) and re.search(r"\bstructure\b", raw, re.IGNORECASE):
+        return ""
+    if raw.startswith("The song") and re.search(r"\bstructure\b", raw, re.IGNORECASE):
+        return ""
+    return raw
 def _pick_genre_from_description(desc: str) -> str:
-    """Best-effort genre extraction from the first sentence/line."""
+    """Best-effort genre extraction from the first sentence/line.
+
+    The external labeler sometimes prefixes a genre with mood adjectives (e.g. "energetic Indie Rock")
+    or uses "song" instead of "track/piece". This helper tries to capture a meaningful genre label
+    and avoids returning mood-only words.
+    """
     if not desc:
         return ""
     text = _norm_ws(desc).strip()
-    first = re.split(r"[\n\.]+", text, maxsplit=1)[0]
-    m = re.search(r"This track is\s+(?:an?|the)\s+(.+?)(?:\s+(?:piece|track))\b", first, re.IGNORECASE)
-    phrase = m.group(1).strip() if m else ""
+    first = re.split(r"[\n\.]+", text, maxsplit=1)[0].strip()
+
+    m = re.search(
+        r"\bThis\s+(?:track\s+)?is\s+(?:an?|the)\s+(.+?)(?:\s+(?:piece|track|song|tune|cut)\b|[\.,!]|$)",
+        first,
+        re.IGNORECASE,
+    )
+    phrase = (m.group(1).strip() if m else "").strip()
     if not phrase:
-        # Another common pattern: "This is a <genre> ..."
-        m2 = re.search(r"This\s+(?:track\s+)?is\s+(?:an?|the)\s+(.+?)\b", first, re.IGNORECASE)
-        phrase = m2.group(1).strip() if m2 else ""
+        return ""
+
+    phrase = re.split(
+        r"\b(?:that|which|with|featuring|fusing|blending|blends|driven|powered|built)\b",
+        phrase,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+
+    phrase = phrase.replace("—", " ").replace("–", " ").replace("-", " ")
+    phrase = re.sub(r"[\\/|]+", " ", phrase)
+    phrase = re.sub(r"\s+", " ", phrase).strip()
+    if not phrase:
+        return ""
+
+    parts = phrase.split()
+    while parts and parts[0].lower() in _MOOD_WORDS:
+        parts = parts[1:]
+    phrase = " ".join(parts).strip()
+    if not phrase:
+        return ""
+
+    words = phrase.split()
+    keep = []
+    genre_tokens = {
+        "rock", "pop", "edm", "hip", "hop", "house", "techno", "trance", "dubstep", "jazz",
+        "metal", "folk", "reggae", "ambient", "classical", "rnb", "r&b", "punk", "indie",
+        "alternative", "soul", "funk",
+    }
+    for w in words:
+        wl = w.lower()
+        if w and (w[0].isupper() or w.isupper()):
+            keep.append(w)
+        elif wl in genre_tokens:
+            keep.append(w)
+
+    candidate = " ".join(keep).strip() or phrase
+    if len(candidate.split()) == 1 and candidate.lower() in _MOOD_WORDS:
+        return ""
+    return candidate
 
     if not phrase:
         return ""
@@ -416,7 +523,7 @@ def _parse_meta_from_full_text(desc: str) -> FlamingoMeta:
     if re.search(r"\b(vocal|vocals|singer|singing)\b", text, re.IGNORECASE):
         instr = False
 
-    genres = _pick_genre_from_description(desc)
+    genres = _sanitize_genres(_pick_genre_from_description(desc), desc)
 
     return FlamingoMeta(
         caption=desc.strip(),
@@ -607,6 +714,8 @@ class MusicFlamingoLabeler:
             is_instrumental=_boolish(instr),
         )
 
+        meta.genres = _sanitize_genres(meta.genres, meta.caption)
+
         # If the JSON didn't provide a usable caption, synthesize one.
         if not meta.caption:
             parts = []
@@ -648,11 +757,14 @@ class MusicFlamingoLabeler:
         This is best-effort and may return an empty string when the model does not provide lyrics.
         """
         prompt = os.getenv("ACESTEP_MUSIC_FLAMINGO_PROMPT_LYRICS", DEFAULT_PROMPT_LYRICS)
-        raw = _strip_status_prefix(self._call(audio_path, prompt)).strip()
+        raw = _sanitize_lyrics_text(_strip_status_prefix(self._call(audio_path, prompt)).strip())
         if raw:
             return raw
 
         # Retry once with a more explicit instruction (some models occasionally return an empty string).
-        retry_prompt = "Extract the lyrics. If instrumental, output exactly: [Instrumental]"
+        retry_prompt = (
+            "Return ONLY the sung/spoken words. No analysis, no structure labels, no timestamps. "
+            "If instrumental OR not confident, output exactly: [Instrumental]"
+        )
         raw2 = _strip_status_prefix(self._call(audio_path, retry_prompt)).strip()
         return raw2

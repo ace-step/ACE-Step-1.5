@@ -377,6 +377,7 @@ class LLMHandler:
             else:
                 self.llm = self.llm.to("cpu").to(self.dtype)
             if hasattr(torch, 'musa') and torch.musa.is_available():
+                logger.info("Under the MUSA backend, use MusaFusedQwen3MLP instead of Qwen3MLP")
                 self.llm = apply_fused_musa_mlp(self.llm)
             self.llm.eval()
             self.llm_backend = "pt"

@@ -12,7 +12,6 @@ class MusaFusedQwen3MLP(nn.Module):
     """
     def __init__(self, original_mlp: Qwen3MLP):
         super().__init__()
-        logger.info("Under the Musa backend, use MusaFusedQwen3MLP instead of Qwen3MLP")
         self.hidden_size = original_mlp.hidden_size
         self.intermediate_size = original_mlp.intermediate_size
         

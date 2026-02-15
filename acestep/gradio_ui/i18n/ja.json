@@ -211,6 +211,13 @@
     "autogen_label": "自動生成",
     "caption_rewrite_label": "キャプション書き換え",
     "caption_rewrite_info": "生成前にLMでキャプションを書き換え。",
+    "auto_label": "自動",
+    "bpm_auto_label": "BPM 自動",
+    "key_auto_label": "キー 自動",
+    "timesig_auto_label": "拍子 自動",
+    "vocal_lang_auto_label": "言語 自動",
+    "duration_auto_label": "長さ 自動",
+    "reset_all_auto": "🔄 すべて自動にリセット",
     "advanced_dit_params": "DiT 詳細パラメータ"
   },
   "results": {

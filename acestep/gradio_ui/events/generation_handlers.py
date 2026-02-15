@@ -183,6 +183,11 @@ def load_metadata(file_obj, llm_handler=None):
             think = False
             gr.Warning(t("messages.think_requires_lm"))
         audio_codes = metadata.get('audio_codes', '')
+        # When JSON has LM-generated audio codes AND thinking was True,
+        # set think=False so the loaded codes are used directly for
+        # reproducibility instead of being discarded by a fresh LM pass.
+        if think and audio_codes and audio_codes.strip():
+            think = False
         repainting_start = metadata.get('repainting_start', 0.0)
         repainting_end = metadata.get('repainting_end', -1)
         track_name = metadata.get('track_name')
@@ -820,6 +825,98 @@ def update_negative_prompt_visibility(init_llm_checked):
     return gr.update(visible=init_llm_checked)
 
 
+# ============================================================================
+# Auto Checkbox Handlers
+# ============================================================================
+
+# Default "auto" values per field — these cause the model to auto-infer.
+_AUTO_DEFAULTS = {
+    "bpm": None,
+    "key_scale": "",
+    "time_signature": "",
+    "vocal_language": "unknown",
+    "audio_duration": -1,
+}
+
+
+def on_auto_checkbox_change(auto_checked: bool, field_name: str):
+    """Toggle a field between auto (non-interactive, reset to default) and manual.
+
+    Args:
+        auto_checked: Whether the Auto checkbox is now checked.
+        field_name: One of the keys in _AUTO_DEFAULTS.
+
+    Returns:
+        gr.update for the corresponding input component.
+    """
+    if auto_checked:
+        return gr.update(value=_AUTO_DEFAULTS[field_name], interactive=False)
+    return gr.update(interactive=True)
+
+
+def reset_all_auto():
+    """Reset all optional-parameter Auto checkboxes to checked.
+
+    Returns:
+        Tuple of 10 gr.update objects:
+        (bpm_auto, key_auto, timesig_auto, vocal_lang_auto, duration_auto,
+         bpm, key_scale, time_signature, vocal_language, audio_duration)
+    """
+    return (
+        gr.update(value=True),   # bpm_auto
+        gr.update(value=True),   # key_auto
+        gr.update(value=True),   # timesig_auto
+        gr.update(value=True),   # vocal_lang_auto
+        gr.update(value=True),   # duration_auto
+        gr.update(value=_AUTO_DEFAULTS["bpm"], interactive=False),
+        gr.update(value=_AUTO_DEFAULTS["key_scale"], interactive=False),
+        gr.update(value=_AUTO_DEFAULTS["time_signature"], interactive=False),
+        gr.update(value=_AUTO_DEFAULTS["vocal_language"], interactive=False),
+        gr.update(value=_AUTO_DEFAULTS["audio_duration"], interactive=False),
+    )
+
+
+def uncheck_auto_for_populated_fields(bpm, key_scale, time_signature, vocal_language, audio_duration):
+    """Uncheck Auto checkboxes for fields that were populated by external events.
+
+    Called after sample/analyze/transcribe/load/create_sample/format events
+    to make the input fields editable when they have non-default values.
+
+    Args:
+        bpm: Current BPM value.
+        key_scale: Current key scale value.
+        time_signature: Current time signature value.
+        vocal_language: Current vocal language value.
+        audio_duration: Current audio duration value.
+
+    Returns:
+        Tuple of 10 gr.update objects:
+        (bpm_auto, key_auto, timesig_auto, vocal_lang_auto, duration_auto,
+         bpm_interactive, key_interactive, timesig_interactive,
+         vocal_lang_interactive, duration_interactive)
+    """
+    bpm_has_value = bpm is not None and bpm != _AUTO_DEFAULTS["bpm"]
+    key_has_value = bool(key_scale and key_scale != _AUTO_DEFAULTS["key_scale"])
+    ts_has_value = bool(time_signature and time_signature != _AUTO_DEFAULTS["time_signature"])
+    vl_has_value = vocal_language not in (None, "", _AUTO_DEFAULTS["vocal_language"])
+    dur_has_value = (audio_duration is not None
+                     and audio_duration != _AUTO_DEFAULTS["audio_duration"]
+                     and audio_duration > 0)
+
+    return (
+        gr.update(value=not bpm_has_value),        # bpm_auto
+        gr.update(value=not key_has_value),         # key_auto
+        gr.update(value=not ts_has_value),          # timesig_auto
+        gr.update(value=not vl_has_value),          # vocal_lang_auto
+        gr.update(value=not dur_has_value),         # duration_auto
+        gr.update(interactive=bpm_has_value),       # bpm
+        gr.update(interactive=key_has_value),       # key_scale
+        gr.update(interactive=ts_has_value),        # time_signature
+        gr.update(interactive=vl_has_value),        # vocal_language
+        gr.update(interactive=dur_has_value),       # audio_duration
+    )
+
+
 def _has_reference_audio(reference_audio) -> bool:
     """True if reference_audio has a usable value (Gradio Audio returns path string or (path, sr))."""
     if reference_audio is None:
@@ -1314,6 +1411,22 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         repainting_start_update = gr.update()
         repainting_end_update = gr.update()
 
+    # --- Auto checkbox updates (indices 37-41) ---
+    # When entering Extract/Lego, force all auto checkboxes to checked (fields hidden).
+    # When leaving Extract/Lego, also reset to auto since values were cleared.
+    if is_extract or is_lego or leaving_extract_or_lego:
+        auto_bpm_update = gr.update(value=True)
+        auto_key_update = gr.update(value=True)
+        auto_timesig_update = gr.update(value=True)
+        auto_vocal_lang_update = gr.update(value=True)
+        auto_duration_update = gr.update(value=True)
+    else:
+        auto_bpm_update = gr.update()
+        auto_key_update = gr.update()
+        auto_timesig_update = gr.update()
+        auto_vocal_lang_update = gr.update()
+        auto_duration_update = gr.update()
+
     return (
         gr.update(visible=show_simple),              # 0: simple_mode_group
         gr.update(visible=show_custom_group),         # 1: custom_mode_group
@@ -1356,6 +1469,12 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         gr.update(visible=is_cover),                   # 34: remix_help_group
         gr.update(visible=(is_extract or is_lego)),    # 35: extract_help_group
         gr.update(visible=is_complete),                # 36: complete_help_group
+        # --- Auto checkbox updates (37-41) ---
+        auto_bpm_update,                               # 37: bpm_auto
+        auto_key_update,                               # 38: key_auto
+        auto_timesig_update,                           # 39: timesig_auto
+        auto_vocal_lang_update,                        # 40: vocal_lang_auto
+        auto_duration_update,                          # 41: duration_auto
     )
 
 

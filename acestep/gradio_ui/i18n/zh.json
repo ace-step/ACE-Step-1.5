@@ -211,6 +211,13 @@
     "autogen_label": "自动生成",
     "caption_rewrite_label": "描述重写",
     "caption_rewrite_info": "生成前使用LM重写描述。",
+    "auto_label": "自动",
+    "bpm_auto_label": "BPM 自动",
+    "key_auto_label": "调 自动",
+    "timesig_auto_label": "拍号 自动",
+    "vocal_lang_auto_label": "语言 自动",
+    "duration_auto_label": "时长 自动",
+    "reset_all_auto": "🔄 全部重置为自动",
     "advanced_dit_params": "DiT 高级参数"
   },
   "results": {

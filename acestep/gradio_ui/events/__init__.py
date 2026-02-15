@@ -135,6 +135,37 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         outputs=[generation_section["lora_status"]]
     )
     
+    # ========== Auto Checkbox Handlers ==========
+    _auto_field_map = {
+        "bpm_auto": ("bpm", "bpm"),
+        "key_auto": ("key_scale", "key_scale"),
+        "timesig_auto": ("time_signature", "time_signature"),
+        "vocal_lang_auto": ("vocal_language", "vocal_language"),
+        "duration_auto": ("audio_duration", "audio_duration"),
+    }
+    for auto_key, (field_name, comp_key) in _auto_field_map.items():
+        generation_section[auto_key].change(
+            fn=lambda checked, fn=field_name: gen_h.on_auto_checkbox_change(checked, fn),
+            inputs=[generation_section[auto_key]],
+            outputs=[generation_section[comp_key]],
+        )
+
+    generation_section["reset_all_auto_btn"].click(
+        fn=gen_h.reset_all_auto,
+        outputs=[
+            generation_section["bpm_auto"],
+            generation_section["key_auto"],
+            generation_section["timesig_auto"],
+            generation_section["vocal_lang_auto"],
+            generation_section["duration_auto"],
+            generation_section["bpm"],
+            generation_section["key_scale"],
+            generation_section["time_signature"],
+            generation_section["vocal_language"],
+            generation_section["audio_duration"],
+        ],
+    )
+
     # ========== UI Visibility Updates ==========
     generation_section["init_llm_checkbox"].change(
         fn=gen_h.update_negative_prompt_visibility,
@@ -158,6 +189,27 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         ]
     )
     
+    # Auto-checkbox outputs used by .then() chains after events that populate fields
+    _auto_checkbox_outputs = [
+        generation_section["bpm_auto"],
+        generation_section["key_auto"],
+        generation_section["timesig_auto"],
+        generation_section["vocal_lang_auto"],
+        generation_section["duration_auto"],
+        generation_section["bpm"],
+        generation_section["key_scale"],
+        generation_section["time_signature"],
+        generation_section["vocal_language"],
+        generation_section["audio_duration"],
+    ]
+    _auto_checkbox_inputs = [
+        generation_section["bpm"],
+        generation_section["key_scale"],
+        generation_section["time_signature"],
+        generation_section["vocal_language"],
+        generation_section["audio_duration"],
+    ]
+
     # ========== Audio Conversion (LM Codes Hints accordion in Custom mode) ==========
     generation_section["convert_src_to_codes_btn"].click(
         fn=lambda src: gen_h.convert_src_audio_to_codes_wrapper(dit_handler, src),
@@ -184,6 +236,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["time_signature"],
             results_section["is_format_caption_state"],
         ]
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=_auto_checkbox_inputs,
+        outputs=_auto_checkbox_outputs,
     )
     
     # ========== Instruction UI Updates ==========
@@ -223,6 +279,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["time_signature"],
             results_section["is_format_caption_state"]
         ]
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=_auto_checkbox_inputs,
+        outputs=_auto_checkbox_outputs,
     )
     
     generation_section["text2music_audio_code_string"].change(
@@ -248,6 +308,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["time_signature"],
             results_section["is_format_caption_state"]
         ]
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=_auto_checkbox_inputs,
+        outputs=_auto_checkbox_outputs,
     )
     
     # ========== Reset Format Caption Flag ==========
@@ -301,6 +365,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             results_section["is_format_caption_state"],
             results_section["status_output"],
         ]
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=_auto_checkbox_inputs,
+        outputs=_auto_checkbox_outputs,
     )
     
     # ========== Format Lyrics Button ==========
@@ -330,6 +398,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             results_section["is_format_caption_state"],
             results_section["status_output"],
         ]
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=_auto_checkbox_inputs,
+        outputs=_auto_checkbox_outputs,
     )
     
     # ========== Generation Mode Change ==========
@@ -381,6 +453,12 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["remix_help_group"],
             generation_section["extract_help_group"],
             generation_section["complete_help_group"],
+            # Auto checkbox updates (indices 37-41)
+            generation_section["bpm_auto"],
+            generation_section["key_auto"],
+            generation_section["timesig_auto"],
+            generation_section["vocal_lang_auto"],
+            generation_section["duration_auto"],
         ]
     )
     
@@ -455,6 +533,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             results_section["status_output"],
             generation_section["generation_mode"],
         ]
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=_auto_checkbox_inputs,
+        outputs=_auto_checkbox_outputs,
     )
     
     # ========== Load/Save Metadata ==========
@@ -501,6 +583,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["instrumental_checkbox"],  # Added: instrumental_checkbox
             results_section["is_format_caption_state"]
         ]
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=_auto_checkbox_inputs,
+        outputs=_auto_checkbox_outputs,
     )
     
     # Save buttons for all 8 audio outputs
@@ -626,6 +712,12 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         generation_section["remix_help_group"],
         generation_section["extract_help_group"],
         generation_section["complete_help_group"],
+        # Auto checkbox updates (indices 37-41)
+        generation_section["bpm_auto"],
+        generation_section["key_auto"],
+        generation_section["timesig_auto"],
+        generation_section["vocal_lang_auto"],
+        generation_section["duration_auto"],
     ]
     for btn_idx in range(1, 9):
         results_section[f"send_to_remix_btn_{btn_idx}"].click(

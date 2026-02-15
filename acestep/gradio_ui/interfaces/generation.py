@@ -744,24 +744,29 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
 
         # --- Optional Parameters (collapsed by default) ---
         with gr.Accordion(t("generation.optional_params"), open=False, visible=True, elem_classes=["has-info-container"]) as optional_params_accordion:
-            gr.Markdown(f"#### {t('generation.optional_music_props')}")
             with gr.Row():
-                bpm = gr.Number(label=t("generation.bpm_label"), value=None, step=1, info=t("generation.bpm_info"), elem_classes=["has-info-container"])
-                key_scale = gr.Textbox(label=t("generation.keyscale_label"), placeholder=t("generation.keyscale_placeholder"), value="", info=t("generation.keyscale_info"), elem_classes=["has-info-container"])
-                time_signature = gr.Dropdown(choices=["", "2", "3", "4", "6", "N/A"], value="", label=t("generation.timesig_label"), allow_custom_value=True, info=t("generation.timesig_info"), elem_classes=["has-info-container"])
+                bpm = gr.Number(label=t("generation.bpm_label"), value=None, step=1, info=t("generation.bpm_info"), elem_classes=["has-info-container"], interactive=False)
+                key_scale = gr.Textbox(label=t("generation.keyscale_label"), placeholder=t("generation.keyscale_placeholder"), value="", info=t("generation.keyscale_info"), elem_classes=["has-info-container"], interactive=False)
+                time_signature = gr.Dropdown(choices=["", "2", "3", "4", "6", "N/A"], value="", label=t("generation.timesig_label"), allow_custom_value=True, info=t("generation.timesig_info"), elem_classes=["has-info-container"], interactive=False)
                 vocal_language = gr.Dropdown(
                     choices=[(lang if lang != "unknown" else "Instrumental / auto", lang) for lang in VALID_LANGUAGES], value="unknown",
                     label=t("generation.vocal_language_label"),
                     info=t("generation.vocal_language_info"),
                     allow_custom_value=True,
                     elem_classes=["has-info-container"],
+                    interactive=False,
                 )
-            gr.Markdown(f"#### {t('generation.optional_gen_settings')}")
+            with gr.Row(elem_classes=["auto-toggles-row"]):
+                bpm_auto = gr.Checkbox(label=t("generation.bpm_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                key_auto = gr.Checkbox(label=t("generation.key_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                timesig_auto = gr.Checkbox(label=t("generation.timesig_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                vocal_lang_auto = gr.Checkbox(label=t("generation.vocal_lang_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
             with gr.Row():
                 audio_duration = gr.Number(
                     label=t("generation.duration_label"), value=-1, minimum=-1,
                     maximum=float(max_duration), step=0.1,
                     info=t("generation.duration_info") + f" (Max: {max_duration}s / {max_duration // 60} min)", elem_classes=["has-info-container"],
+                    interactive=False,
                 )
                 batch_size_input = gr.Number(
                     label=t("generation.batch_size_label"), value=default_batch_size,
@@ -769,6 +774,10 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
                     info=t("generation.batch_size_info") + f" (Max: {max_batch_size})", elem_classes=["has-info-container"],
                     interactive=not service_mode,
                 )
+            with gr.Row(elem_classes=["auto-toggles-row"]):
+                duration_auto = gr.Checkbox(label=t("generation.duration_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                gr.HTML("<span></span>")  # spacer to align with batch_size column
+            reset_all_auto_btn = gr.Button(t("generation.reset_all_auto"), variant="secondary", size="sm")
 
         # --- Generate Button Row (hidden in Simple mode) ---
         generate_btn_interactive = init_params.get('enable_generate', False) if service_pre_initialized else False
@@ -831,6 +840,13 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         "time_signature": time_signature,
         "audio_duration": audio_duration,
         "batch_size_input": batch_size_input,
+        # Auto checkboxes
+        "bpm_auto": bpm_auto,
+        "key_auto": key_auto,
+        "timesig_auto": timesig_auto,
+        "vocal_lang_auto": vocal_lang_auto,
+        "duration_auto": duration_auto,
+        "reset_all_auto_btn": reset_all_auto_btn,
         "think_checkbox": think_checkbox,
         "auto_score": auto_score,
         "generate_btn": generate_btn,

@@ -15,7 +15,7 @@ from loguru import logger
 import torch
 
 
-from acestep.audio_utils import AudioSaver, generate_uuid_from_params, normalize_audio
+from acestep.audio_utils import AudioSaver, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
 
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
@@ -651,14 +651,18 @@ def generate_music(
             # Update audio-specific values
             audio_params["seed"] = seed_list[idx] if idx < len(seed_list) else None
 
-            # Add audio codes if batch mode
+            # Add LM-generated audio codes (only if non-empty, to preserve
+            # user-provided codes when LM was used only for CoT metas)
             if lm_generated_audio_codes_list and idx < len(lm_generated_audio_codes_list):
-                audio_params["audio_codes"] = lm_generated_audio_codes_list[idx]
+                lm_code = lm_generated_audio_codes_list[idx]
+                if lm_code and str(lm_code).strip():
+                    audio_params["audio_codes"] = lm_code
 
             # Add LoRA state to params for UUID generation (ensures different UUIDs when only LoRA state changes)
             audio_params["lora_loaded"] = dit_handler.lora_loaded
             audio_params["use_lora"] = dit_handler.use_lora
             audio_params["lora_scale"] = dit_handler.lora_scale
+            audio_params["lora_weights_hash"] = get_lora_weights_hash(dit_handler)
 
             # Get audio tensor and metadata
             audio_tensor = dit_audio.get("tensor")

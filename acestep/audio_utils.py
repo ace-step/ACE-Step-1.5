@@ -304,6 +304,66 @@ class AudioSaver:
         return saved_paths
 
 
+def get_lora_weights_hash(dit_handler) -> str:
+    """Compute an MD5 hash identifying the currently loaded LoRA adapter weights.
+
+    Iterates over the handler's LoRA service registry to find adapter weight
+    file paths, then hashes each file to produce a combined fingerprint.
+
+    Args:
+        dit_handler: DiT handler instance with LoRA state attributes.
+
+    Returns:
+        Hex digest string uniquely identifying the loaded LoRA weights,
+        or empty string if no LoRA is active.
+    """
+    if not getattr(dit_handler, "lora_loaded", False):
+        return ""
+    if not getattr(dit_handler, "use_lora", False):
+        return ""
+
+    lora_service = getattr(dit_handler, "_lora_service", None)
+    if lora_service is None or not lora_service.registry:
+        return ""
+
+    hash_obj = hashlib.sha256()
+    found_any = False
+
+    for adapter_name in sorted(lora_service.registry.keys()):
+        meta = lora_service.registry[adapter_name]
+        lora_path = meta.get("path")
+        if not lora_path:
+            continue
+
+        # Try common weight file names at lora_path
+        candidates = []
+        if os.path.isfile(lora_path):
+            candidates.append(lora_path)
+        elif os.path.isdir(lora_path):
+            for fname in (
+                "adapter_model.safetensors",
+                "adapter_model.bin",
+                "lokr_weights.safetensors",
+            ):
+                fpath = os.path.join(lora_path, fname)
+                if os.path.isfile(fpath):
+                    candidates.append(fpath)
+
+        for fpath in candidates:
+            try:
+                with open(fpath, "rb") as f:
+                    while True:
+                        chunk = f.read(1 << 20)  # 1 MB chunks
+                        if not chunk:
+                            break
+                        hash_obj.update(chunk)
+                found_any = True
+            except OSError:
+                continue
+
+    return hash_obj.hexdigest() if found_any else ""
+
+
 def get_audio_file_hash(audio_file) -> str:
     """
     Get hash identifier for an audio file.

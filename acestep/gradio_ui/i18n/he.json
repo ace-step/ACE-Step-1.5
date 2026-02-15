@@ -208,7 +208,14 @@
     "stem_end": "סיום סטם",
     "autogen_label": "יצירה אוטומטית",
     "caption_rewrite_label": "שכתוב תיאור",
-    "caption_rewrite_info": "שימוש ב-LM לשכתוב תיאור לפני יצירה."
+    "caption_rewrite_info": "שימוש ב-LM לשכתוב תיאור לפני יצירה.",
+    "auto_label": "אוטומטי",
+    "bpm_auto_label": "BPM אוטו",
+    "key_auto_label": "מפתח אוטו",
+    "timesig_auto_label": "משקל אוטו",
+    "vocal_lang_auto_label": "שפה אוטו",
+    "duration_auto_label": "אורך אוטו",
+    "reset_all_auto": "🔄 אפס הכל לאוטומטי"
   },
   "results": {
     "title": "🎵 תוצאות",

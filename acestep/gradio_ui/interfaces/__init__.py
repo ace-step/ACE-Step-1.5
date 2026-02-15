@@ -197,6 +197,35 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             opacity: 1;
             transform: scale(1.15);
         }
+
+        /* --- Auto-toggle checkbox row --- */
+        /* Compact row of Auto checkboxes that mirrors the field row above */
+        .auto-toggles-row {
+            margin-top: -8px !important;
+            margin-bottom: 0 !important;
+            padding: 0 !important;
+            gap: 16px !important;
+            min-height: 0 !important;
+        }
+        .auto-toggle {
+            text-align: center !important;
+        }
+        .auto-toggle label {
+            font-size: 0.8rem !important;
+            gap: 4px !important;
+            white-space: nowrap !important;
+            cursor: pointer !important;
+            opacity: 0.5;
+            transition: opacity 0.15s;
+            justify-content: center !important;
+        }
+        .auto-toggle:hover label {
+            opacity: 1;
+        }
+        .auto-toggle input[type="checkbox"] {
+            width: 13px !important;
+            height: 13px !important;
+        }
         """ + HELP_MODAL_CSS,
     ) as demo:
         

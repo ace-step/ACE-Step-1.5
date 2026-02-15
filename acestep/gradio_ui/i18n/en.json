@@ -209,7 +209,14 @@
     "stem_end": "Stem End",
     "autogen_label": "AutoGen",
     "caption_rewrite_label": "CaptionRewrite",
-    "caption_rewrite_info": "Use LM to rewrite caption before generation."
+    "caption_rewrite_info": "Use LM to rewrite caption before generation.",
+    "auto_label": "Auto",
+    "bpm_auto_label": "BPM Auto",
+    "key_auto_label": "Key Auto",
+    "timesig_auto_label": "TimeSig Auto",
+    "vocal_lang_auto_label": "Language Auto",
+    "duration_auto_label": "Duration Auto",
+    "reset_all_auto": "🔄 Reset All to Auto"
   },
   "results": {
     "title": "🎵 Results",

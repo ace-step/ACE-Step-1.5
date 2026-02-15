@@ -2,7 +2,12 @@
 setlocal enabledelayedexpansion
 REM ACE-Step Gradio Web UI Launcher - AMD ROCm 7.2
 REM For AMD RX 7000/6000 series GPUs on Windows 11
-REM Requires: Python 3.12, ROCm PyTorch from repo.radeon.com
+REM IMPORTANT: Requires Python 3.12 (AMD ROCm 7.2 only provides Python 3.12 wheels)
+REM Requires: ROCm PyTorch from repo.radeon.com
+
+REM ==================== Load .env Configuration ====================
+REM Load settings from .env file if it exists
+call :LoadEnvFile
 
 REM ==================== ROCm Configuration ====================
 REM Force PyTorch LM backend (bypasses nano-vllm flash_attn dependency)
@@ -24,32 +29,36 @@ REM HuggingFace tokenizer parallelism
 set TOKENIZERS_PARALLELISM=false
 
 REM ==================== Server Configuration ====================
-set PORT=7860
-set SERVER_NAME=127.0.0.1
+REM Default values (used if not set in .env file)
+REM You can override these by uncommenting and modifying the lines below
+REM or by creating a .env file (recommended to survive updates)
+
+if not defined PORT set PORT=7860
+if not defined SERVER_NAME set SERVER_NAME=127.0.0.1
 REM set SERVER_NAME=0.0.0.0
 REM set SHARE=--share
 
 REM UI language: en, zh, ja
-set LANGUAGE=en
+if not defined LANGUAGE set LANGUAGE=en
 
 REM ==================== Model Configuration ====================
-set CONFIG_PATH=--config_path acestep-v15-turbo
-set LM_MODEL_PATH=--lm_model_path acestep-5Hz-lm-4B
+if not defined CONFIG_PATH set CONFIG_PATH=--config_path acestep-v15-turbo
+if not defined LM_MODEL_PATH set LM_MODEL_PATH=--lm_model_path acestep-5Hz-lm-4B
 
 REM CPU offload: required for 4B LM on GPUs with <=20GB VRAM
 REM Models shuttle between CPU/GPU as needed (DiT stays on GPU, LM/VAE/text_encoder move on demand)
 REM Adds ~8-10s overhead per generation but prevents VRAM oversubscription
 REM Disable if using 1.7B/0.6B LM or if your GPU has >=24GB VRAM
-set OFFLOAD_TO_CPU=--offload_to_cpu true
+if not defined OFFLOAD_TO_CPU set OFFLOAD_TO_CPU=--offload_to_cpu true
 
 REM LLM initialization: auto (default), true, false
 REM set INIT_LLM=--init_llm auto
 
 REM Download source: auto, huggingface, modelscope
-set DOWNLOAD_SOURCE=
+if not defined DOWNLOAD_SOURCE set DOWNLOAD_SOURCE=
 
 REM Auto-initialize models on startup
-set INIT_SERVICE=--init_service true
+if not defined INIT_SERVICE set INIT_SERVICE=--init_service true
 
 REM LM backend: pt (PyTorch) recommended for ROCm
 set BACKEND=--backend pt
@@ -196,3 +205,60 @@ python -u acestep\acestep_v15_pipeline.py !CMD!
 
 pause
 endlocal
+goto :eof
+
+REM ==================== Helper Functions ====================
+
+:LoadEnvFile
+REM Load environment variables from .env file if it exists
+set "ENV_FILE=%~dp0.env"
+if not exist "%ENV_FILE%" (
+    exit /b 0
+)
+
+echo [Config] Loading configuration from .env file...
+for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    set "line=%%a"
+    set "value=%%b"
+    
+    REM Skip empty lines and comments
+    if not "!line!"=="" (
+        set "first_char=!line:~0,1!"
+        if not "!first_char!"=="#" (
+            REM Remove leading/trailing spaces from key
+            for /f "tokens=* delims= " %%x in ("!line!") do set "key=%%x"
+            
+            REM Map .env variable names to batch script variables
+            if /i "!key!"=="ACESTEP_CONFIG_PATH" (
+                if not "!value!"=="" set "CONFIG_PATH=--config_path !value!"
+            )
+            if /i "!key!"=="ACESTEP_LM_MODEL_PATH" (
+                if not "!value!"=="" set "LM_MODEL_PATH=--lm_model_path !value!"
+            )
+            if /i "!key!"=="ACESTEP_INIT_LLM" (
+                if not "!value!"=="" (
+                    if not "!value!"=="auto" set "INIT_LLM=--init_llm !value!"
+                )
+            )
+            if /i "!key!"=="ACESTEP_DOWNLOAD_SOURCE" (
+                if not "!value!"=="" (
+                    if not "!value!"=="auto" set "DOWNLOAD_SOURCE=--download-source !value!"
+                )
+            )
+            if /i "!key!"=="ACESTEP_API_KEY" (
+                if not "!value!"=="" set "API_KEY=--api-key !value!"
+            )
+            if /i "!key!"=="PORT" (
+                if not "!value!"=="" set "PORT=!value!"
+            )
+            if /i "!key!"=="SERVER_NAME" (
+                if not "!value!"=="" set "SERVER_NAME=!value!"
+            )
+            if /i "!key!"=="LANGUAGE" (
+                if not "!value!"=="" set "LANGUAGE=!value!"
+            )
+        )
+    )
+)
+echo [Config] Configuration loaded from .env
+exit /b 0

@@ -73,7 +73,9 @@ Star ACE-Step on GitHub and be instantly notified of new releases
 
 ## ⚡ Quick Start
 
-> **Requirements:** Python 3.11+, CUDA GPU recommended (also supports MPS / ROCm / Intel XPU / CPU)
+> **Requirements:** Python 3.11-3.12, CUDA GPU recommended (also supports MPS / ROCm / Intel XPU / CPU)
+> 
+> **Note:** ROCm on Windows requires Python 3.12 (AMD officially provides Python 3.12 wheels only)
 
 ```bash
 # 1. Install uv
@@ -132,6 +134,22 @@ chmod +x start_gradio_ui.sh && ./start_gradio_ui.sh
 
 # macOS (Apple Silicon)
 chmod +x start_gradio_ui_macos.sh && ./start_gradio_ui_macos.sh
+```
+
+### ⚙️ Customizing Launch Settings
+
+**Recommended:** Create a `.env` file to customize models, ports, and other settings. Your `.env` configuration will survive repository updates.
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your preferred settings
+# Examples in .env:
+ACESTEP_CONFIG_PATH=acestep-v15-turbo
+ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
+PORT=7860
+LANGUAGE=en
 ```
 
 > 📖 **Script configuration & customization:** [English](./docs/en/INSTALL.md#-launch-scripts) | [中文](./docs/zh/INSTALL.md#-启动脚本) | [日本語](./docs/ja/INSTALL.md#-起動スクリプト)

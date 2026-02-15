@@ -267,12 +267,16 @@ def main():
 
             # Initialize DiT handler
             print(f"Initializing DiT model: {args.config_path} on {args.device}...")
+            compile_model = os.environ.get(
+                "ACESTEP_COMPILE_MODEL", ""
+            ).strip().lower() in {"1", "true", "yes", "y", "on"}
+
             init_status, enable_generate = dit_handler.initialize_service(
                 project_root=project_root,
                 config_path=args.config_path,
                 device=args.device,
                 use_flash_attention=use_flash_attention,
-                compile_model=False,
+                compile_model=compile_model,
                 offload_to_cpu=args.offload_to_cpu,
                 offload_dit_to_cpu=args.offload_dit_to_cpu,
                 prefer_source=prefer_source

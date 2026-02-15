@@ -26,7 +26,7 @@
 
 | 項目 | 要件 |
 |------|------|
-| Python | 3.11+（安定版、プレリリース版は不可） |
+| Python | 3.11-3.12（安定版、プレリリース版は不可）<br>**注意：** Windows 上の ROCm は Python 3.12 が必要です |
 | GPU | CUDA GPU 推奨。MPS / ROCm / Intel XPU / CPU もサポート |
 | VRAM | DiTのみモード ≥4GB、LLM+DiT ≥6GB |
 | ディスク | コアモデルに約10GB |

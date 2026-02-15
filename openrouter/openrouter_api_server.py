@@ -532,6 +532,7 @@ def create_app() -> FastAPI:
         use_flash_attention = _env_bool("ACESTEP_USE_FLASH_ATTENTION", True)
         offload_to_cpu = _env_bool("ACESTEP_OFFLOAD_TO_CPU", False)
         offload_dit_to_cpu = _env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
+        compile_model = _env_bool("ACESTEP_COMPILE_MODEL", False)
 
         # Initialize DiT model
         print(f"[OpenRouter API] Loading DiT model: {config_path}")
@@ -540,7 +541,7 @@ def create_app() -> FastAPI:
             config_path=config_path,
             device=device,
             use_flash_attention=use_flash_attention,
-            compile_model=False,
+            compile_model=compile_model,
             offload_to_cpu=offload_to_cpu,
             offload_dit_to_cpu=offload_dit_to_cpu,
         )

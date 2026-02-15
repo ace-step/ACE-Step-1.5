@@ -74,16 +74,6 @@ def build_root_parser() -> argparse.ArgumentParser:
     _add_common_training_args(p_fixed)
     _add_fixed_args(p_fixed)
 
-    # -- selective -----------------------------------------------------------
-    p_selective = subparsers.add_parser(
-        "selective",
-        help="Corrected training with dataset-specific module selection",
-        formatter_class=formatter_class,
-    )
-    _add_common_training_args(p_selective)
-    _add_fixed_args(p_selective)
-    _add_selective_args(p_selective)
-
     # -- estimate ------------------------------------------------------------
     p_estimate = subparsers.add_parser(
         "estimate",
@@ -118,20 +108,6 @@ def build_root_parser() -> argparse.ArgumentParser:
         help="Random seed (default: 42)",
     )
 
-    # -- compare-configs -----------------------------------------------------
-    p_compare = subparsers.add_parser(
-        "compare-configs",
-        help="Compare module config JSON files",
-        formatter_class=formatter_class,
-    )
-    p_compare.add_argument(
-        "--configs",
-        nargs="+",
-        required=True,
-        metavar="JSON",
-        help="Paths to module config JSON files to compare",
-    )
-
     return root
 
 
@@ -140,7 +116,7 @@ def build_root_parser() -> argparse.ArgumentParser:
 # ===========================================================================
 
 def _add_model_args(parser: argparse.ArgumentParser) -> None:
-    """Add --checkpoint-dir and --model-variant."""
+    """Add --checkpoint-dir, --model-variant, and --base-model."""
     g = parser.add_argument_group("Model / paths")
     g.add_argument(
         "--checkpoint-dir",
@@ -152,8 +128,21 @@ def _add_model_args(parser: argparse.ArgumentParser) -> None:
         "--model-variant",
         type=str,
         default="turbo",
+        help=(
+            "Model variant or subfolder name (default: turbo). "
+            "Official: turbo, base, sft. "
+            "For fine-tunes: use the exact folder name under checkpoint-dir."
+        ),
+    )
+    g.add_argument(
+        "--base-model",
+        type=str,
+        default=None,
         choices=["turbo", "base", "sft"],
-        help="Model variant (default: turbo)",
+        help=(
+            "Base model a fine-tune was trained from (turbo/base/sft). "
+            "Used to condition timestep sampling. Auto-detected for official models."
+        ),
     )
 
 
@@ -176,7 +165,7 @@ def _add_device_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments shared by vanilla / fixed / selective subcommands."""
+    """Add arguments shared by vanilla / fixed subcommands."""
     _add_model_args(parser)
     _add_device_args(parser)
 
@@ -223,19 +212,35 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
     g_train.add_argument("--weight-decay", type=float, default=0.01, help="AdamW weight decay (default: 0.01)")
     g_train.add_argument("--max-grad-norm", type=float, default=1.0, help="Gradient clipping norm (default: 1.0)")
     g_train.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
+    g_train.add_argument("--shift", type=float, default=3.0, help="Noise schedule shift (turbo=3.0, base/sft=1.0)")
+    g_train.add_argument("--num-inference-steps", type=int, default=8, help="Inference steps for timestep schedule (turbo=8, base/sft=50)")
     g_train.add_argument("--optimizer-type", type=str, default="adamw", choices=["adamw", "adamw8bit", "adafactor", "prodigy"], help="Optimizer (default: adamw)")
-    g_train.add_argument("--scheduler-type", type=str, default="cosine", choices=["cosine", "linear", "constant", "constant_with_warmup"], help="LR scheduler (default: cosine)")
-    g_train.add_argument("--gradient-checkpointing", action="store_true", default=False, help="Recompute activations to save VRAM (~40-60%% less, ~30%% slower)")
-    g_train.add_argument("--offload-encoder", action="store_true", default=False, help="Move encoder/VAE to CPU after setup (saves ~2-4GB VRAM)")
+    g_train.add_argument("--scheduler-type", type=str, default="cosine", choices=["cosine", "cosine_restarts", "linear", "constant", "constant_with_warmup"], help="LR scheduler (default: cosine)")
+    g_train.add_argument("--gradient-checkpointing", action=argparse.BooleanOptionalAction, default=True, help="Recompute activations to save VRAM (~40-60%% less, ~10-30%% slower). On by default; use --no-gradient-checkpointing to disable")
+    g_train.add_argument("--offload-encoder", action=argparse.BooleanOptionalAction, default=False, help="Move encoder/VAE to CPU after setup (saves ~2-4GB VRAM)")
+
+    # -- Adapter selection ---------------------------------------------------
+    g_adapter = parser.add_argument_group("Adapter")
+    g_adapter.add_argument("--adapter-type", type=str, default="lora", choices=["lora", "lokr"], help="Adapter type: lora (PEFT) or lokr (LyCORIS) (default: lora)")
 
     # -- LoRA hyperparams ---------------------------------------------------
-    g_lora = parser.add_argument_group("LoRA")
+    g_lora = parser.add_argument_group("LoRA (used when --adapter-type=lora)")
     g_lora.add_argument("--rank", "-r", type=int, default=64, help="LoRA rank (default: 64)")
     g_lora.add_argument("--alpha", type=int, default=128, help="LoRA alpha (default: 128)")
     g_lora.add_argument("--dropout", type=float, default=0.1, help="LoRA dropout (default: 0.1)")
-    g_lora.add_argument("--target-modules", nargs="+", default=["q_proj", "k_proj", "v_proj", "o_proj"], help="Modules to apply LoRA to")
+    g_lora.add_argument("--target-modules", nargs="+", default=["q_proj", "k_proj", "v_proj", "o_proj"], help="Modules to apply adapter to")
     g_lora.add_argument("--bias", type=str, default="none", choices=["none", "all", "lora_only"], help="Bias training mode (default: none)")
     g_lora.add_argument("--attention-type", type=str, default="both", choices=["self", "cross", "both"], help="Attention layers to target (default: both)")
+
+    # -- LoKR hyperparams ---------------------------------------------------
+    g_lokr = parser.add_argument_group("LoKR (used when --adapter-type=lokr)")
+    g_lokr.add_argument("--lokr-linear-dim", type=int, default=64, help="LoKR linear dimension (default: 64)")
+    g_lokr.add_argument("--lokr-linear-alpha", type=int, default=128, help="LoKR linear alpha (default: 128)")
+    g_lokr.add_argument("--lokr-factor", type=int, default=-1, help="LoKR factor; -1 for auto (default: -1)")
+    g_lokr.add_argument("--lokr-decompose-both", action="store_true", default=False, help="Decompose both Kronecker factors")
+    g_lokr.add_argument("--lokr-use-tucker", action="store_true", default=False, help="Use Tucker decomposition")
+    g_lokr.add_argument("--lokr-use-scalar", action="store_true", default=False, help="Use scalar scaling")
+    g_lokr.add_argument("--lokr-weight-decompose", action="store_true", default=False, help="Enable DoRA-style weight decomposition")
 
     # -- Checkpointing -------------------------------------------------------
     g_ckpt = parser.add_argument_group("Checkpointing")
@@ -260,21 +265,14 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_fixed_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments specific to the fixed/selective subcommands."""
+    """Add arguments specific to the fixed subcommand."""
     g = parser.add_argument_group("Corrected training")
     g.add_argument("--cfg-ratio", type=float, default=0.15, help="CFG dropout probability (default: 0.15)")
 
 
-def _add_selective_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments specific to the selective subcommand."""
-    g = parser.add_argument_group("Selective / estimation")
-    g.add_argument("--module-config", type=str, default=None, help="Path to JSON module config from estimation")
-    g.add_argument("--auto-estimate", action="store_true", default=False, help="Run estimation inline before training")
-    _add_estimation_args(parser)
-
 
 def _add_estimation_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments shared by estimate and selective subcommands."""
+    """Add arguments for the estimate subcommand."""
     g = parser.add_argument_group("Estimation")
     g.add_argument("--estimate-batches", type=int, default=None, help="Number of batches for estimation (default: auto from GPU)")
     g.add_argument("--top-k", type=int, default=16, help="Number of top modules to select (default: 16)")

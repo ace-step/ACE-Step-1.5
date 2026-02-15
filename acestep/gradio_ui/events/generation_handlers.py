@@ -486,11 +486,15 @@ def init_service_wrapper(dit_handler, llm_handler, checkpoint, config_path, devi
     # --- Tier-aware validation before initialization ---
     gpu_config = get_global_gpu_config()
     
-    # macOS safety: force-disable compile and quantization even if user checked them
+    # macOS safety: quantization (torchao) is unsupported on MPS.
+    # Compilation is allowed — the handler redirects it to mx.compile for
+    # MLX components instead of torch.compile.
     if sys.platform == "darwin":
         if compile_model:
-            logger.info("macOS detected: disabling torch.compile (not supported on MPS)")
-            compile_model = False
+            logger.info(
+                "macOS detected: torch.compile not supported; compilation "
+                "will use mx.compile via MLX."
+            )
         if quantization:
             logger.info("macOS detected: disabling INT8 quantization (torchao incompatible with MPS)")
             quantization = False
@@ -569,12 +573,14 @@ def init_service_wrapper(dit_handler, llm_handler, checkpoint, config_path, devi
     
     duration_update = gr.update(
         maximum=float(max_duration),
-        info=f"Duration in seconds (-1 for auto). Max: {max_duration}s / {max_duration // 60} min"
+        info=f"Duration in seconds (-1 for auto). Max: {max_duration}s / {max_duration // 60} min.",
+        elem_classes=["has-info-container"],
     )
     batch_update = gr.update(
         value=min(2, max_batch),  # Clamp value to new maximum to avoid Gradio validation error
         maximum=max_batch,
-        info=f"Number of samples to generate (Max: {max_batch})"
+        info=f"Number of samples to generate (Max: {max_batch}).",
+        elem_classes=["has-info-container"],
     )
     
     # Add GPU config info to status
@@ -650,28 +656,34 @@ def on_tier_change(selected_tier, llm_handler=None):
     return (
         # offload_to_cpu_checkbox
         gr.update(value=new_config.offload_to_cpu_default,
-                  info=t("service.offload_cpu_info") + (" (recommended for this tier)" if new_config.offload_to_cpu_default else " (optional for this tier)")),
+                  info=t("service.offload_cpu_info") + (" (recommended for this tier)" if new_config.offload_to_cpu_default else ""),
+                  elem_classes=["has-info-container"]),
         # offload_dit_to_cpu_checkbox
         gr.update(value=new_config.offload_dit_to_cpu_default,
-                  info=t("service.offload_dit_cpu_info") + (" (recommended for this tier)" if new_config.offload_dit_to_cpu_default else " (optional for this tier)")),
+                  info=t("service.offload_dit_cpu_info") + (" (recommended for this tier)" if new_config.offload_dit_to_cpu_default else ""),
+                  elem_classes=["has-info-container"]),
         # compile_model_checkbox
         gr.update(value=new_config.compile_model_default),
         # quantization_checkbox
         gr.update(value=new_config.quantization_default,
-                  info=t("service.quantization_info") + (" (recommended for this tier)" if new_config.quantization_default else " (optional for this tier)")),
+                  info=t("service.quantization_info") + (" (recommended for this tier)" if new_config.quantization_default else ""),
+                  elem_classes=["has-info-container"]),
         # backend_dropdown
-        gr.update(choices=available_backends, value=recommended_backend),
+        gr.update(choices=available_backends, value=recommended_backend, elem_classes=["has-info-container"]),
         # lm_model_path
         gr.update(choices=all_disk_models, value=default_lm_model,
-                  info=t("service.lm_model_path_info") + (f" (Recommended: {recommended_lm})" if recommended_lm else " (LM not available for this GPU tier)")),
+                  info=t("service.lm_model_path_info") + (f" (Recommended: {recommended_lm})" if recommended_lm else " (LM not available for this GPU tier)."),
+                  elem_classes=["has-info-container"]),
         # init_llm_checkbox
-        gr.update(value=new_config.init_lm_default),
+        gr.update(value=new_config.init_lm_default, elem_classes=["has-info-container"]),
         # batch_size_input
         gr.update(value=min(2, max_batch), maximum=max_batch,
-                  info=f"Number of samples to generate (Max: {max_batch})"),
+                  info=f"Number of samples to generate (Max: {max_batch}).",
+                  elem_classes=["has-info-container"]),
         # audio_duration
         gr.update(maximum=float(max_duration),
-                  info=f"Duration in seconds (-1 for auto). Max: {max_duration}s / {max_duration // 60} min"),
+                  info=f"Duration in seconds (-1 for auto). Max: {max_duration}s / {max_duration // 60} min.",
+                  elem_classes=["has-info-container"]),
         # gpu_info_display
         gr.update(value=gpu_info_text),
     )
@@ -746,6 +758,7 @@ def get_model_type_ui_settings(is_turbo: bool, current_mode: str = None, is_pure
     - cfg_interval_end
     - task_type (hidden, keep value)
     - generation_mode (update choices, preserve current value)
+    - init_llm_checkbox (unchecked for pure base models)
     """
     cfg = get_ui_control_config(is_turbo, is_pure_base=is_pure_base)
     new_choices = cfg["generation_mode_choices"]
@@ -754,6 +767,9 @@ def get_model_type_ui_settings(is_turbo: bool, current_mode: str = None, is_pure
         mode_update = gr.update(choices=new_choices, value=current_mode)
     else:
         mode_update = gr.update(choices=new_choices)
+    # Pure base models default to LM not initialized (base extract/lego/complete
+    # workflows don't need LM).  Non-base models keep the checkbox unchanged.
+    init_llm_update = gr.update(value=False) if is_pure_base else gr.update()
     return (
         gr.update(
             value=cfg["inference_steps_value"],
@@ -767,6 +783,7 @@ def get_model_type_ui_settings(is_turbo: bool, current_mode: str = None, is_pure
         gr.update(visible=cfg["cfg_interval_end_visible"]),
         gr.update(),  # task_type - no change (hidden, managed by mode)
         mode_update,  # generation_mode choices (with preserved value)
+        init_llm_update,  # init_llm_checkbox (unchecked for pure base)
     )
 
 
@@ -794,17 +811,17 @@ def update_audio_cover_strength_visibility(task_type_value, init_llm_checked, re
     # Label priority: cover -> LM codes -> Similarity/Denoise (reference audio)
     if task_type_value == "cover":
         label = t("generation.cover_strength_label")
-        info = t("generation.cover_strength_info")
+        help_text = t("generation.cover_strength_info")
     elif init_llm_checked:
         label = t("generation.codes_strength_label")
-        info = t("generation.codes_strength_info")
+        help_text = t("generation.codes_strength_info")
     elif has_reference:
         label = t("generation.similarity_denoise_label")
-        info = t("generation.similarity_denoise_info")
+        help_text = t("generation.similarity_denoise_info")
     else:
         label = t("generation.cover_strength_label")
-        info = t("generation.cover_strength_info")
-    return gr.update(visible=is_visible, label=label, info=info)
+        help_text = t("generation.cover_strength_info")
+    return gr.update(visible=is_visible, label=label, info=help_text, elem_classes=["has-info-container"])
 
 
 def convert_src_audio_to_codes_wrapper(dit_handler, src_audio):
@@ -835,26 +852,31 @@ def analyze_src_audio(dit_handler, llm_handler, src_audio, constrained_decoding_
         Tuple of (audio_codes, status, caption, lyrics, bpm, duration, keyscale, language, timesignature, is_format_caption)
     """
     # 10-item error tuple: (codes, status, caption, lyrics, bpm, duration, key, lang, timesig, is_format)
-    _err = ("", "", "", "", None, None, "", "", "", False)
+    def _err(status: str):
+        return ("", status, "", "", None, None, "", "", "", False)
 
     # Step 1: Convert audio to codes
     if not src_audio:
-        gr.Warning("No audio file provided.")
-        return _err
+        status = "No audio file provided."
+        gr.Warning(status)
+        return _err(status)
 
     try:
         codes_string = dit_handler.convert_src_audio_to_codes(src_audio)
     except Exception as e:
-        gr.Warning(f"Failed to convert audio to codes: {e}")
-        return _err
+        status = f"Failed to convert audio to codes: {e}"
+        gr.Warning(status)
+        return _err(status)
 
     if not codes_string or not codes_string.strip():
-        gr.Warning("Audio conversion produced empty codes.")
-        return _err
+        status = "Audio conversion produced empty codes."
+        gr.Warning(status)
+        return _err(status)
 
     if not _contains_audio_code_tokens(codes_string):
-        gr.Warning("Source file is not valid audio or conversion failed (no audio codes detected).")
-        return _err
+        status = "Source file is not valid audio or conversion failed (no audio codes detected)."
+        gr.Warning(status)
+        return _err(status)
 
     # Step 2: Transcribe codes to caption/lyrics/metas via LLM
     if not llm_handler.llm_initialized:
@@ -898,10 +920,14 @@ def update_instruction_ui(
     init_llm_checked: bool = False,
     reference_audio=None,
 ) -> tuple:
-    """Update instruction and UI visibility based on task type.
+    """Update instruction text based on task type.
     
-    Note: init_llm_checked and reference_audio are kept for backward compatibility
-    but no longer used for audio_cover_strength visibility (now handled by mode change).
+    Visibility of track_name, complete_track_classes, and repainting_group
+    is managed by compute_mode_ui_updates (via generation_mode.change).
+    This function only regenerates the instruction string.
+
+    Note: init_llm_checked and reference_audio are kept for backward
+    compatibility but are no longer used.
     """
     instruction = dit_handler.generate_instruction(
         task_type=task_type_value,
@@ -909,19 +935,7 @@ def update_instruction_ui(
         complete_track_classes=complete_track_classes_value
     )
     
-    # Show track_name for lego and extract
-    track_name_visible = task_type_value in ["lego", "extract"]
-    # Show complete_track_classes for complete
-    complete_visible = task_type_value == "complete"
-    # Show repainting controls for repaint and lego
-    repainting_visible = task_type_value in ["repaint", "lego"]
-    
-    return (
-        instruction,  # instruction_display_gen
-        gr.update(visible=track_name_visible),  # track_name
-        gr.update(visible=complete_visible),  # complete_track_classes
-        gr.update(visible=repainting_visible),  # repainting_group
-    )
+    return instruction  # instruction_display_gen
 
 
 def transcribe_audio_codes(llm_handler, audio_code_string, constrained_decoding_debug):
@@ -1065,7 +1079,7 @@ def update_audio_components_visibility(batch_size):
     return updates_row1 + updates_row2
 
 
-def compute_mode_ui_updates(mode: str, llm_handler=None):
+def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "Custom"):
     """Compute gr.update() tuple for all mode-dependent UI components.
     
     Shared by handle_generation_mode_change (Radio .change event) and by
@@ -1077,10 +1091,21 @@ def compute_mode_ui_updates(mode: str, llm_handler=None):
         mode: One of "Simple", "Custom", "Remix", "Repaint",
               "Extract", "Lego", "Complete".
         llm_handler: Optional LLM handler (used for think-checkbox state).
+        previous_mode: The mode that was active before this switch.
+            Used to clear polluted values when leaving Extract/Lego.
 
     Returns:
-        Tuple of 19 gr.update objects matching the standard mode-change
+        Tuple of 37 gr.update objects matching the standard mode-change
         output list (see event wiring in events/__init__.py).
+        Indices 0-18: original outputs.
+        Indices 19-29: Extract/Lego-mode outputs (captions, lyrics, bpm,
+        key_scale, time_signature, vocal_language, audio_duration,
+        auto_score, autogen_checkbox, auto_lrc, analyze_btn).
+        Indices 30-32: dynamic repainting labels (repainting_header_html,
+        repainting_start label, repainting_end label).
+        Index 33: updated previous_generation_mode state.
+        Indices 34-36: mode-specific help button groups
+        (remix_help_group, extract_help_group, complete_help_group).
     """
     task_type = MODE_TO_TASK_TYPE.get(mode, "text2music")
 
@@ -1091,22 +1116,23 @@ def compute_mode_ui_updates(mode: str, llm_handler=None):
     is_extract = (mode == "Extract")
     is_lego = (mode == "Lego")
     is_complete = (mode == "Complete")
+    leaving_extract_or_lego = previous_mode in ("Extract", "Lego")
     not_simple = not is_simple
 
     # --- Visibility rules ---
     show_simple = is_simple
-    show_custom_group = not_simple
+    show_custom_group = not_simple and not is_extract
     show_generate_row = not_simple
     generate_interactive = not_simple
     show_src_audio = is_cover or is_repaint or is_extract or is_lego or is_complete
-    show_optional = not_simple
+    show_optional = not_simple and not is_extract and not is_lego
     show_repainting = is_repaint or is_lego
     show_audio_codes = is_custom
     show_track_name = is_lego or is_extract
     show_complete_classes = is_complete
 
-    # Audio cover strength: visible in Custom, Remix, Extract, Lego, Complete
-    show_strength = not is_simple and not is_repaint
+    # Audio cover strength: visible in Custom, Remix, Complete (NOT Extract, NOT Lego)
+    show_strength = not is_simple and not is_repaint and not is_extract and not is_lego
     if is_cover:
         strength_label = t("generation.remix_strength_label")
         strength_info = t("generation.remix_strength_info")
@@ -1122,14 +1148,14 @@ def compute_mode_ui_updates(mode: str, llm_handler=None):
 
     cover_noise_update = gr.update(visible=is_cover)
 
-    # Think checkbox
+    # Think checkbox: hidden in Extract/Lego mode
     lm_initialized = llm_handler.llm_initialized if llm_handler else False
-    if is_cover or is_repaint:
-        think_update = gr.update(interactive=False, value=False)
+    if is_extract or is_lego or is_cover or is_repaint:
+        think_update = gr.update(interactive=False, value=False, visible=not (is_extract or is_lego))
     elif not lm_initialized:
-        think_update = gr.update(interactive=False, value=False)
+        think_update = gr.update(interactive=False, value=False, visible=True)
     else:
-        think_update = gr.update(interactive=True)
+        think_update = gr.update(interactive=True, visible=True)
 
     mode_descriptions = {
         "Simple": t("generation.mode_info_simple"),
@@ -1140,43 +1166,221 @@ def compute_mode_ui_updates(mode: str, llm_handler=None):
         "Lego": t("generation.mode_info_lego"),
         "Complete": t("generation.mode_info_complete"),
     }
-    mode_info_text = mode_descriptions.get(mode, "")
+    mode_help_text = mode_descriptions.get(mode, "")
 
     show_results = not_simple
 
+    # Generate button label: mode-specific
+    if is_extract:
+        generate_btn_update = gr.update(
+            interactive=generate_interactive,
+            value=t("generation.extract_stem_btn"),
+        )
+    elif is_lego:
+        generate_btn_update = gr.update(
+            interactive=generate_interactive,
+            value=t("generation.add_stem_btn"),
+        )
+    else:
+        generate_btn_update = gr.update(
+            interactive=generate_interactive,
+            value=t("generation.generate_btn"),
+        )
+
+    # --- New outputs for Extract/Lego mode (indices 19-29) ---
+    if is_extract:
+        # Extract: Reset and hide all caption/lyrics/metadata fields
+        captions_update = gr.update(value="", visible=False)
+        lyrics_update = gr.update(value="", visible=False)
+        bpm_update = gr.update(value=None, interactive=False, visible=False)
+        key_scale_update = gr.update(value="", interactive=False, visible=False)
+        time_signature_update = gr.update(value="", interactive=False, visible=False)
+        vocal_language_update = gr.update(value="unknown", interactive=False, visible=False)
+        audio_duration_update = gr.update(value=-1, interactive=False, visible=False)
+        # Hide auto_score, autogen, auto_lrc, analyze_btn; disable interaction
+        auto_score_update = gr.update(visible=False, value=False, interactive=False)
+        autogen_update = gr.update(visible=False, value=False, interactive=False)
+        auto_lrc_update = gr.update(visible=False, value=False, interactive=False)
+        analyze_btn_update = gr.update(visible=False)
+    elif is_lego:
+        # Lego: keep caption/lyrics visible; hide metadata & automation controls
+        captions_update = gr.update(visible=True, interactive=True)
+        lyrics_update = gr.update(visible=True, interactive=True)
+        bpm_update = gr.update(value=None, interactive=False, visible=False)
+        key_scale_update = gr.update(value="", interactive=False, visible=False)
+        time_signature_update = gr.update(value="", interactive=False, visible=False)
+        vocal_language_update = gr.update(value="unknown", interactive=False, visible=False)
+        audio_duration_update = gr.update(value=-1, interactive=False, visible=False)
+        auto_score_update = gr.update(visible=False, value=False, interactive=False)
+        autogen_update = gr.update(visible=False, value=False, interactive=False)
+        auto_lrc_update = gr.update(visible=False, value=False, interactive=False)
+        analyze_btn_update = gr.update(visible=False)
+    elif not_simple:
+        # Non-Extract, non-Simple: restore visibility and interactivity for
+        # fields that Extract mode explicitly hid.  This ensures switching
+        # from Extract → Custom/Remix/etc. brings the fields back.
+        # When leaving Extract/Lego, also clear polluted values (caption was
+        # set to track name, metadata was cleared to blanks, etc.).
+        if leaving_extract_or_lego:
+            captions_update = gr.update(value="", visible=True, interactive=True)
+            lyrics_update = gr.update(value="", visible=True, interactive=True)
+            bpm_update = gr.update(value=None, visible=True, interactive=True)
+            key_scale_update = gr.update(value="", visible=True, interactive=True)
+            time_signature_update = gr.update(value="", visible=True, interactive=True)
+            vocal_language_update = gr.update(value="en", visible=True, interactive=True)
+            audio_duration_update = gr.update(value=-1, visible=True, interactive=True)
+        else:
+            captions_update = gr.update(visible=True, interactive=True)
+            lyrics_update = gr.update(visible=True, interactive=True)
+            bpm_update = gr.update(visible=True, interactive=True)
+            key_scale_update = gr.update(visible=True, interactive=True)
+            time_signature_update = gr.update(visible=True, interactive=True)
+            vocal_language_update = gr.update(visible=True, interactive=True)
+            audio_duration_update = gr.update(visible=True, interactive=True)
+        auto_score_update = gr.update(visible=True, interactive=True)
+        autogen_update = gr.update(visible=True, interactive=True)
+        auto_lrc_update = gr.update(visible=True, interactive=True)
+        analyze_btn_update = gr.update(visible=True)
+    else:
+        # Simple mode: normally leave these fields unchanged (no-op) since
+        # their visibility is controlled by parent containers.
+        # However, when leaving Extract/Lego, clear polluted values so that
+        # a subsequent switch to Custom/Remix/etc. starts clean.
+        if leaving_extract_or_lego:
+            captions_update = gr.update(value="")
+            lyrics_update = gr.update(value="")
+            bpm_update = gr.update(value=None)
+            key_scale_update = gr.update(value="")
+            time_signature_update = gr.update(value="")
+            vocal_language_update = gr.update(value="en")
+            audio_duration_update = gr.update(value=-1)
+        else:
+            captions_update = gr.update()
+            lyrics_update = gr.update()
+            bpm_update = gr.update()
+            key_scale_update = gr.update()
+            time_signature_update = gr.update()
+            vocal_language_update = gr.update()
+            audio_duration_update = gr.update()
+        auto_score_update = gr.update()
+        autogen_update = gr.update()
+        auto_lrc_update = gr.update()
+        analyze_btn_update = gr.update()
+
+    # --- Dynamic repainting / stem area labels (indices 30-32) ---
+    if is_lego:
+        repainting_header_update = gr.update(
+            value=f"<h5>{t('generation.stem_area_controls')}</h5>",
+        )
+        repainting_start_update = gr.update(label=t("generation.stem_start"))
+        repainting_end_update = gr.update(label=t("generation.stem_end"))
+    elif is_repaint:
+        repainting_header_update = gr.update(
+            value=f"<h5>{t('generation.repainting_controls')}</h5>",
+        )
+        repainting_start_update = gr.update(label=t("generation.repainting_start"))
+        repainting_end_update = gr.update(label=t("generation.repainting_end"))
+    else:
+        # Not visible — no-op
+        repainting_header_update = gr.update()
+        repainting_start_update = gr.update()
+        repainting_end_update = gr.update()
+
     return (
-        gr.update(visible=show_simple),              # simple_mode_group
-        gr.update(visible=show_custom_group),         # custom_mode_group
-        gr.update(interactive=generate_interactive),   # generate_btn
-        False,                                         # simple_sample_created
-        gr.Accordion(visible=show_optional, open=False),  # optional_params_accordion
-        gr.update(value=task_type),                    # task_type
-        gr.update(visible=show_src_audio),             # src_audio_row
-        gr.update(visible=show_repainting),            # repainting_group
-        gr.update(visible=show_audio_codes),           # text2music_audio_codes_group
-        gr.update(visible=show_track_name),            # track_name
-        gr.update(visible=show_complete_classes),       # complete_track_classes
-        gr.update(visible=show_generate_row),          # generate_btn_row
-        gr.update(info=mode_info_text),                # generation_mode (info)
-        gr.update(visible=show_results),               # results_wrapper
-        think_update,                                  # think_checkbox
-        gr.update(visible=not_simple),                 # load_file_col
-        gr.update(visible=not_simple),                 # load_file
-        strength_update,                               # audio_cover_strength
-        cover_noise_update,                            # cover_noise_strength
+        gr.update(visible=show_simple),              # 0: simple_mode_group
+        gr.update(visible=show_custom_group),         # 1: custom_mode_group
+        generate_btn_update,                           # 2: generate_btn
+        False,                                         # 3: simple_sample_created
+        gr.Accordion(visible=show_optional, open=False),  # 4: optional_params_accordion
+        gr.update(value=task_type, elem_classes=["has-info-container"]), # 5: task_type
+        gr.update(visible=show_src_audio),             # 6: src_audio_row
+        gr.update(visible=show_repainting),            # 7: repainting_group
+        gr.update(visible=show_audio_codes),           # 8: text2music_audio_codes_group
+        gr.update(visible=show_track_name),            # 9: track_name
+        gr.update(visible=show_complete_classes),       # 10: complete_track_classes
+        gr.update(visible=show_generate_row),          # 11: generate_btn_row
+        gr.update(info=mode_help_text, elem_classes=["has-info-container"]), # 12: generation_mode
+        gr.update(visible=show_results),               # 13: results_wrapper
+        think_update,                                  # 14: think_checkbox
+        gr.update(visible=not_simple),                 # 15: load_file_col
+        gr.update(visible=not_simple),                 # 16: load_file
+        strength_update,                               # 17: audio_cover_strength
+        cover_noise_update,                            # 18: cover_noise_strength
+        # --- Extract/Lego-mode outputs (19-29) ---
+        captions_update,                               # 19: captions
+        lyrics_update,                                 # 20: lyrics
+        bpm_update,                                    # 21: bpm
+        key_scale_update,                              # 22: key_scale
+        time_signature_update,                         # 23: time_signature
+        vocal_language_update,                         # 24: vocal_language
+        audio_duration_update,                         # 25: audio_duration
+        auto_score_update,                             # 26: auto_score
+        autogen_update,                                # 27: autogen_checkbox
+        auto_lrc_update,                               # 28: auto_lrc
+        analyze_btn_update,                            # 29: analyze_btn
+        # --- Dynamic repainting/stem labels (30-32) ---
+        repainting_header_update,                      # 30: repainting_header_html
+        repainting_start_update,                       # 31: repainting_start
+        repainting_end_update,                         # 32: repainting_end
+        # --- Previous mode state (33) ---
+        mode,                                          # 33: previous_generation_mode
+        # --- Mode-specific help button groups (34-36) ---
+        gr.update(visible=is_cover),                   # 34: remix_help_group
+        gr.update(visible=(is_extract or is_lego)),    # 35: extract_help_group
+        gr.update(visible=is_complete),                # 36: complete_help_group
     )
 
 
-def handle_generation_mode_change(mode: str, llm_handler=None):
+def handle_generation_mode_change(mode: str, previous_mode: str, llm_handler=None):
     """Handle unified generation mode change.
     
-    The mode parameter is one of: "Simple", "Custom", "Remix", "Repaint",
-    "Extract", "Lego", "Complete".
+    Args:
+        mode: One of "Simple", "Custom", "Remix", "Repaint",
+              "Extract", "Lego", "Complete".
+        previous_mode: The mode that was active before this switch.
+        llm_handler: Optional LLM handler.
     
     Returns:
-        Tuple of 19 updates for UI components (see output list in event wiring).
+        Tuple of 37 updates for UI components (see output list in event wiring).
     """
-    return compute_mode_ui_updates(mode, llm_handler)
+    return compute_mode_ui_updates(mode, llm_handler, previous_mode=previous_mode)
+
+
+def handle_extract_track_name_change(track_name_value: str, mode: str):
+    """Auto-fill caption with track name when in Extract mode.
+    
+    Args:
+        track_name_value: Selected track name (e.g., "vocals", "drums").
+        mode: Current generation mode.
+    
+    Returns:
+        gr.update for captions component.
+    """
+    if mode == "Extract" and track_name_value:
+        return gr.update(value=track_name_value)
+    return gr.update()
+
+
+def handle_extract_src_audio_change(src_audio_path, mode: str):
+    """Auto-fill audio_duration from source audio file in Extract or Lego mode.
+    
+    Args:
+        src_audio_path: Path to the uploaded source audio file.
+        mode: Current generation mode.
+    
+    Returns:
+        gr.update for audio_duration component.
+    """
+    if mode not in ("Extract", "Lego") or not src_audio_path:
+        return gr.update()
+    try:
+        from acestep.training.dataset_builder_modules.audio_io import get_audio_duration
+        duration = get_audio_duration(src_audio_path)
+        if duration and duration > 0:
+            return gr.update(value=float(duration))
+    except Exception as e:
+        logger.warning(f"Failed to get audio duration for {mode} mode: {e}")
+    return gr.update()
 
 
 def get_generation_mode_choices(is_pure_base: bool = False) -> list:

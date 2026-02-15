@@ -8,21 +8,52 @@ subcommand, framework versions, and GPU info.
 from __future__ import annotations
 
 import random
+import shutil
 import sys
 import textwrap
 from typing import Optional
 
 from acestep.training_v2.ui import console, is_rich_active
 
-# ---- ASCII logo -------------------------------------------------------------
+# ---- ASCII logos (wide BlurVision + narrow fallback) -------------------------
 
-_LOGO = textwrap.dedent(r"""
-  ███████ ██ ██████  ███████       ███████ ████████ ███████ ██████
-  ██      ██ ██   ██ ██            ██         ██    ██      ██   ██
-  ███████ ██ ██   ██ █████   █████ ███████    ██    █████   ██████
-       ██ ██ ██   ██ ██                 ██    ██    ██      ██
-  ███████ ██ ██████  ███████       ███████    ██    ███████ ██     
-    """).strip()
+# Multi-line BlurVision gradient-block art (Unicode shade characters)
+_LOGO_WIDE_LINES = [
+    " \u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591",
+    "\u2591\u2592\u2593\u2588\u2593\u2592\u2591      \u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591      \u2591\u2592\u2593\u2588\u2593\u2592\u2591         \u2591\u2592\u2593\u2588\u2593\u2592\u2591   \u2591\u2592\u2593\u2588\u2593\u2592\u2591      \u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591",
+    "\u2591\u2592\u2593\u2588\u2593\u2592\u2591      \u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591      \u2591\u2592\u2593\u2588\u2593\u2592\u2591         \u2591\u2592\u2593\u2588\u2593\u2592\u2591   \u2591\u2592\u2593\u2588\u2593\u2592\u2591      \u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591",
+    " \u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591  \u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591   \u2591\u2592\u2593\u2588\u2593\u2592\u2591   \u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591 \u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591",
+    "       \u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591             \u2591\u2592\u2593\u2588\u2593\u2592\u2591  \u2591\u2592\u2593\u2588\u2593\u2592\u2591   \u2591\u2592\u2593\u2588\u2593\u2592\u2591      \u2591\u2592\u2593\u2588\u2593\u2592\u2591",
+    "       \u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591             \u2591\u2592\u2593\u2588\u2593\u2592\u2591  \u2591\u2592\u2593\u2588\u2593\u2592\u2591   \u2591\u2592\u2593\u2588\u2593\u2592\u2591      \u2591\u2592\u2593\u2588\u2593\u2592\u2591",
+    "\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591   \u2591\u2592\u2593\u2588\u2593\u2592\u2591   \u2591\u2592\u2593\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2593\u2592\u2591\u2592\u2593\u2588\u2593\u2592\u2591",
+]
+
+_LOGO_NARROW = textwrap.dedent(r"""
+  ███████ ██ ██████  ███████
+  ██      ██ ██   ██ ██
+  ███████ ██ ██   ██ █████
+       ██ ██ ██   ██ ██
+  ███████ ██ ██████  ███████
+
+  ███████ ████████ ███████ ██████
+  ██         ██    ██      ██   ██
+  ███████    ██    █████   ██████
+       ██    ██    ██      ██
+  ███████    ██    ███████ ██
+""").strip()
+
+_LOGO_MIN_WIDTH = 98  # Minimum terminal width for the wide BlurVision logo
+
+
+def _pick_logo() -> str:
+    """Return the best logo for the current terminal width."""
+    try:
+        width = shutil.get_terminal_size((120, 24)).columns
+    except Exception:
+        width = 120
+    if width >= _LOGO_MIN_WIDTH:
+        return "\n".join(_LOGO_WIDE_LINES)
+    return _LOGO_NARROW
 
 # ---- Splash mottos (randomly picked each launch) ----------------------------
 
@@ -112,10 +143,11 @@ def show_banner(
         ver_parts.append(precision)
     ver_str = " | ".join(ver_parts)
 
+    from acestep.training_v2 import __version__ as SIDESTEP_VERSION
+
     _SUBCOMMAND_DESC = {
         "vanilla": "vanilla (original behaviour, bugged timesteps)",
         "fixed": "fixed (corrected timesteps + CFG dropout)",
-        "selective": "selective (dataset-specific module selection)",
         "estimate": "estimate (gradient sensitivity analysis)",
     }
     sub_desc = _SUBCOMMAND_DESC.get(subcommand, subcommand)
@@ -124,10 +156,12 @@ def show_banner(
         from rich.panel import Panel
         from rich.text import Text
 
+        logo = _pick_logo()
         body = Text()
-        body.append(_LOGO.strip() + "\n", style="bold cyan")
+        body.append(logo + "\n", style="bold cyan")
         body.append(f'  "{motto}"\n\n', style="italic yellow")
-        body.append("  LoRA Fine-Tuning CLI\n\n", style="dim")
+        body.append(f"  Side-Step v{SIDESTEP_VERSION} -- Adapter Fine-Tuning CLI (LoRA + LoKR)\n", style="dim")
+        body.append("  Standalone: github.com/koda-dernet/Side-Step\n\n", style="dim italic")
         body.append("  Mode   : ", style="dim")
         body.append(f"{sub_desc}\n", style="bold")
         body.append("  Stack  : ", style="dim")
@@ -142,9 +176,10 @@ def show_banner(
         console.print(Panel(body, border_style="cyan", padding=(0, 1)))
     else:
         # Plain text fallback
-        print(_LOGO.strip(), file=sys.stderr)
+        print(_pick_logo(), file=sys.stderr)
         print(f'  "{motto}"', file=sys.stderr)
-        print(f"  Side-Step -- LoRA Fine-Tuning CLI", file=sys.stderr)
+        print(f"  Side-Step v{SIDESTEP_VERSION} -- Adapter Fine-Tuning CLI (LoRA + LoKR)", file=sys.stderr)
+        print("  Standalone: github.com/koda-dernet/Side-Step", file=sys.stderr)
         print(f"  Mode   : {sub_desc}", file=sys.stderr)
         print(f"  Stack  : {ver_str}", file=sys.stderr)
         print(f"  GPU    : {gpu_line}", file=sys.stderr)

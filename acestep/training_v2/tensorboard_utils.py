@@ -94,13 +94,16 @@ class TrainingLogger:
             Dict mapping ``{prefix}/{param_name}`` -> norm value.
         """
         norms: Dict[str, float] = {}
-        for name, param in model.named_parameters():
-            if param.requires_grad and param.grad is not None:
-                norm_val = param.grad.data.float().norm(2).item()
-                tag = f"{prefix}/{name}"
-                norms[tag] = norm_val
-                if self._writer is not None:
-                    self._writer.add_scalar(tag, norm_val, global_step=step)
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if param.requires_grad and param.grad is not None:
+                    # Compute norm in native dtype (avoids creating a
+                    # temporary fp32 GPU copy of each gradient tensor).
+                    norm_val = param.grad.data.norm(2).item()
+                    tag = f"{prefix}/{name}"
+                    norms[tag] = norm_val
+                    if self._writer is not None:
+                        self._writer.add_scalar(tag, norm_val, global_step=step)
         return norms
 
     # ------------------------------------------------------------------
@@ -131,11 +134,16 @@ class TrainingLogger:
         """Log weight histograms for trainable parameters."""
         if self._writer is None:
             return
-        for name, param in model.named_parameters():
-            if param.requires_grad:
-                self._writer.add_histogram(
-                    f"{prefix}/{name}", param.data.float().cpu(), global_step=step
-                )
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    # Move to CPU in native dtype first, then upcast
+                    # to float32 on CPU (avoids GPU fp32 intermediate).
+                    cpu_data = param.data.cpu().float()
+                    self._writer.add_histogram(
+                        f"{prefix}/{name}", cpu_data, global_step=step,
+                    )
+                    del cpu_data
 
     # ------------------------------------------------------------------
     # Lifecycle

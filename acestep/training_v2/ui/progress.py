@@ -3,6 +3,7 @@ Live training progress display using Rich.
 
 Renders a live-updating dashboard that shows:
     - Epoch progress bar with ETA
+    - Step-level progress bar within the current epoch
     - Current metrics (loss, learning rate, speed)
     - GPU VRAM usage bar
     - Scrolling log of recent messages
@@ -13,13 +14,46 @@ is not a TTY.
 
 from __future__ import annotations
 
-import sys
+import logging
 import time
 from dataclasses import dataclass, field
-from typing import Generator, Iterator, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 from acestep.training_v2.ui import TrainingUpdate, console, is_rich_active
 from acestep.training_v2.ui.gpu_monitor import GPUMonitor
+
+
+# ---- Logging capture (prevents ghost panels in tmux / web terminals) --------
+
+class _LiveLogCapture(logging.Handler):
+    """Redirects log messages into the panel's scrolling log area.
+
+    During a Rich Live session, any direct writes to stderr (including
+    from Python's ``logging.StreamHandler``) break the ANSI cursor
+    positioning that Live uses to overwrite the panel in-place.  This
+    causes "ghost panels" — stale copies of the display that get pushed
+    up.  The problem is especially visible in tmux and web terminals.
+
+    This handler captures log messages into the ``recent_msgs`` list
+    that the panel display reads from, and a ``live`` reference so the
+    display refreshes immediately after the log message is captured.
+    The file handler (``sidestep.log``) is unaffected and keeps logging
+    normally.
+    """
+
+    def __init__(self, messages: list, live: object = None) -> None:
+        super().__init__(level=logging.INFO)
+        self._messages = messages
+        self._live = live
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = record.getMessage()
+            self._messages.append(msg)
+            if len(self._messages) > 20:
+                self._messages.pop(0)
+        except Exception:
+            pass
 
 
 # ---- Training statistics tracker --------------------------------------------
@@ -43,7 +77,13 @@ class TrainingStats:
     steps_this_session: int = 0
     peak_vram_mb: float = 0.0
     last_epoch_time: float = 0.0
+    steps_per_epoch: int = 0
+    """Total optimizer steps per epoch (for step-level progress bar)."""
+    step_in_epoch: int = 0
+    """Current step index within the epoch (resets each epoch)."""
     _step_times: list = field(default_factory=list)
+    checkpoints: List[Dict[str, object]] = field(default_factory=list)
+    """Saved checkpoints: ``[{"epoch": int, "loss": float, "path": str}, ...]``."""
 
     @property
     def elapsed(self) -> float:
@@ -86,7 +126,6 @@ class TrainingStats:
     def record_step(self) -> None:
         now = time.time()
         self._step_times.append(now)
-        # Keep a sliding window of 50 timestamps for speed calculation
         if len(self._step_times) > 50:
             self._step_times = self._step_times[-50:]
 
@@ -107,13 +146,16 @@ def _fmt_duration(seconds: float) -> str:
 
 # ---- Rich live display builder ----------------------------------------------
 
+_LOG_LINES = 5  # Fixed number of log lines for stable panel height
+
+
 def _build_display(
     stats: TrainingStats,
     gpu: GPUMonitor,
     recent_msgs: list,
-) -> "Rich renderable":
+) -> Any:
     """Build the composite Rich renderable for one Live refresh."""
-    from rich.columns import Columns
+    from rich.console import Group
     from rich.panel import Panel
     from rich.progress_bar import ProgressBar
     from rich.table import Table
@@ -123,7 +165,7 @@ def _build_display(
     epoch_pct = 0.0
     if stats.max_epochs > 0:
         epoch_pct = stats.current_epoch / stats.max_epochs
-    progress_bar = ProgressBar(total=100, completed=int(epoch_pct * 100), width=40)
+    epoch_bar = ProgressBar(total=100, completed=int(epoch_pct * 100), width=40)
 
     epoch_line = Text()
     epoch_line.append("  Epoch ", style="dim")
@@ -132,22 +174,51 @@ def _build_display(
     epoch_line.append_text(Text.from_markup(f"  Step {stats.current_step}"))
     epoch_line.append(f"  |  ETA {stats.eta_str}", style="dim")
 
+    # -- Step-level progress (within epoch) -----------------------------------
+    # Only show the inner step bar when there are enough steps per epoch
+    # to make it meaningful.  For small datasets (e.g. 3 steps/epoch) the
+    # bar just flickers up/down and is more confusing than helpful.
+    _MIN_STEPS_FOR_BAR = 10
+    step_parts: list = []
+    if stats.steps_per_epoch >= _MIN_STEPS_FOR_BAR:
+        shown_step = max(stats.step_in_epoch, 0)
+        step_pct = min(shown_step / stats.steps_per_epoch, 1.0)
+        step_bar = ProgressBar(
+            total=100, completed=int(step_pct * 100), width=30,
+        )
+        step_line = Text()
+        step_line.append(f"  Step {shown_step}", style="dim")
+        step_line.append(f" / {stats.steps_per_epoch}  ", style="dim")
+        step_line.append_text(
+            Text.from_markup(f"  {step_bar}  [dim]{step_pct * 100:.0f}%[/]"),
+        )
+        step_parts = [step_line]
+
     # -- Metrics table --------------------------------------------------------
-    metrics = Table(show_header=False, show_edge=False, pad_edge=False, box=None, expand=True)
+    metrics = Table(
+        show_header=False, show_edge=False, pad_edge=False,
+        box=None, expand=True,
+    )
     metrics.add_column("key", style="dim", ratio=1)
     metrics.add_column("val", ratio=1)
     metrics.add_column("key2", style="dim", ratio=1)
     metrics.add_column("val2", ratio=1)
 
-    # Loss formatting: color-code direction
     loss_str = f"{stats.last_loss:.4f}" if stats.last_loss > 0 else "--"
     best_str = f"{stats.best_loss:.4f}" if stats.best_loss < float("inf") else "--"
     lr_str = f"{stats.last_lr:.2e}" if stats._lr_seen else "--"
-    speed_str = f"{stats.samples_per_sec:.1f} steps/s" if stats.samples_per_sec > 0 else "--"
+    speed_str = (
+        f"{stats.samples_per_sec:.1f} steps/s"
+        if stats.samples_per_sec > 0 else "--"
+    )
 
     metrics.add_row("Loss", f"[bold]{loss_str}[/]", "Best", f"[green]{best_str}[/]")
     metrics.add_row("LR", lr_str, "Speed", speed_str)
-    metrics.add_row("Elapsed", stats.elapsed_str, "Epoch time", f"{stats.last_epoch_time:.1f}s" if stats.last_epoch_time > 0 else "--")
+    metrics.add_row(
+        "Elapsed", stats.elapsed_str,
+        "Epoch time",
+        f"{stats.last_epoch_time:.1f}s" if stats.last_epoch_time > 0 else "--",
+    )
 
     # -- VRAM bar -------------------------------------------------------------
     if gpu.available:
@@ -165,10 +236,15 @@ def _build_display(
     else:
         vram_line = "  [dim]VRAM monitoring not available[/]"
 
-    # -- Recent log -----------------------------------------------------------
+    # -- Recent log (fixed height for stable panel) ---------------------------
     log_text = Text()
-    for msg in recent_msgs[-5:]:
-        if msg.startswith("[OK]"):
+    padded = recent_msgs[-_LOG_LINES:]
+    while len(padded) < _LOG_LINES:
+        padded.insert(0, "")
+    for msg in padded:
+        if not msg:
+            log_text.append("  \n")
+        elif msg.startswith("[OK]"):
             log_text.append(f"  {msg}\n", style="green")
         elif msg.startswith("[WARN]"):
             log_text.append(f"  {msg}\n", style="yellow")
@@ -180,19 +256,20 @@ def _build_display(
             log_text.append(f"  {msg}\n", style="dim")
 
     # -- Assemble panel -------------------------------------------------------
-    from rich.console import Group
-
-    parts = [
+    parts: list = [
         epoch_line,
         Text(""),
-        Text.from_markup(f"  {progress_bar}  [dim]{epoch_pct * 100:.0f}%[/]"),
+        Text.from_markup(f"  {epoch_bar}  [dim]{epoch_pct * 100:.0f}%[/]"),
+    ]
+    parts.extend(step_parts)
+    parts.extend([
         Text(""),
         metrics,
         Text(""),
         Text.from_markup(vram_line),
         Text(""),
         log_text,
-    ]
+    ])
 
     return Panel(
         Group(*parts),
@@ -228,8 +305,7 @@ def track_training(
 
     if is_rich_active() and console is not None:
         return _track_rich(training_iter, stats, gpu, recent_msgs, refresh_per_second)
-    else:
-        return _track_plain(training_iter, stats, gpu, recent_msgs)
+    return _track_plain(training_iter, stats, gpu, recent_msgs)
 
 
 def _track_rich(
@@ -239,32 +315,87 @@ def _track_rich(
     recent_msgs: list,
     refresh_per_second: int,
 ) -> TrainingStats:
+    """Rich Live display loop.
+
+    Uses ``transient=True`` so each frame cleanly erases the previous one,
+    preventing ghost-panel stacking when external code (e.g. Lightning's
+    SLURM warning) writes to stdout/stderr during the live display.
+
+    During the Live session, Python logging is redirected from stderr into
+    the panel's scrolling log area.  This prevents log output (e.g. from
+    checkpoint saves) from breaking Rich's ANSI cursor positioning, which
+    caused "ghost panels" — especially in tmux and web terminals.  The file
+    handler (sidestep.log) is unaffected.
+
+    After the Live context exits, the final dashboard is re-printed as a
+    static renderable so it remains visible in the terminal.
+    """
+    import warnings
     from rich.live import Live
 
     assert console is not None
 
-    with Live(
-        _build_display(stats, gpu, recent_msgs),
-        console=console,
-        refresh_per_second=refresh_per_second,
-        transient=True,  # Clear the live display when done
-    ) as live:
-        for update in training_iter:
-            # Unpack (works for both tuples and TrainingUpdate)
-            if isinstance(update, TrainingUpdate):
-                step, loss, msg = update.step, update.loss, update.msg
-                _process_structured(update, stats)
-            else:
-                step, loss, msg = update
-                _process_tuple(step, loss, msg, stats)
+    error_msgs: list[str] = []
 
-            recent_msgs.append(msg)
-            if len(recent_msgs) > 20:
-                recent_msgs.pop(0)
+    # Suppress warnings that print to stderr during Live and disrupt
+    # Rich's cursor positioning (e.g. Lightning SLURM, fork safety).
+    warnings.filterwarnings(
+        "ignore", message=".*srun.*command is available.*",
+    )
+    warnings.filterwarnings(
+        "ignore", message=".*fork.*",
+    )
 
-            live.update(_build_display(stats, gpu, recent_msgs))
+    # -- Redirect logging to prevent ghost panels ---------------------------
+    # Find and temporarily mute stderr StreamHandlers.  Replace them with a
+    # capture handler that feeds messages into the panel's log area.
+    root_logger = logging.getLogger()
+    muted_handlers: list[logging.Handler] = []
+    for h in list(root_logger.handlers):
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            root_logger.removeHandler(h)
+            muted_handlers.append(h)
 
-    # Record peak VRAM
+    capture = _LiveLogCapture(recent_msgs)
+    root_logger.addHandler(capture)
+
+    try:
+        with Live(
+            _build_display(stats, gpu, recent_msgs),
+            console=console,
+            refresh_per_second=refresh_per_second,
+            transient=True,
+        ) as live:
+            for update in training_iter:
+                if isinstance(update, TrainingUpdate):
+                    step, loss, msg = update.step, update.loss, update.msg
+                    _process_structured(update, stats)
+                    if update.kind in ("fail", "warn"):
+                        error_msgs.append(msg)
+                else:
+                    step, loss, msg = update
+                    _process_tuple(step, loss, msg, stats)
+                    if "[FAIL]" in msg or "[WARN]" in msg:
+                        error_msgs.append(msg)
+
+                recent_msgs.append(msg)
+                if len(recent_msgs) > 20:
+                    recent_msgs.pop(0)
+
+                live.update(_build_display(stats, gpu, recent_msgs))
+    finally:
+        # Restore original console handlers
+        root_logger.removeHandler(capture)
+        for h in muted_handlers:
+            root_logger.addHandler(h)
+
+    # Print the final dashboard state (transient=True erases it on exit)
+    console.print(_build_display(stats, gpu, recent_msgs))
+
+    # Re-print errors that may have scrolled out of the log window
+    for err in error_msgs:
+        console.print(f"  {err}")
+
     stats.peak_vram_mb = gpu.peak_mb()
     return stats
 
@@ -275,6 +406,7 @@ def _track_plain(
     gpu: GPUMonitor,
     recent_msgs: list,
 ) -> TrainingStats:
+    """Plain-text fallback (no Rich)."""
     for update in training_iter:
         if isinstance(update, TrainingUpdate):
             step, loss, msg = update.step, update.loss, update.msg
@@ -303,6 +435,8 @@ def _process_structured(update: TrainingUpdate, stats: TrainingStats) -> None:
         stats._lr_seen = True
     if update.epoch_time > 0:
         stats.last_epoch_time = update.epoch_time
+    if update.steps_per_epoch > 0:
+        stats.steps_per_epoch = update.steps_per_epoch
 
     if stats.first_loss == 0.0 and update.loss > 0:
         stats.first_loss = update.loss
@@ -312,6 +446,26 @@ def _process_structured(update: TrainingUpdate, stats: TrainingStats) -> None:
     if update.kind == "step":
         stats.record_step()
         stats.steps_this_session += 1
+
+    # Track step position within the current epoch.
+    # Derived from global_step so the bar stays correct even when
+    # updates are sparse (log_every > 1).  At epoch boundaries
+    # (kind="epoch") we show the bar as fully complete rather than
+    # resetting to 0, which looked broken ("Step 0 / 3").
+    if stats.steps_per_epoch > 0 and stats.current_step > 0:
+        if update.kind == "epoch":
+            stats.step_in_epoch = stats.steps_per_epoch  # show as complete
+        else:
+            stats.step_in_epoch = (
+                (stats.current_step - 1) % stats.steps_per_epoch
+            ) + 1
+
+    if update.kind == "checkpoint":
+        stats.checkpoints.append({
+            "epoch": update.epoch,
+            "loss": update.loss,
+            "path": update.checkpoint_path,
+        })
 
 
 def _process_tuple(step: int, loss: float, msg: str, stats: TrainingStats) -> None:
@@ -324,13 +478,9 @@ def _process_tuple(step: int, loss: float, msg: str, stats: TrainingStats) -> No
     if loss > 0 and loss < stats.best_loss:
         stats.best_loss = loss
 
-    # Parse epoch from message patterns:
-    #   "Epoch 15/100, Step 450, Loss: 0.7234"
-    #   "[OK] Epoch 15/100 in 23.4s, Loss: 0.7234"
     msg_lower = msg.lower()
     if "epoch" in msg_lower:
         try:
-            # Find "Epoch X/Y" pattern
             idx = msg.lower().index("epoch")
             rest = msg[idx + 5:].strip()
             parts = rest.split("/")
@@ -344,7 +494,6 @@ def _process_tuple(step: int, loss: float, msg: str, stats: TrainingStats) -> No
         except (ValueError, IndexError):
             pass
 
-    # Parse epoch time from "[OK] Epoch X/Y in Z.Zs"
     if " in " in msg and ("s," in msg or msg.rstrip().endswith("s")):
         try:
             time_part = msg.split(" in ")[1].split("s")[0].strip()
@@ -352,7 +501,6 @@ def _process_tuple(step: int, loss: float, msg: str, stats: TrainingStats) -> No
         except (IndexError, ValueError):
             pass
 
-    # Detect step messages vs epoch messages for speed tracking
     if msg.startswith("Epoch") and "Step" in msg and "Loss" in msg:
         stats.record_step()
         stats.steps_this_session += 1

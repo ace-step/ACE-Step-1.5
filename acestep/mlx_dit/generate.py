@@ -8,6 +8,7 @@ import time
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,8 @@ def mlx_generate_diffusion(
     audio_cover_strength: float = 1.0,
     encoder_hidden_states_non_cover_np: Optional[np.ndarray] = None,
     context_latents_non_cover_np: Optional[np.ndarray] = None,
+    compile_model: bool = False,
+    disable_tqdm: bool = False,
 ) -> Dict[str, object]:
     """Run the complete MLX diffusion loop.
 
@@ -103,6 +106,11 @@ def mlx_generate_diffusion(
         audio_cover_strength: cover strength (0-1).
         encoder_hidden_states_non_cover_np: optional [B, enc_L, D] for non-cover.
         context_latents_non_cover_np: optional [B, T, C] for non-cover.
+        compile_model: If True, compile the decoder step with ``mx.compile``
+            for kernel fusion. Cross-attention KV caching is disabled under
+            compilation; the fused kernels typically offset this cost.
+            Falls back to uncompiled path on failure.
+        disable_tqdm: If True, suppress the diffusion progress bar.
 
     Returns:
         Dict with ``"target_latents"`` (numpy) and ``"time_costs"`` dict.
@@ -146,13 +154,35 @@ def mlx_generate_diffusion(
 
     cover_steps = int(num_steps * audio_cover_strength)
 
-    # ---- Diffusion loop ----
-    cache = MLXCrossAttentionCache()
+    # ---- Prepare decoder step (compiled or plain with KV cache) ----
+    # When compiled, we wrap the decoder call in mx.compile for kernel fusion.
+    # Cross-attention KV caching is incompatible with mx.compile graph tracing
+    # (cache uses Python dicts with dynamic branching), so it is disabled.
+    # The kernel fusion from compilation typically offsets this cost.
+    _compiled_step = None
+    if compile_model:
+        def _raw_step(xt, t, tr, enc, ctx):
+            vt, _ = mlx_decoder(
+                hidden_states=xt, timestep=t, timestep_r=tr,
+                encoder_hidden_states=enc, context_latents=ctx,
+                cache=None, use_cache=False,
+            )
+            return vt
+
+        try:
+            _compiled_step = mx.compile(_raw_step)
+            logger.info("[MLX-DiT] Diffusion step compiled with mx.compile().")
+        except Exception as exc:
+            logger.warning(
+                "[MLX-DiT] mx.compile() failed (%s); using uncompiled path.", exc
+            )
+
+    cache = MLXCrossAttentionCache() if _compiled_step is None else None
     xt = noise
 
     diff_start = time.time()
 
-    for step_idx in range(num_steps):
+    for step_idx in tqdm(range(num_steps), desc="MLX DiT diffusion", disable=disable_tqdm):
         current_t = t_schedule_list[step_idx]
         t_curr = mx.full((bsz,), current_t)
 
@@ -160,17 +190,21 @@ def mlx_generate_diffusion(
         if step_idx >= cover_steps and enc_hs_nc is not None:
             enc_hs = enc_hs_nc
             ctx = ctx_nc
-            cache = MLXCrossAttentionCache()
+            if cache is not None:
+                cache = MLXCrossAttentionCache()
 
-        vt, cache = mlx_decoder(
-            hidden_states=xt,
-            timestep=t_curr,
-            timestep_r=t_curr,
-            encoder_hidden_states=enc_hs,
-            context_latents=ctx,
-            cache=cache,
-            use_cache=True,
-        )
+        if _compiled_step is not None:
+            vt = _compiled_step(xt, t_curr, t_curr, enc_hs, ctx)
+        else:
+            vt, cache = mlx_decoder(
+                hidden_states=xt,
+                timestep=t_curr,
+                timestep_r=t_curr,
+                encoder_hidden_states=enc_hs,
+                context_latents=ctx,
+                cache=cache,
+                use_cache=True,
+            )
 
         # Evaluate to ensure computation is complete before next step
         mx.eval(vt)
@@ -180,23 +214,22 @@ def mlx_generate_diffusion(
             t_unsq = mx.expand_dims(mx.expand_dims(t_curr, axis=-1), axis=-1)
             xt = xt - vt * t_unsq
             mx.eval(xt)
-            break
-
-        # ODE / SDE update
-        next_t = t_schedule_list[step_idx + 1]
-        if infer_method == "sde":
-            t_unsq = mx.expand_dims(mx.expand_dims(t_curr, axis=-1), axis=-1)
-            pred_clean = xt - vt * t_unsq
-            # Re-noise with next timestep
-            new_noise = mx.random.normal(xt.shape)
-            xt = next_t * new_noise + (1.0 - next_t) * pred_clean
         else:
-            # ODE Euler step: x_{t+1} = x_t - v_t * dt
-            dt = current_t - next_t
-            dt_arr = mx.full((bsz, 1, 1), dt)
-            xt = xt - vt * dt_arr
+            # ODE / SDE update
+            next_t = t_schedule_list[step_idx + 1]
+            if infer_method == "sde":
+                t_unsq = mx.expand_dims(mx.expand_dims(t_curr, axis=-1), axis=-1)
+                pred_clean = xt - vt * t_unsq
+                # Re-noise with next timestep
+                new_noise = mx.random.normal(xt.shape)
+                xt = next_t * new_noise + (1.0 - next_t) * pred_clean
+            else:
+                # ODE Euler step: x_{t+1} = x_t - v_t * dt
+                dt = current_t - next_t
+                dt_arr = mx.full((bsz, 1, 1), dt)
+                xt = xt - vt * dt_arr
 
-        mx.eval(xt)
+            mx.eval(xt)
 
     diff_end = time.time()
     total_end = time.time()

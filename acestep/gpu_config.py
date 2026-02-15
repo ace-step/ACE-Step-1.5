@@ -578,8 +578,10 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
         # MPS: unified memory — offloading to CPU is pointless overhead
         offload_to_cpu_default=False if _mps else config.get("offload_to_cpu_default", True),
         offload_dit_to_cpu_default=False if _mps else config.get("offload_dit_to_cpu_default", True),
-        # MPS: torch.compile and torchao quantization are not supported
+        # MPS: torchao quantization is not supported
         quantization_default=False if _mps else config.get("quantization_default", True),
+        # MPS: torch.compile unsupported (redirected to mx.compile at runtime);
+        # default to False — user can opt in via the UI checkbox.
         compile_model_default=False if _mps else config.get("compile_model_default", True),
         lm_memory_gb=config["lm_memory_gb"],
     )
@@ -874,33 +876,51 @@ def get_effective_free_vram_gb(device_index: int = 0) -> float:
     """
     try:
         import torch
-        if not torch.cuda.is_available():
-            return 0.0
-        
-        device_free_bytes, total_bytes = torch.cuda.mem_get_info(device_index)
-        
-        # Check if a per-process memory fraction has been set
-        # We detect this by checking MAX_CUDA_VRAM env var (our simulation mechanism)
-        debug_vram = os.environ.get(DEBUG_MAX_CUDA_VRAM_ENV)
-        if debug_vram is not None:
+        if hasattr(torch, 'cuda') and torch.cuda.is_available():
+            device_free_bytes, total_bytes = torch.cuda.mem_get_info(device_index)
+            
+            # Check if a per-process memory fraction has been set
+            # We detect this by checking MAX_CUDA_VRAM env var (our simulation mechanism)
+            debug_vram = os.environ.get(DEBUG_MAX_CUDA_VRAM_ENV)
+            if debug_vram is not None:
+                try:
+                    simulated_gb = float(debug_vram)
+                    total_gb = total_bytes / (1024 ** 3)
+                    if simulated_gb < total_gb:
+                        # Per-process cap is active.
+                        # Use the same reference context as set_per_process_memory_fraction.
+                        ref_context_gb = MODEL_VRAM.get("cuda_context", 0.5)
+                        allocator_budget_gb = max(0.5, simulated_gb - ref_context_gb)
+                        allocator_budget_bytes = allocator_budget_gb * (1024 ** 3)
+                        reserved_bytes = torch.cuda.memory_reserved(device_index)
+                        # Free = what the allocator is allowed minus what it has reserved
+                        process_free = allocator_budget_bytes - reserved_bytes
+                        effective_free = min(device_free_bytes, process_free)
+                        return max(0.0, effective_free / (1024 ** 3))
+                except (ValueError, TypeError):
+                    pass
+            
+            return device_free_bytes / (1024 ** 3)
+
+        elif hasattr(torch, 'xpu') and torch.xpu.is_available():
+            # Support for Intel XPU (IPEX)
+            # Try mem_get_info first (available in newer IPEX versions)
+            if hasattr(torch.xpu, 'mem_get_info'):
+                try:
+                    device_free_bytes, _ = torch.xpu.mem_get_info(device_index)
+                    return device_free_bytes / (1024 ** 3)
+                except Exception:
+                    pass
+            
+            # Fallback for older IPEX or if mem_get_info fails: total - reserved
             try:
-                simulated_gb = float(debug_vram)
-                total_gb = total_bytes / (1024 ** 3)
-                if simulated_gb < total_gb:
-                    # Per-process cap is active.
-                    # Use the same reference context as set_per_process_memory_fraction.
-                    ref_context_gb = MODEL_VRAM.get("cuda_context", 0.5)
-                    allocator_budget_gb = max(0.5, simulated_gb - ref_context_gb)
-                    allocator_budget_bytes = allocator_budget_gb * (1024 ** 3)
-                    reserved_bytes = torch.cuda.memory_reserved(device_index)
-                    # Free = what the allocator is allowed minus what it has reserved
-                    process_free = allocator_budget_bytes - reserved_bytes
-                    effective_free = min(device_free_bytes, process_free)
-                    return max(0.0, effective_free / (1024 ** 3))
-            except (ValueError, TypeError):
-                pass
+                total_bytes = torch.xpu.get_device_properties(device_index).total_memory
+                reserved_bytes = torch.xpu.memory_reserved(device_index)
+                return max(0.0, (total_bytes - reserved_bytes) / (1024 ** 3))
+            except Exception:
+                return 0.0
         
-        return device_free_bytes / (1024 ** 3)
+        return 0.0
     except Exception:
         return 0.0
 

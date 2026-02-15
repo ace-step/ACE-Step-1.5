@@ -12,38 +12,36 @@ from acestep.training_v2.cli.args import VARIANT_DIR_MAP
 
 
 def validate_paths(args: argparse.Namespace) -> bool:
-    """Validate that required paths exist.  Returns True if all OK.
+    """Validate that required paths exist and attach the resolved model dir.
 
-    Prints ``[FAIL]`` messages and returns False on the first error.
+    On success, sets ``args.model_dir`` to the resolved ``Path`` so that
+    callers can consume it directly.  Returns ``True`` if all OK.
+
+    Prints ``[FAIL]`` messages and returns ``False`` on the first error.
     """
-    sub = args.subcommand
-
-    if sub == "compare-configs":
-        for p in args.configs:
-            if not Path(p).is_file():
-                print(f"[FAIL] Config file not found: {p}", file=sys.stderr)
-                return False
-        return True
-
-    # All other subcommands need checkpoint-dir
+    # All subcommands need checkpoint-dir
     ckpt_root = Path(args.checkpoint_dir)
     if not ckpt_root.is_dir():
         print(f"[FAIL] Checkpoint directory not found: {ckpt_root}", file=sys.stderr)
         return False
 
+    # Resolve model directory: try known alias first, then literal folder name
     variant_dir = VARIANT_DIR_MAP.get(args.model_variant)
-    if variant_dir is None:
-        print(f"[FAIL] Unknown model variant: {args.model_variant}", file=sys.stderr)
-        return False
-
-    model_dir = ckpt_root / variant_dir
-    if not model_dir.is_dir():
+    if variant_dir and (ckpt_root / variant_dir).is_dir():
+        model_dir = ckpt_root / variant_dir
+    elif (ckpt_root / args.model_variant).is_dir():
+        model_dir = ckpt_root / args.model_variant
+    else:
+        tried = variant_dir or args.model_variant
         print(
-            f"[FAIL] Model directory not found: {model_dir}\n"
-            f"       Expected subdirectory '{variant_dir}' under {ckpt_root}",
+            f"[FAIL] Model directory not found: {ckpt_root / tried}\n"
+            f"       Looked for '{tried}' under {ckpt_root}",
             file=sys.stderr,
         )
         return False
+
+    # Attach resolved path so callers can use it directly
+    args.model_dir = model_dir
 
     # Dataset dir
     ds_dir = getattr(args, "dataset_dir", None)

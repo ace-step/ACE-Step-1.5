@@ -4,6 +4,7 @@ Contains results display section component definitions
 """
 import gradio as gr
 from acestep.gradio_ui.i18n import t
+from acestep.gradio_ui.help_content import create_help_button
 
 
 def _create_audio_column(n, visible=True):
@@ -96,6 +97,7 @@ def _create_audio_column(n, visible=True):
 def create_results_section(dit_handler) -> dict:
     """Create results display section"""
     with gr.Accordion(t("results.title"), open=True):
+        create_help_button("results")
         # Hidden state to store LM-generated metadata
         lm_metadata_state = gr.State(value=None)
         

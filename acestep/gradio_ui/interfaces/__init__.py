@@ -31,6 +31,7 @@ from acestep.gradio_ui.interfaces.generation import (
 from acestep.gradio_ui.interfaces.result import create_results_section
 from acestep.gradio_ui.interfaces.training import create_training_section
 from acestep.gradio_ui.events import setup_event_handlers, setup_training_event_handlers
+from acestep.gradio_ui.help_content import create_help_button, HELP_MODAL_CSS
 
 
 def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_params=None, language='en') -> gr.Blocks:
@@ -115,7 +116,88 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             text-align: center;
             line-height: 1.4;
         }
-        """,
+
+        /* --- On-hover Tooltips --- */
+        /* Safely ensure parents don't clip the tooltips using the container class */
+        .has-info-container {
+            overflow: visible !important;
+            contain: none !important;
+        }
+
+        /* Ensure immediate flex parents (like rows, accordions) also allow overflow if they contain an info container */
+        .row:has(.has-info-container),
+        .column:has(.has-info-container),
+        .form:has(.has-info-container),
+        .accordion:has(.has-info-container),
+        .tabs:has(.has-info-container),
+        .gr-block:has(.has-info-container),
+        .gr-box:has(.has-info-container) {
+            overflow: visible !important;
+            contain: none !important;
+        }
+
+        /* Hide info text by default and format as tooltip.
+           In Gradio 6, info is often a div following the span[data-testid="block-info"]. */
+        .has-info-container span[data-testid="block-info"] + div,
+        .has-info-container span[data-testid="block-info"] + span,
+        .checkbox-container + div {
+            display: none;
+            position: absolute;
+            background: rgba(25, 25, 25, 0.98);
+            color: #ffffff;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            z-index: 999999;
+            max-width: 320px;
+            min-width: 180px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+            pointer-events: none;
+            line-height: 1.5;
+            margin-top: 6px;
+            border: 1px solid rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            left: 0;
+            font-weight: 400;
+            text-transform: none;
+        }
+
+        /* Show tooltips on hover of the label area or the icon */
+        .has-info-container span[data-testid="block-info"]:hover + div,
+        .has-info-container span[data-testid="block-info"]:hover + span,
+        .checkbox-container:hover + div {
+            display: block !important;
+        }
+
+        /* High-res info icon using SVG, appended to the label text */
+        .has-info-container span[data-testid="block-info"]::after,
+        .checkbox-container:has(+ div) .label-text::after {
+            content: "";
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            margin-left: 8px;
+            vertical-align: middle;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a9eff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='16' x2='12' y2='12'/%3E%3Cline x1='12' y1='8' x2='12.01' y2='8'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-size: contain;
+            opacity: 0.6;
+            transition: opacity 0.2s, transform 0.2s;
+            cursor: help;
+        }
+
+        /* Hide original Gradio info icon if present */
+        .has-info-container span[data-testid="block-info"] svg,
+        .has-info-container span[data-testid="block-info"]::before {
+            display: none !important;
+        }
+
+        .has-info-container span[data-testid="block-info"]:hover::after,
+        .checkbox-container:hover .label-text::after {
+            opacity: 1;
+            transform: scale(1.15);
+        }
+        """ + HELP_MODAL_CSS,
     ) as demo:
         
         gr.HTML(f"""
@@ -124,6 +206,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             <p>{t("app.subtitle")}</p>
         </div>
         """)
+        create_help_button("getting_started")
         
         # Dataset Explorer Section (hidden)
         dataset_section = create_dataset_section(dataset_handler)

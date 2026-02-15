@@ -29,6 +29,7 @@ class DiffusionMixin:
         encoder_hidden_states_non_cover=None,
         encoder_attention_mask_non_cover=None,
         context_latents_non_cover=None,
+        disable_tqdm: bool = False,
     ) -> Dict[str, Any]:
         """Run the MLX diffusion loop and return generated latents.
 
@@ -49,6 +50,7 @@ class DiffusionMixin:
             encoder_hidden_states_non_cover: Optional non-cover conditioning tensor.
             encoder_attention_mask_non_cover: Unused; accepted for API compatibility.
             context_latents_non_cover: Optional non-cover context latent tensor.
+            disable_tqdm: If True, suppress the diffusion progress bar.
 
         Returns:
             Dict[str, Any]: ``{"target_latents": torch.Tensor, "time_costs": dict}``.
@@ -124,6 +126,8 @@ class DiffusionMixin:
             audio_cover_strength=audio_cover_strength,
             encoder_hidden_states_non_cover_np=enc_nc_np,
             context_latents_non_cover_np=ctx_nc_np,
+            compile_model=getattr(self, "mlx_dit_compiled", False),
+            disable_tqdm=disable_tqdm,
         )
 
         # Convert result latents back to PyTorch tensor on the correct device

@@ -8,6 +8,65 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ==================== Load .env Configuration ====================
+# Load settings from .env file if it exists
+_load_env_file() {
+    local env_file="${SCRIPT_DIR}/.env"
+    if [[ ! -f "$env_file" ]]; then
+        return 0
+    fi
+    
+    echo "[Config] Loading configuration from .env file..."
+    
+    # Read .env file and export variables
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
+        # Skip empty lines and comments
+        [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+        
+        # Trim whitespace from key and value
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        
+        # Map .env variable names to script variables
+        case "$key" in
+            ACESTEP_CONFIG_PATH)
+                [[ -n "$value" ]] && CONFIG_PATH="--config_path $value"
+                ;;
+            ACESTEP_LM_MODEL_PATH)
+                [[ -n "$value" ]] && LM_MODEL_PATH="--lm_model_path $value"
+                ;;
+            ACESTEP_INIT_LLM)
+                if [[ -n "$value" && "$value" != "auto" ]]; then
+                    INIT_LLM="--init_llm $value"
+                fi
+                ;;
+            ACESTEP_DOWNLOAD_SOURCE)
+                if [[ -n "$value" && "$value" != "auto" ]]; then
+                    DOWNLOAD_SOURCE="--download-source $value"
+                fi
+                ;;
+            ACESTEP_API_KEY)
+                [[ -n "$value" ]] && API_KEY="--api-key $value"
+                ;;
+            PORT)
+                [[ -n "$value" ]] && PORT="$value"
+                ;;
+            SERVER_NAME)
+                [[ -n "$value" ]] && SERVER_NAME="$value"
+                ;;
+            LANGUAGE)
+                [[ -n "$value" ]] && LANGUAGE="$value"
+                ;;
+        esac
+    done < "$env_file"
+    
+    echo "[Config] Configuration loaded from .env"
+}
+
+_load_env_file
+
 # ==================== MLX Configuration ====================
 # Force MLX backend for native Apple Silicon acceleration
 export ACESTEP_LM_BACKEND="mlx"
@@ -16,53 +75,57 @@ export ACESTEP_LM_BACKEND="mlx"
 export TOKENIZERS_PARALLELISM="false"
 
 # ==================== Server Configuration ====================
-PORT=7860
-SERVER_NAME="127.0.0.1"
+# Default values (used if not set in .env file)
+# You can override these by uncommenting and modifying the lines below
+# or by creating a .env file (recommended to survive updates)
+
+: "${PORT:=7860}"
+: "${SERVER_NAME:=127.0.0.1}"
 # SERVER_NAME="0.0.0.0"
-SHARE=""
+SHARE="${SHARE:-}"
 # SHARE="--share"
 
 # UI language: en, zh, he, ja
-LANGUAGE="en"
+: "${LANGUAGE:=en}"
 
 # ==================== Model Configuration ====================
-CONFIG_PATH="--config_path acestep-v15-turbo"
-LM_MODEL_PATH="--lm_model_path acestep-5Hz-lm-0.6B"
+: "${CONFIG_PATH:=--config_path acestep-v15-turbo}"
+: "${LM_MODEL_PATH:=--lm_model_path acestep-5Hz-lm-0.6B}"
 
 # CPU offload (recommended for models larger than 0.6B on devices with limited memory)
 # OFFLOAD_TO_CPU="--offload_to_cpu true"
-OFFLOAD_TO_CPU=""
+OFFLOAD_TO_CPU="${OFFLOAD_TO_CPU:-}"
 
 # LLM initialization: auto (default), true, false
-INIT_LLM=""
+INIT_LLM="${INIT_LLM:-}"
 # INIT_LLM="--init_llm auto"
 # INIT_LLM="--init_llm true"
 # INIT_LLM="--init_llm false"
 
 # Download source: auto, huggingface, modelscope
-DOWNLOAD_SOURCE=""
+DOWNLOAD_SOURCE="${DOWNLOAD_SOURCE:-}"
 # DOWNLOAD_SOURCE="--download-source huggingface"
 
 # Auto-initialize models on startup
-INIT_SERVICE="--init_service true"
+: "${INIT_SERVICE:=--init_service true}"
 
 # LM backend: mlx for Apple Silicon native acceleration
 BACKEND="--backend mlx"
 
 # API settings
-ENABLE_API=""
+ENABLE_API="${ENABLE_API:-}"
 # ENABLE_API="--enable-api"
-API_KEY=""
+API_KEY="${API_KEY:-}"
 # API_KEY="--api-key sk-your-secret-key"
 
 # Authentication
-AUTH_USERNAME=""
+AUTH_USERNAME="${AUTH_USERNAME:-}"
 # AUTH_USERNAME="--auth-username admin"
-AUTH_PASSWORD=""
+AUTH_PASSWORD="${AUTH_PASSWORD:-}"
 # AUTH_PASSWORD="--auth-password password"
 
 # Update check on startup (set to "false" to disable)
-CHECK_UPDATE="true"
+: "${CHECK_UPDATE:=true}"
 # CHECK_UPDATE="false"
 
 # ==================== Launch ====================

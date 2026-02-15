@@ -6,7 +6,7 @@ ACE-Step 1.5 is an open-source music foundation model combining a Language Model
 
 ## Tech Stack
 
-- **Python 3.11** (strict requirement)
+- **Python 3.11-3.12** (ROCm on Windows requires 3.12; other platforms use 3.11)
 - **PyTorch 2.7+** with CUDA 12.8 (Windows/Linux), MPS (macOS ARM64)
 - **Transformers 4.51.0-4.57.x** for LLM inference
 - **Diffusers** for diffusion models

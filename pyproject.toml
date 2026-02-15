@@ -3,7 +3,7 @@ name = "ace-step"
 version = "1.5.0"
 description = "ACE-Step 1.5"
 readme = "README.md"
-requires-python = "==3.11.*"
+requires-python = ">=3.11,<3.13"
 license = {text = "MIT"}
 dependencies = [
     # PyTorch for Windows with CUDA 12.8

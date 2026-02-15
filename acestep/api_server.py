@@ -509,7 +509,10 @@ class GenerateMusicRequest(BaseModel):
         description="Custom timesteps (comma-separated, e.g., '0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0'). Overrides inference_steps and shift."
     )
 
-    audio_format: str = "mp3"
+    audio_format: str = Field(
+        default="mp3",
+        description="Output audio format. Supported formats: 'flac', 'mp3', 'opus', 'aac', 'wav', 'wav32'. Default: 'mp3'"
+    )
     use_tiled_decode: bool = True
 
     # 5Hz LM (server-side): used for metadata completion and (when thinking=True) codes generation.
@@ -2007,6 +2010,7 @@ def create_app() -> FastAPI:
                     print(f"[API Server] Auto-setting offload_to_cpu=True based on GPU memory")
 
             offload_dit_to_cpu = _env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
+            compile_model = _env_bool("ACESTEP_COMPILE_MODEL", False)
 
             # Checkpoint directory
             checkpoint_dir = os.path.join(project_root, "checkpoints")
@@ -2032,7 +2036,7 @@ def create_app() -> FastAPI:
                 config_path=config_path,
                 device=device,
                 use_flash_attention=use_flash_attention,
-                compile_model=False,
+                compile_model=compile_model,
                 offload_to_cpu=offload_to_cpu,
                 offload_dit_to_cpu=offload_dit_to_cpu,
             )
@@ -2059,7 +2063,7 @@ def create_app() -> FastAPI:
                         config_path=config_path2,
                         device=device,
                         use_flash_attention=use_flash_attention,
-                        compile_model=False,
+                        compile_model=compile_model,
                         offload_to_cpu=offload_to_cpu,
                         offload_dit_to_cpu=offload_dit_to_cpu,
                     )
@@ -2088,7 +2092,7 @@ def create_app() -> FastAPI:
                         config_path=config_path3,
                         device=device,
                         use_flash_attention=use_flash_attention,
-                        compile_model=False,
+                        compile_model=compile_model,
                         offload_to_cpu=offload_to_cpu,
                         offload_dit_to_cpu=offload_dit_to_cpu,
                     )

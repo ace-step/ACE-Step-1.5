@@ -1,5 +1,7 @@
 # ACE-Step 1.5 - AMD ROCm 7.2 Windows Dependencies
 # =================================================
+# IMPORTANT: ROCm on Windows requires Python 3.12 (not 3.11)
+# AMD officially only provides Python 3.12 wheels for ROCm 7.2 on Windows
 # Requires: Windows 11, Python 3.12, AMD RX 7000+ or RX 6000+ GPU
 # AMD driver: 26.1.1 or later
 #

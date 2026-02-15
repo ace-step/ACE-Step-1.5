@@ -56,6 +56,10 @@ class BatchPrepMixin:
             return normalized
         return list(instructions)
 
+    def _create_fallback_vocal_languages(self, batch_size: int) -> List[str]:
+        """Create default vocal-language values for missing inputs."""
+        return ["en"] * batch_size
+
     def _encode_audio_to_latents(self, audio: torch.Tensor) -> torch.Tensor:
         """Encode audio to latents using tiled VAE encode path."""
         input_was_2d = audio.dim() == 2

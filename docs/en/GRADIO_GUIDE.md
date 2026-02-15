@@ -11,7 +11,6 @@ This guide provides comprehensive documentation for using the ACE-Step Gradio we
 - [Getting Started](#getting-started)
 - [Service Configuration](#service-configuration)
 - [Generation Modes](#generation-modes)
-- [Task Types](#task-types)
 - [Input Parameters](#input-parameters)
 - [Advanced Settings](#advanced-settings)
 - [Results Section](#results-section)
@@ -37,14 +36,14 @@ python app.py --port 7860
 
 ### Interface Overview
 
-The Gradio interface consists of several main sections:
+The Gradio interface is organized as follows:
 
-1. **Service Configuration** - Model loading and initialization
-2. **Required Inputs** - Task type, audio uploads, and generation mode
-3. **Music Caption & Lyrics** - Text inputs for generation
-4. **Optional Parameters** - Metadata like BPM, key, duration
-5. **Advanced Settings** - Fine-grained control over generation
-6. **Results** - Generated audio playback and management
+1. **Settings** (collapsed accordion) - Service configuration, DiT/LM parameters, output options
+2. **Generation Tab** - The main workspace with a **Generation Mode** radio selector:
+   - Turbo/SFT models: Simple, Custom, Remix, Repaint
+   - Base model: Simple, Custom, Remix, Repaint, Extract, Lego, Complete
+3. **Results Section** - Generated audio playback, scoring, batch navigation
+4. **Training Tab** - Dataset builder and LoRA training
 
 ---
 
@@ -104,12 +103,14 @@ After initialization, the **Audio Duration** and **Batch Size** sliders are auto
 
 ## Generation Modes
 
+The **Generation Mode** radio selector at the top of the Generation tab determines your workflow. Turbo and SFT models offer four modes; Base models add three more.
+
 ### Simple Mode
 
-Simple mode is designed for quick, natural language-based music generation.
+Designed for quick, natural language-based music generation.
 
 **How to use:**
-1. Select "Simple" in the Generation Mode radio button
+1. Select **Simple** in the Generation Mode radio
 2. Enter a natural language description in the "Song Description" field
 3. Optionally check "Instrumental" if you don't want vocals
 4. Optionally select a preferred vocal language
@@ -127,108 +128,93 @@ Simple mode is designed for quick, natural language-based music generation.
 
 ### Custom Mode
 
-Custom mode provides full control over all generation parameters.
+Full control over all generation parameters (text2music).
 
 **How to use:**
-1. Select "Custom" in the Generation Mode radio button
+1. Select **Custom** in the Generation Mode radio
 2. Manually fill in the Caption and Lyrics fields
-3. Set optional metadata (BPM, Key, Duration, etc.)
-4. Optionally click **Format** to enhance your input using the LM
-5. Configure advanced settings as needed
-6. Click **Generate Music** to create the audio
+3. Optionally upload Reference Audio for style guidance
+4. Set optional metadata (BPM, Key, Duration, etc.)
+5. Optionally click **Format** to enhance your input using the LM
+6. Configure advanced settings as needed
+7. Click **Generate Music** to create the audio
 
----
+### Remix Mode
 
-## Task Types
+Transform existing audio while maintaining its melodic structure but changing style.
 
-### text2music (Default)
+**How to use:**
+1. Select **Remix** in the Generation Mode radio
+2. Upload Source Audio (the song to remix)
+3. Write a Caption describing the target style
+4. Optionally modify Lyrics
+5. Adjust **Remix Strength** (0.0-1.0): higher = closer to original structure
+6. Click **Generate Music**
 
-Generate music from text descriptions and/or lyrics.
+**Use cases:** Creating cover versions, style transfer, generating variants of a song.
 
-**Use case:** Creating new music from scratch based on prompts.
+### Repaint Mode
 
-**Required inputs:** Caption or Lyrics (at least one)
+Regenerate a specific time segment of audio while keeping the rest intact.
 
-### cover
+**How to use:**
+1. Select **Repaint** in the Generation Mode radio
+2. Upload Source Audio
+3. Set **Repainting Start** and **Repainting End** (seconds; -1 for end of file)
+4. Write a Caption describing the desired content for the repainted section
+5. Click **Generate Music**
 
-Transform existing audio while maintaining structure but changing style.
+**Use cases:** Fixing problematic sections, changing lyrics in a segment, extending songs.
 
-**Use case:** Creating cover versions in different styles.
-
-**Required inputs:**
-- Source Audio (upload in Audio Uploads section)
-- Caption describing the target style
-
-**Key parameter:** `Audio Cover Strength` (0.0-1.0)
-- Higher values maintain more of the original structure
-- Lower values allow more creative freedom
-
-### repaint
-
-Regenerate a specific time segment of audio.
-
-**Use case:** Fixing or modifying specific sections of generated music.
-
-**Required inputs:**
-- Source Audio
-- Repainting Start (seconds)
-- Repainting End (seconds, -1 for end of file)
-- Caption describing the desired content
-
-### lego (Base Model Only)
-
-Generate a specific instrument track in context of existing audio.
-
-**Use case:** Adding instrument layers to backing tracks.
-
-**Required inputs:**
-- Source Audio
-- Track Name (select from dropdown)
-- Caption describing the track characteristics
-
-**Available tracks:** vocals, backing_vocals, drums, bass, guitar, keyboard, percussion, strings, synth, fx, brass, woodwinds
-
-### extract (Base Model Only)
+### Extract Mode (Base Model Only)
 
 Extract/isolate a specific instrument track from mixed audio.
 
-**Use case:** Stem separation, isolating instruments.
+**How to use:**
+1. Select **Extract** in the Generation Mode radio
+2. Upload Source Audio
+3. Select the **Track Name** to extract from the dropdown
+4. Click **Generate Music**
 
-**Required inputs:**
-- Source Audio
-- Track Name to extract
+**Available tracks:** vocals, backing_vocals, drums, bass, guitar, keyboard, percussion, strings, synth, fx, brass, woodwinds
 
-### complete (Base Model Only)
+### Lego Mode (Base Model Only)
 
-Complete partial tracks with specified instruments.
+Add a new instrument track to existing audio.
 
-**Use case:** Auto-arranging incomplete compositions.
+**How to use:**
+1. Select **Lego** in the Generation Mode radio
+2. Upload Source Audio
+3. Select the **Track Name** to add from the dropdown
+4. Write a Caption describing the track characteristics
+5. Click **Generate Music**
 
-**Required inputs:**
-- Source Audio
-- Track Names (multiple selection)
-- Caption describing the desired style
+### Complete Mode (Base Model Only)
+
+Complete partial tracks with specified instruments (auto-arrangement).
+
+**How to use:**
+1. Select **Complete** in the Generation Mode radio
+2. Upload Source Audio
+3. Select multiple **Track Names** to add
+4. Write a Caption describing the desired style
+5. Click **Generate Music**
 
 ---
 
 ## Input Parameters
 
-### Required Inputs
-
-#### Task Type
-Select the generation task from the dropdown. The instruction field updates automatically based on the selected task.
-
-#### Audio Uploads
+### Audio Inputs
 
 | Field | Description |
 |-------|-------------|
-| **Reference Audio** | Optional audio for style reference |
-| **Source Audio** | Required for cover, repaint, lego, extract, complete tasks |
+| **Reference Audio** | Optional audio for style/timbre guidance (visible in Custom mode) |
+| **Source Audio** | Required for Remix, Repaint, Extract, Lego, Complete modes |
 | **Convert to Codes** | Extract 5Hz semantic codes from source audio |
 
-#### LM Codes Hints
+#### LM Codes Hints (Custom Mode)
 
-Pre-computed audio semantic codes can be pasted here to guide generation. Use the **Transcribe** button to analyze codes and extract metadata.
+Pre-computed audio semantic codes can be pasted here to guide generation. Use the **Transcribe** button to analyze codes and extract metadata. This is an advanced feature for controlling melodic structure without uploading source audio.
 
 ### Music Caption
 

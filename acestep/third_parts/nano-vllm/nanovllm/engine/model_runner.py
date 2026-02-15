@@ -76,13 +76,21 @@ class ModelRunner:
         
         torch.cuda.set_device(rank)
         default_dtype = torch.get_default_dtype()
+        
+        # Detect GPU compute capability to determine bfloat16 support
+        # Bfloat16 requires Ampere (compute capability >= 8.0) or newer
+        gpu_props = torch.cuda.get_device_properties(rank)
+        # Use tuple comparison to handle compute capability correctly
+        # (e.g., 7.5 < 8.0, 8.0 >= 8.0, 8.6 >= 8.0, etc.)
+        supports_bfloat16 = (gpu_props.major, gpu_props.minor) >= (8, 0)
+        
         # Use dtype instead of deprecated torch_dtype
         config_dtype = getattr(hf_config, 'dtype', getattr(hf_config, 'torch_dtype', torch.bfloat16))
 
         # Validate and convert config_dtype to a valid torch floating-point dtype
-        # Default to bfloat16 for CUDA (required for Flash Attention 2)
+        # Default to bfloat16 for CUDA (required for Flash Attention 2) if GPU supports it
         if config_dtype is None:
-            config_dtype = torch.bfloat16
+            config_dtype = torch.bfloat16 if supports_bfloat16 else torch.float16
         elif isinstance(config_dtype, str):
             # Convert string dtype to torch dtype
             dtype_map = {
@@ -95,10 +103,15 @@ class ModelRunner:
                 'torch.bfloat16': torch.bfloat16,
                 'torch.float64': torch.float64,
             }
-            config_dtype = dtype_map.get(config_dtype.lower(), torch.bfloat16)
+            config_dtype = dtype_map.get(config_dtype.lower(), torch.bfloat16 if supports_bfloat16 else torch.float16)
         elif not isinstance(config_dtype, torch.dtype) or not config_dtype.is_floating_point:
-            # If not a valid floating-point torch dtype, default to bfloat16
-            config_dtype = torch.bfloat16
+            # If not a valid floating-point torch dtype, default based on GPU capability
+            config_dtype = torch.bfloat16 if supports_bfloat16 else torch.float16
+        
+        # Override to float16 if config requested bfloat16 but GPU doesn't support it
+        if config_dtype == torch.bfloat16 and not supports_bfloat16:
+            print(f"[nanovllm] GPU {gpu_props.name} (compute capability {gpu_props.major}.{gpu_props.minor}) does not support bfloat16. Using float16 instead.", flush=True)
+            config_dtype = torch.float16
 
         self.dtype = config_dtype  # Save for later use
         torch.set_default_dtype(config_dtype)

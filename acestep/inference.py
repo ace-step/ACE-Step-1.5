@@ -179,7 +179,7 @@ class GenerationConfig:
             - int: Single seed value (will be converted to list and padded)
         lm_batch_chunk_size: Batch chunk size for LM processing
         constrained_decoding_debug: Whether to enable constrained decoding debug
-        audio_format: Output audio format, one of "mp3", "wav", "flac". Default: "flac"
+        audio_format: Output audio format, one of "mp3", "wav", "flac", "wav32", "opus", "aac". Default: "flac"
     """
     batch_size: int = 2
     allow_lm_batch: bool = False
@@ -654,6 +654,11 @@ def generate_music(
             # Add audio codes if batch mode
             if lm_generated_audio_codes_list and idx < len(lm_generated_audio_codes_list):
                 audio_params["audio_codes"] = lm_generated_audio_codes_list[idx]
+
+            # Add LoRA state to params for UUID generation (ensures different UUIDs when only LoRA state changes)
+            audio_params["lora_loaded"] = dit_handler.lora_loaded
+            audio_params["use_lora"] = dit_handler.use_lora
+            audio_params["lora_scale"] = dit_handler.lora_scale
 
             # Get audio tensor and metadata
             audio_tensor = dit_audio.get("tensor")

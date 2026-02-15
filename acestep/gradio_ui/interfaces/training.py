@@ -8,6 +8,7 @@ The outer gr.Tab wrapper is now created in __init__.py.
 import os
 import gradio as gr
 from acestep.gradio_ui.i18n import t
+from acestep.gradio_ui.help_content import create_help_button
 from acestep.constants import DEBUG_TRAINING
 
 
@@ -41,6 +42,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
     with gr.Tabs():
         # ==================== Dataset Builder Tab ====================
         with gr.Tab(t("training.tab_dataset_builder")):
+            create_help_button("training_dataset")
             # ========== Load Existing OR Scan New ==========
             gr.HTML(f"""
             <div style="padding: 10px; margin-bottom: 10px; border: 1px solid #4a4a6a; border-radius: 8px; background: linear-gradient(135deg, #2a2a4a 0%, #1a1a3a 100%);">
@@ -56,7 +58,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         load_json_path = gr.Textbox(
                             label=t("training.load_dataset_label"),
                             placeholder="./datasets/my_lora_dataset.json",
-                            info=t("training.load_dataset_info"),
+                            info=t("training.load_dataset_info"), elem_classes=["has-info-container"],
                             scale=3,
                         )
                         load_json_btn = gr.Button(t("training.load_btn"), variant="primary", scale=1)
@@ -71,7 +73,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         audio_directory = gr.Textbox(
                             label=t("training.scan_label"),
                             placeholder="/path/to/your/audio/folder",
-                            info=t("training.scan_info"),
+                            info=t("training.scan_info"), elem_classes=["has-info-container"],
                             scale=3,
                         )
                         scan_btn = gr.Button(t("training.scan_btn"), variant="secondary", scale=1)
@@ -106,27 +108,27 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     all_instrumental = gr.Checkbox(
                         label=t("training.all_instrumental"),
                         value=True,
-                        info=t("training.all_instrumental_info"),
+                        info=t("training.all_instrumental_info"), elem_classes=["has-info-container"],
                     )
 
                     format_lyrics = gr.Checkbox(
                         label="Format Lyrics (LM)",
                         value=False,
-                        info="Use LM to format/structure user-provided lyrics from .txt files (coming soon)",
+                        info="Use LM to format/structure user-provided lyrics from .txt files (coming soon)", elem_classes=["has-info-container"],
                         interactive=False,  # Disabled for now - model update needed
                     )
 
                     transcribe_lyrics = gr.Checkbox(
                         label="Transcribe Lyrics (LM)",
                         value=False,
-                        info="Use LM to transcribe lyrics from audio (coming soon)",
+                        info="Use LM to transcribe lyrics from audio (coming soon)", elem_classes=["has-info-container"],
                         interactive=False,  # Disabled for now - model update needed
                     )
                     
                     custom_tag = gr.Textbox(
                         label=t("training.custom_tag"),
                         placeholder="e.g., 8bit_retro, my_style",
-                        info=t("training.custom_tag_info"),
+                        info=t("training.custom_tag_info"), elem_classes=["has-info-container"],
                     )
                     
                     tag_position = gr.Radio(
@@ -137,7 +139,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         ],
                         value="replace",
                         label=t("training.tag_position"),
-                        info=t("training.tag_position_info"),
+                        info=t("training.tag_position_info"), elem_classes=["has-info-container"],
                     )
 
                     genre_ratio = gr.Slider(
@@ -146,7 +148,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         step=10,
                         value=0,
                         label=t("training.genre_ratio"),
-                        info=t("training.genre_ratio_info"),
+                        info=t("training.genre_ratio_info"), elem_classes=["has-info-container"],
                     )
 
             gr.HTML(f"<hr><h3>🤖 {t('training.step2_title')}</h3>")
@@ -157,12 +159,12 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     skip_metas = gr.Checkbox(
                         label=t("training.skip_metas"),
                         value=False,
-                        info=t("training.skip_metas_info"),
+                        info=t("training.skip_metas_info"), elem_classes=["has-info-container"],
                     )
                     only_unlabeled = gr.Checkbox(
                         label=t("training.only_unlabeled"),
                         value=False,
-                        info=t("training.only_unlabeled_info"),
+                        info=t("training.only_unlabeled_info"), elem_classes=["has-info-container"],
                     )
                 with gr.Column(scale=1):
                     auto_label_btn = gr.Button(
@@ -187,7 +189,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         step=1,
                         value=0,
                         label=t("training.select_sample"),
-                        info=t("training.select_sample_info"),
+                        info=t("training.select_sample_info"), elem_classes=["has-info-container"],
                     )
                     
                     preview_audio = gr.Audio(
@@ -219,7 +221,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                             choices=["Use Global Ratio", "Caption", "Genre"],
                             value="Use Global Ratio",
                             label=t("training.prompt_override_label"),
-                            info=t("training.prompt_override_info"),
+                            info=t("training.prompt_override_info"), elem_classes=["has-info-container"],
                         )
 
                     with gr.Row():
@@ -281,7 +283,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         label=t("training.save_path"),
                         value="./datasets/my_lora_dataset.json",
                         placeholder="./datasets/dataset_name.json",
-                        info=t("training.save_path_info"),
+                        info=t("training.save_path_info"), elem_classes=["has-info-container"],
                     )
                 with gr.Column(scale=1):
                     save_dataset_btn = gr.Button(
@@ -305,7 +307,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     load_existing_dataset_path = gr.Textbox(
                         label=t("training.load_existing_label"),
                         placeholder="./datasets/my_lora_dataset.json",
-                        info=t("training.load_existing_info"),
+                        info=t("training.load_existing_info"), elem_classes=["has-info-container"],
                     )
                 with gr.Column(scale=1):
                     load_existing_dataset_btn = gr.Button(
@@ -326,7 +328,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     label="Preprocess For",
                     choices=["LoRA", "LoKr"],
                     value="LoRA",
-                    info="LoRA keeps compatibility mode; LoKr uses per-sample source-style context.",
+                    info="LoRA keeps compatibility mode; LoKr uses per-sample source-style context.", elem_classes=["has-info-container"],
                 )
 
             with gr.Row():
@@ -335,7 +337,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         label=t("training.tensor_output_dir"),
                         value="./datasets/preprocessed_tensors",
                         placeholder="./datasets/preprocessed_tensors",
-                        info=t("training.tensor_output_info"),
+                        info=t("training.tensor_output_info"), elem_classes=["has-info-container"],
                     )
                 with gr.Column(scale=1):
                     preprocess_btn = gr.Button(
@@ -352,6 +354,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
         
         # ==================== Training Tab ====================
         with gr.Tab(t("training.tab_train_lora")):
+            create_help_button("training_train")
             with gr.Row():
                 with gr.Column(scale=2):
                     gr.HTML(f"<h3>📊 {t('training.train_section_tensors')}</h3>")
@@ -362,7 +365,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         label=t("training.preprocessed_tensors_dir"),
                         placeholder="./datasets/preprocessed_tensors",
                         value="./datasets/preprocessed_tensors",
-                        info=t("training.preprocessed_tensors_info"),
+                        info=t("training.preprocessed_tensors_info"), elem_classes=["has-info-container"],
                     )
                     
                     load_dataset_btn = gr.Button(t("training.load_dataset_btn"), variant="secondary")
@@ -382,7 +385,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         step=4,
                         value=64,
                         label=t("training.lora_rank"),
-                        info=t("training.lora_rank_info"),
+                        info=t("training.lora_rank_info"), elem_classes=["has-info-container"],
                     )
                     
                     lora_alpha = gr.Slider(
@@ -391,7 +394,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         step=4,
                         value=128,
                         label=t("training.lora_alpha"),
-                        info=t("training.lora_alpha_info"),
+                        info=t("training.lora_alpha_info"), elem_classes=["has-info-container"],
                     )
                     
                     lora_dropout = gr.Slider(
@@ -408,7 +411,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                 learning_rate = gr.Number(
                     label=t("training.learning_rate"),
                     value=3e-4,
-                    info=t("training.learning_rate_info"),
+                    info=t("training.learning_rate_info"), elem_classes=["has-info-container"],
                 )
                 
                 train_epochs = gr.Slider(
@@ -425,7 +428,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     step=1,
                     value=1,
                     label=t("training.batch_size"),
-                    info=t("training.batch_size_info"),
+                    info=t("training.batch_size_info"), elem_classes=["has-info-container"],
                 )
                 
                 gradient_accumulation = gr.Slider(
@@ -434,7 +437,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     step=1,
                     value=1,
                     label=t("training.gradient_accumulation"),
-                    info=t("training.gradient_accumulation_info"),
+                    info=t("training.gradient_accumulation_info"), elem_classes=["has-info-container"],
                 )
             
             with gr.Row():
@@ -452,7 +455,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     step=0.5,
                     value=3.0,
                     label=t("training.shift"),
-                    info=t("training.shift_info"),
+                    info=t("training.shift_info"), elem_classes=["has-info-container"],
                 )
                 
                 training_seed = gr.Number(
@@ -466,14 +469,14 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     label=t("training.output_dir"),
                     value="./lora_output",
                     placeholder="./lora_output",
-                    info=t("training.output_dir_info"),
+                    info=t("training.output_dir_info"), elem_classes=["has-info-container"],
                 )
             
             with gr.Row():
                 resume_checkpoint_dir = gr.Textbox(
-                    label="Resume Checkpoint (optional)",
+                    label="Resume Checkpoint",
                     placeholder="./lora_output/checkpoints/epoch_200",
-                    info="Directory of a saved LoRA checkpoint to resume from",
+                    info="Directory of a saved LoRA checkpoint to resume from", elem_classes=["has-info-container"],
                 )
             
             gr.HTML("<hr>")
@@ -540,7 +543,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         label="Preprocessed Tensors Directory",
                         placeholder="./datasets/preprocessed_tensors",
                         value="./datasets/preprocessed_tensors",
-                        info="Path to directory containing manifest.json and tensor .pt files.",
+                        info="Path to directory containing manifest.json and tensor .pt files.", elem_classes=["has-info-container"],
                     )
 
                     lokr_load_dataset_btn = gr.Button("Load Dataset", variant="secondary")
@@ -560,7 +563,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         step=4,
                         value=64,
                         label="LoKr Linear Dim",
-                        info="Adapter rank-like width for LoKr linear layers.",
+                        info="Adapter rank-like width for LoKr linear layers.", elem_classes=["has-info-container"],
                     )
                     lokr_linear_alpha = gr.Slider(
                         minimum=4,
@@ -568,33 +571,33 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         step=4,
                         value=128,
                         label="LoKr Linear Alpha",
-                        info="Scaling factor for LoKr adapters.",
+                        info="Scaling factor for LoKr adapters.", elem_classes=["has-info-container"],
                     )
                     lokr_factor = gr.Number(
                         label="LoKr Factor",
                         value=-1,
                         precision=0,
-                        info="-1 uses automatic Kronecker factor selection.",
+                        info="-1 uses automatic Kronecker factor selection.", elem_classes=["has-info-container"],
                     )
                     lokr_decompose_both = gr.Checkbox(
                         label="Decompose Both",
                         value=False,
-                        info="Enable decomposition on both matrices.",
+                        info="Enable decomposition on both matrices.", elem_classes=["has-info-container"],
                     )
                     lokr_use_tucker = gr.Checkbox(
                         label="Use Tucker",
                         value=False,
-                        info="Enable Tucker decomposition mode.",
+                        info="Enable Tucker decomposition mode.", elem_classes=["has-info-container"],
                     )
                     lokr_use_scalar = gr.Checkbox(
                         label="Use Scalar",
                         value=False,
-                        info="Enable scalar calibration in LyCORIS.",
+                        info="Enable scalar calibration in LyCORIS.", elem_classes=["has-info-container"],
                     )
                     lokr_weight_decompose = gr.Checkbox(
                         label="Weight Decompose (DoRA)",
                         value=True,
-                        info="Enable DoRA-style weight decomposition when supported.",
+                        info="Enable DoRA-style weight decomposition when supported.", elem_classes=["has-info-container"],
                     )
 
             gr.HTML("<hr><h3>🎛️ Training Parameters</h3>")
@@ -603,7 +606,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                 lokr_learning_rate = gr.Number(
                     label="Learning Rate",
                     value=1e-3,
-                    info="LoKr commonly uses a higher LR than LoRA. Tune per dataset.",
+                    info="LoKr commonly uses a higher LR than LoRA. Tune per dataset.", elem_classes=["has-info-container"],
                 )
 
                 lokr_train_epochs = gr.Slider(
@@ -645,7 +648,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     step=0.5,
                     value=3.0,
                     label="Shift",
-                    info="Turbo model training timestep shift.",
+                    info="Turbo model training timestep shift.", elem_classes=["has-info-container"],
                 )
 
                 lokr_training_seed = gr.Number(
@@ -659,7 +662,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     label="Output Directory",
                     value="./lokr_output",
                     placeholder="./lokr_output",
-                    info="Where LoKr checkpoints and final weights will be written.",
+                    info="Where LoKr checkpoints and final weights will be written.", elem_classes=["has-info-container"],
                 )
 
             gr.HTML("<hr>")
@@ -712,7 +715,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     choices=["Latest (auto)"],
                     value="Latest (auto)",
                     label="Checkpoint Epoch",
-                    info="Select a specific epoch checkpoint to export, or keep Latest (auto).",
+                    info="Select a specific epoch checkpoint to export, or keep Latest (auto).", elem_classes=["has-info-container"],
                 )
                 refresh_lokr_export_epochs_btn = gr.Button("↻ Refresh Epochs", variant="secondary")
 

@@ -26,7 +26,7 @@
 
 | 项目 | 要求 |
 |------|------|
-| Python | 3.11+（正式版，非预发布版） |
+| Python | 3.11-3.12（正式版，非预发布版）<br>**注意：** Windows 上的 ROCm 需要 Python 3.12 |
 | GPU | 推荐 CUDA GPU；也支持 MPS / ROCm / Intel XPU / CPU |
 | 显存 | 仅 DiT 模式 ≥4GB；LLM+DiT ≥6GB |
 | 磁盘 | 核心模型约 10GB |

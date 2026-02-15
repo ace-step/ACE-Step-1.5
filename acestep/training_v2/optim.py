@@ -11,7 +11,8 @@ Supported optimizers:
     prodigy     -- prodigyopt.Prodigy (optional dep, auto-tunes LR)
 
 Supported schedulers:
-    cosine              -- warmup + CosineAnnealingWarmRestarts
+    cosine              -- warmup + CosineAnnealingLR (single smooth decay)
+    cosine_restarts     -- warmup + CosineAnnealingWarmRestarts (cyclical)
     linear              -- warmup + LinearLR decay to near-zero
     constant            -- warmup then flat LR
     constant_with_warmup -- alias for constant
@@ -25,6 +26,7 @@ from typing import Iterable
 import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
     CosineAnnealingWarmRestarts,
     ConstantLR,
     LinearLR,
@@ -117,8 +119,13 @@ def build_scheduler(
     warmup_steps: int = 500,
     lr: float = 1e-4,
     optimizer_type: str = "adamw",
+    n_restarts: int = 4,
 ):
     """Create a learning rate scheduler from a string key.
+
+    Args:
+        n_restarts: Number of cosine restart cycles for the
+            ``cosine_restarts`` scheduler.  Ignored by other types.
 
     When the optimizer is Prodigy, defaults to constant schedule
     (Prodigy manages LR internally).
@@ -143,22 +150,31 @@ def build_scheduler(
         total_iters=warmup_steps,
     )
 
+    remaining = max(1, total_steps - warmup_steps)
+
     if scheduler_type in ("constant", "constant_with_warmup"):
         main_sched = ConstantLR(optimizer, factor=1.0, total_iters=total_steps)
     elif scheduler_type == "linear":
-        remaining = max(1, total_steps - warmup_steps)
         main_sched = LinearLR(
             optimizer,
             start_factor=1.0,
             end_factor=0.01,
             total_iters=remaining,
         )
-    else:
-        # cosine (default)
+    elif scheduler_type == "cosine_restarts":
+        # Cyclical cosine: LR resets to peak multiple times during training.
+        # T_0 = cycle length = remaining / n_restarts.
         main_sched = CosineAnnealingWarmRestarts(
             optimizer,
-            T_0=max(1, total_steps - warmup_steps),
+            T_0=max(1, remaining // max(1, n_restarts)),
             T_mult=1,
+            eta_min=lr * 0.01,
+        )
+    else:
+        # cosine (default) -- single smooth decay to eta_min, no restarts.
+        main_sched = CosineAnnealingLR(
+            optimizer,
+            T_max=remaining,
             eta_min=lr * 0.01,
         )
 

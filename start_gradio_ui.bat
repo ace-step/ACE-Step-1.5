@@ -3,21 +3,27 @@ setlocal enabledelayedexpansion
 REM ACE-Step Gradio Web UI Launcher
 REM This script launches the Gradio web interface for ACE-Step
 
+REM ==================== Load .env Configuration ====================
+REM Load settings from .env file if it exists
+call :LoadEnvFile
+
 REM ==================== Configuration ====================
-REM Uncomment and modify the parameters below as needed
+REM Default values (used if not set in .env file)
+REM You can override these by uncommenting and modifying the lines below
+REM or by creating a .env file (recommended to survive updates)
 
 REM Server settings
-set PORT=7860
-set SERVER_NAME=127.0.0.1
+if not defined PORT set PORT=7860
+if not defined SERVER_NAME set SERVER_NAME=127.0.0.1
 REM set SERVER_NAME=0.0.0.0
 REM set SHARE=--share
 
 REM UI language: en, zh, he, ja
-set LANGUAGE=en
+if not defined LANGUAGE set LANGUAGE=en
 
 REM Model settings
-set CONFIG_PATH=--config_path acestep-v15-turbo
-set LM_MODEL_PATH=--lm_model_path acestep-5Hz-lm-0.6B
+if not defined CONFIG_PATH set CONFIG_PATH=--config_path acestep-v15-turbo
+if not defined LM_MODEL_PATH set LM_MODEL_PATH=--lm_model_path acestep-5Hz-lm-0.6B
 REM set OFFLOAD_TO_CPU=--offload_to_cpu true
 
 REM LLM (Language Model) initialization settings
@@ -33,14 +39,14 @@ REM Download source settings
 REM Preferred download source: auto (default), huggingface, or modelscope
 REM set DOWNLOAD_SOURCE=--download-source modelscope
 REM set DOWNLOAD_SOURCE=--download-source huggingface
-set DOWNLOAD_SOURCE=
+if not defined DOWNLOAD_SOURCE set DOWNLOAD_SOURCE=
 
 REM Update check on startup (set to false to disable)
-set CHECK_UPDATE=true
+if not defined CHECK_UPDATE set CHECK_UPDATE=true
 REM set CHECK_UPDATE=false
 
 REM Auto-initialize models on startup
-set INIT_SERVICE=--init_service true
+if not defined INIT_SERVICE set INIT_SERVICE=--init_service true
 
 REM API settings (enable REST API alongside Gradio)
 REM set ENABLE_API=--enable-api
@@ -287,6 +293,7 @@ if exist "%~dp0python_embeded\python.exe" (
     if not "%CONFIG_PATH%"=="" set "CMD=!CMD! %CONFIG_PATH%"
     if not "%LM_MODEL_PATH%"=="" set "CMD=!CMD! %LM_MODEL_PATH%"
     if not "%OFFLOAD_TO_CPU%"=="" set "CMD=!CMD! %OFFLOAD_TO_CPU%"
+    if not "%INIT_LLM%"=="" set "CMD=!CMD! %INIT_LLM%"
     if not "%DOWNLOAD_SOURCE%"=="" set "CMD=!CMD! %DOWNLOAD_SOURCE%"
     if not "%INIT_SERVICE%"=="" set "CMD=!CMD! %INIT_SERVICE%"
     if not "%ENABLE_API%"=="" set "CMD=!CMD! %ENABLE_API%"
@@ -299,3 +306,60 @@ if exist "%~dp0python_embeded\python.exe" (
 
 pause
 endlocal
+goto :eof
+
+REM ==================== Helper Functions ====================
+
+:LoadEnvFile
+REM Load environment variables from .env file if it exists
+set "ENV_FILE=%~dp0.env"
+if not exist "%ENV_FILE%" (
+    exit /b 0
+)
+
+echo [Config] Loading configuration from .env file...
+for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    set "line=%%a"
+    set "value=%%b"
+    
+    REM Skip empty lines and comments
+    if not "!line!"=="" (
+        set "first_char=!line:~0,1!"
+        if not "!first_char!"=="#" (
+            REM Remove leading/trailing spaces from key
+            for /f "tokens=* delims= " %%x in ("!line!") do set "key=%%x"
+            
+            REM Map .env variable names to batch script variables
+            if /i "!key!"=="ACESTEP_CONFIG_PATH" (
+                if not "!value!"=="" set "CONFIG_PATH=--config_path !value!"
+            )
+            if /i "!key!"=="ACESTEP_LM_MODEL_PATH" (
+                if not "!value!"=="" set "LM_MODEL_PATH=--lm_model_path !value!"
+            )
+            if /i "!key!"=="ACESTEP_INIT_LLM" (
+                if not "!value!"=="" (
+                    if not "!value!"=="auto" set "INIT_LLM=--init_llm !value!"
+                )
+            )
+            if /i "!key!"=="ACESTEP_DOWNLOAD_SOURCE" (
+                if not "!value!"=="" (
+                    if not "!value!"=="auto" set "DOWNLOAD_SOURCE=--download-source !value!"
+                )
+            )
+            if /i "!key!"=="ACESTEP_API_KEY" (
+                if not "!value!"=="" set "API_KEY=--api-key !value!"
+            )
+            if /i "!key!"=="PORT" (
+                if not "!value!"=="" set "PORT=!value!"
+            )
+            if /i "!key!"=="SERVER_NAME" (
+                if not "!value!"=="" set "SERVER_NAME=!value!"
+            )
+            if /i "!key!"=="LANGUAGE" (
+                if not "!value!"=="" set "LANGUAGE=!value!"
+            )
+        )
+    )
+)
+echo [Config] Configuration loaded from .env
+exit /b 0

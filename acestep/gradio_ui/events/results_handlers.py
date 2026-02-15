@@ -446,7 +446,7 @@ def _extract_metadata_for_editing(lm_metadata, current_lyrics="", current_captio
 
 
 def send_audio_to_remix(audio_file, lm_metadata, current_lyrics, current_caption,
-                        llm_handler=None):
+                        current_mode, llm_handler=None):
     """Send generated audio to src_audio and switch mode to Remix.
 
     Also populate lyrics and caption fields from the generated audio,
@@ -454,18 +454,19 @@ def send_audio_to_remix(audio_file, lm_metadata, current_lyrics, current_caption
     so the UI is correct without relying on a chained .change() event.
     
     Args:
-        audio_file: Generated audio file path
-        lm_metadata: LM metadata dict (may be None)
-        current_lyrics: Current lyrics text in the UI
-        current_caption: Current caption text in the UI
-        llm_handler: Optional LLM handler (for think-checkbox state)
+        audio_file: Generated audio file path.
+        lm_metadata: LM metadata dict (may be None).
+        current_lyrics: Current lyrics text in the UI.
+        current_caption: Current caption text in the UI.
+        current_mode: The mode that is currently active (e.g. "Extract").
+        llm_handler: Optional LLM handler (for think-checkbox state).
     
     Returns:
         Tuple of (src_audio, generation_mode, lyrics, caption,
-                  *mode_ui_updates)  — 4 + 19 = 23 values.
+                  *mode_ui_updates)  — 4 + 37 = 41 values.
     """
-    # 4 data outputs + 19 mode-UI outputs
-    n_outputs = 23
+    # 4 data outputs + 37 mode-UI outputs
+    n_outputs = 41
     if audio_file is None:
         return (gr.skip(),) * n_outputs
     
@@ -473,19 +474,26 @@ def send_audio_to_remix(audio_file, lm_metadata, current_lyrics, current_caption
         lm_metadata, current_lyrics, current_caption
     )
     
-    mode_updates = compute_mode_ui_updates("Remix", llm_handler)
+    mode_updates = list(compute_mode_ui_updates(
+        "Remix", llm_handler, previous_mode=current_mode,
+    ))
+    # mode_updates[19] = captions, mode_updates[20] = lyrics — merge the
+    # data values into the visibility update so there are no duplicate
+    # outputs for the same component.
+    mode_updates[19] = gr.update(value=caption, visible=True, interactive=True)
+    mode_updates[20] = gr.update(value=lyrics, visible=True, interactive=True)
     
     return (
         audio_file,                       # src_audio
         gr.update(value="Remix"),         # generation_mode -> Remix
         lyrics,                           # lyrics
         caption,                          # caption
-        *mode_updates,                    # 19 mode-UI updates
+        *mode_updates,                    # 37 mode-UI updates
     )
 
 
 def send_audio_to_repaint(audio_file, lm_metadata, current_lyrics, current_caption,
-                          llm_handler=None):
+                          current_mode, llm_handler=None):
     """Send generated audio to src_audio and switch mode to Repaint.
 
     Also populate lyrics and caption fields from the generated audio,
@@ -493,17 +501,18 @@ def send_audio_to_repaint(audio_file, lm_metadata, current_lyrics, current_capti
     so the UI is correct without relying on a chained .change() event.
     
     Args:
-        audio_file: Generated audio file path
-        lm_metadata: LM metadata dict (may be None)
-        current_lyrics: Current lyrics text in the UI
-        current_caption: Current caption text in the UI
-        llm_handler: Optional LLM handler (for think-checkbox state)
+        audio_file: Generated audio file path.
+        lm_metadata: LM metadata dict (may be None).
+        current_lyrics: Current lyrics text in the UI.
+        current_caption: Current caption text in the UI.
+        current_mode: The mode that is currently active (e.g. "Extract").
+        llm_handler: Optional LLM handler (for think-checkbox state).
     
     Returns:
         Tuple of (src_audio, generation_mode, lyrics, caption,
-                  *mode_ui_updates)  — 4 + 19 = 23 values.
+                  *mode_ui_updates)  — 4 + 37 = 41 values.
     """
-    n_outputs = 23
+    n_outputs = 41
     if audio_file is None:
         return (gr.skip(),) * n_outputs
     
@@ -511,14 +520,21 @@ def send_audio_to_repaint(audio_file, lm_metadata, current_lyrics, current_capti
         lm_metadata, current_lyrics, current_caption
     )
     
-    mode_updates = compute_mode_ui_updates("Repaint", llm_handler)
+    mode_updates = list(compute_mode_ui_updates(
+        "Repaint", llm_handler, previous_mode=current_mode,
+    ))
+    # mode_updates[19] = captions, mode_updates[20] = lyrics — merge the
+    # data values into the visibility update so there are no duplicate
+    # outputs for the same component.
+    mode_updates[19] = gr.update(value=caption, visible=True, interactive=True)
+    mode_updates[20] = gr.update(value=lyrics, visible=True, interactive=True)
     
     return (
         audio_file,                       # src_audio
         gr.update(value="Repaint"),       # generation_mode -> Repaint
         lyrics,                           # lyrics
         caption,                          # caption
-        *mode_updates,                    # 19 mode-UI updates
+        *mode_updates,                    # 37 mode-UI updates
     )
 
 

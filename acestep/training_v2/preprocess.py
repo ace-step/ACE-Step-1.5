@@ -15,22 +15,28 @@ Input modes:
 
 from __future__ import annotations
 
-import json
 import logging
-import math
-import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
 
+# Split-out helpers
+from acestep.training_v2.preprocess_discovery import (
+    discover_audio_files as _discover_audio_files,
+    load_dataset_metadata as _load_dataset_metadata,
+    load_sample_metadata as _load_sample_metadata,
+    select_genre_indices as _select_genre_indices,
+)
+from acestep.training_v2.preprocess_prompt import (
+    build_simple_prompt as _build_simple_prompt,
+)
+from acestep.training_v2.preprocess_vae import (
+    TARGET_SR as _TARGET_SR,
+    tiled_vae_encode as _tiled_vae_encode,
+)
+
 logger = logging.getLogger(__name__)
-
-# Supported audio extensions (same as upstream)
-_AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".opus", ".m4a"}
-
-# Target sample rate for ACE-Step models
-_TARGET_SR = 48000
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +63,10 @@ def preprocess_audio_files(
       ``filename`` field locates the audio file directly.
     * **Audio directory** (fallback): scanned **recursively** for
       supported audio formats when no JSON is provided.
+
+    The resulting tensors are adapter-agnostic: they work for both LoRA
+    and LoKR training (the adapter type only affects weight injection,
+    not the data pipeline).
 
     Args:
         audio_dir: Directory containing audio files (scanned recursively).
@@ -93,13 +103,22 @@ def preprocess_audio_files(
     total = len(audio_files)
     logger.info("[Side-Step] Found %d audio files to preprocess", total)
 
-    # -- Load per-sample metadata (optional) --------------------------------
+    # -- Load metadata -------------------------------------------------------
     sample_meta = _load_sample_metadata(dataset_json, audio_files)
+    ds_meta = _load_dataset_metadata(dataset_json)
+
+    # Apply dataset-level custom_tag as fallback for samples without one
+    ds_tag = ds_meta.get("custom_tag", "")
+    if ds_tag:
+        for sm in sample_meta.values():
+            if not sm.get("custom_tag"):
+                sm["custom_tag"] = ds_tag
 
     # -- Pass 1: VAE + Text Encoder -----------------------------------------
     intermediates, pass1_failed = _pass1_light(
         audio_files=audio_files,
         sample_meta=sample_meta,
+        ds_meta=ds_meta,
         out_path=out_path,
         checkpoint_dir=checkpoint_dir,
         variant=variant,
@@ -137,245 +156,13 @@ def preprocess_audio_files(
 
 
 # ---------------------------------------------------------------------------
-# Audio file discovery
-# ---------------------------------------------------------------------------
-
-def _discover_audio_files(
-    audio_dir: Optional[str],
-    dataset_json: Optional[str],
-) -> List[Path]:
-    """Discover audio files from a dataset JSON or by scanning a directory.
-
-    Resolution order:
-
-    1. If *dataset_json* is provided, extract ``audio_path`` (or fall back
-       to ``filename``) from each entry.  Missing files are skipped with a
-       warning.
-    2. Otherwise, recursively scan *audio_dir* for supported audio
-       extensions (``_AUDIO_EXTENSIONS``).
-    """
-    # -- JSON-driven discovery ----------------------------------------------
-    if dataset_json and Path(dataset_json).is_file():
-        try:
-            raw = json.loads(Path(dataset_json).read_text(encoding="utf-8"))
-            samples = raw if isinstance(raw, list) else raw.get("samples", [])
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning("[Side-Step] Failed to read dataset JSON: %s", exc)
-            samples = []
-
-        audio_files: List[Path] = []
-        json_dir = Path(dataset_json).parent  # resolve relative paths vs JSON
-        for entry in samples:
-            ap = entry.get("audio_path") or entry.get("filename", "")
-            if not ap:
-                continue
-            p = Path(ap)
-            if not p.is_absolute():
-                p = json_dir / p
-            if p.is_file():
-                audio_files.append(p)
-            else:
-                logger.warning("[Side-Step] Audio file from JSON not found: %s", p)
-
-        if audio_files:
-            logger.info(
-                "[Side-Step] Resolved %d audio files from dataset JSON", len(audio_files),
-            )
-            return sorted(audio_files)
-        else:
-            logger.warning(
-                "[Side-Step] Dataset JSON contained no resolvable audio paths; "
-                "falling back to directory scan"
-            )
-
-    # -- Recursive directory scan -------------------------------------------
-    if not audio_dir:
-        return []
-
-    source_path = Path(audio_dir)
-    if not source_path.is_dir():
-        logger.warning("[Side-Step] Audio directory does not exist: %s", audio_dir)
-        return []
-
-    audio_files = sorted(
-        f for f in source_path.rglob("*")
-        if f.is_file() and f.suffix.lower() in _AUDIO_EXTENSIONS
-    )
-    if audio_files:
-        logger.info(
-            "[Side-Step] Found %d audio files (recursive scan of %s)",
-            len(audio_files), audio_dir,
-        )
-    return audio_files
-
-
-# ---------------------------------------------------------------------------
-# Metadata loading
-# ---------------------------------------------------------------------------
-
-def _load_sample_metadata(
-    dataset_json: Optional[str],
-    audio_files: List[Path],
-) -> Dict[str, Dict[str, Any]]:
-    """Build a filename -> metadata mapping.
-
-    If *dataset_json* is provided, load it and index by filename.
-    Otherwise return defaults for every audio file.
-    """
-    meta: Dict[str, Dict[str, Any]] = {}
-
-    if dataset_json and Path(dataset_json).is_file():
-        try:
-            raw = json.loads(Path(dataset_json).read_text(encoding="utf-8"))
-            samples = raw if isinstance(raw, list) else raw.get("samples", [])
-            for s in samples:
-                fname = s.get("filename", "")
-                if fname:
-                    meta[fname] = s
-            logger.info("[Side-Step] Loaded metadata for %d samples from %s", len(meta), dataset_json)
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning("[Side-Step] Failed to load dataset JSON: %s", exc)
-
-    # Fill defaults for any audio file without metadata
-    for af in audio_files:
-        if af.name not in meta:
-            meta[af.name] = {
-                "filename": af.name,
-                "caption": af.stem.replace("_", " ").replace("-", " "),
-                "lyrics": "[Instrumental]",
-                "genre": "",
-                "bpm": None,
-                "keyscale": "",
-                "timesignature": "",
-                "duration": 0,
-                "is_instrumental": True,
-            }
-
-    return meta
-
-
-# ---------------------------------------------------------------------------
-# Tiled VAE encoding (standalone -- no handler dependency)
-# ---------------------------------------------------------------------------
-
-def _tiled_vae_encode(
-    vae: Any,
-    audio: torch.Tensor,
-    dtype: torch.dtype,
-    chunk_size: Optional[int] = None,
-    overlap: int = 96000,
-) -> torch.Tensor:
-    """Encode audio through the VAE using overlap-discard tiling.
-
-    Processes long audio in chunks to avoid OOM on the monolithic
-    ``vae.encode()`` call.  Mirrors the tiling strategy from
-    ``handler.tiled_encode`` but as a standalone function with no
-    ``self`` / handler dependency.
-
-    Args:
-        vae: The ``AutoencoderOobleck`` VAE model (on device, in eval mode).
-        audio: Audio tensor ``[B, C, S]`` (batch, channels, samples).
-        dtype: Target dtype for the output latents.
-        chunk_size: Audio samples per chunk.  ``None`` = auto-select
-            based on available GPU memory (30 s for >=8 GB, 15 s otherwise).
-        overlap: Overlap in audio samples between adjacent chunks
-            (default 2 s at 48 kHz = 96 000).
-
-    Returns:
-        Latent tensor ``[B, T, 64]`` (same format as upstream
-        ``vae_encode``), cast to *dtype*.
-    """
-    vae_device = next(vae.parameters()).device
-    vae_dtype = vae.dtype
-
-    # Auto-select chunk size based on GPU VRAM
-    if chunk_size is None:
-        gpu_mem_gb = 0.0
-        if torch.cuda.is_available():
-            try:
-                props = torch.cuda.get_device_properties(vae_device)
-                gpu_mem_gb = props.total_mem / (1024 ** 3)
-            except Exception:
-                pass
-        chunk_size = _TARGET_SR * 15 if gpu_mem_gb <= 8 else _TARGET_SR * 30
-
-    B, C, S = audio.shape
-
-    # Short audio -- direct encode (no tiling needed)
-    if S <= chunk_size:
-        vae_input = audio.to(vae_device, dtype=vae_dtype)
-        with torch.inference_mode():
-            latents = vae.encode(vae_input).latent_dist.sample()
-        return latents.transpose(1, 2).to(dtype)
-
-    # Calculate stride (core region per chunk, excluding overlap)
-    stride = chunk_size - 2 * overlap
-    if stride <= 0:
-        raise ValueError(
-            f"chunk_size ({chunk_size}) must be > 2 * overlap ({overlap})"
-        )
-
-    num_steps = math.ceil(S / stride)
-    downsample_factor: Optional[float] = None
-    latent_write_pos = 0
-    final_latents: Optional[torch.Tensor] = None
-
-    for i in range(num_steps):
-        core_start = i * stride
-        core_end = min(core_start + stride, S)
-
-        # Window with overlap on both sides
-        win_start = max(0, core_start - overlap)
-        win_end = min(S, core_end + overlap)
-
-        chunk = audio[:, :, win_start:win_end].to(vae_device, dtype=vae_dtype)
-
-        with torch.inference_mode():
-            latent_chunk = vae.encode(chunk).latent_dist.sample()
-
-        # Determine downsample factor from the first chunk
-        if downsample_factor is None:
-            downsample_factor = chunk.shape[-1] / latent_chunk.shape[-1]
-            total_latent_len = int(round(S / downsample_factor))
-            final_latents = torch.zeros(
-                B, latent_chunk.shape[1], total_latent_len,
-                dtype=latent_chunk.dtype, device="cpu",
-            )
-
-        # Trim the overlap regions from the latent
-        added_start = core_start - win_start
-        trim_start = int(round(added_start / downsample_factor))
-
-        added_end = win_end - core_end
-        trim_end = int(round(added_end / downsample_factor))
-
-        lat_len = latent_chunk.shape[-1]
-        end_idx = lat_len - trim_end if trim_end > 0 else lat_len
-        latent_core = latent_chunk[:, :, trim_start:end_idx]
-
-        # Copy to pre-allocated CPU tensor
-        core_len = latent_core.shape[-1]
-        assert final_latents is not None
-        final_latents[:, :, latent_write_pos:latent_write_pos + core_len] = latent_core.cpu()
-        latent_write_pos += core_len
-
-        del chunk, latent_chunk, latent_core
-
-    # Trim to actual written length
-    assert final_latents is not None
-    final_latents = final_latents[:, :, :latent_write_pos]
-
-    # Transpose to (B, T, 64) and cast -- matches vae_encode output format
-    return final_latents.transpose(1, 2).to(dtype)
-
-
-# ---------------------------------------------------------------------------
 # Pass 1 -- Light models (VAE + Text Encoder)
 # ---------------------------------------------------------------------------
 
 def _pass1_light(
     audio_files: List[Path],
     sample_meta: Dict[str, Dict[str, Any]],
+    ds_meta: Dict[str, Any],
     out_path: Path,
     checkpoint_dir: str,
     variant: str,
@@ -386,6 +173,10 @@ def _pass1_light(
     cancel_check: Optional[Callable],
 ) -> tuple[List[Path], int]:
     """Load audio, VAE-encode, text-encode, save intermediates.
+
+    Args:
+        ds_meta: Dataset-level metadata (``tag_position``, ``genre_ratio``,
+            ``custom_tag``) from the JSON's top-level ``metadata`` block.
 
     Returns ``(list_of_intermediate_paths, fail_count)``.
     """
@@ -411,6 +202,18 @@ def _pass1_light(
     failed = 0
     total = len(audio_files)
 
+    # Dataset-level prompt settings from ACE-Step's metadata block
+    tag_position = ds_meta.get("tag_position", "prepend")
+    genre_ratio = ds_meta.get("genre_ratio", 0)
+    genre_indices = _select_genre_indices(total, genre_ratio)
+    if genre_indices:
+        logger.info(
+            "[Side-Step] genre_ratio=%d%% -- %d/%d samples will use genre as prompt",
+            genre_ratio, len(genre_indices), total,
+        )
+    if tag_position != "prepend":
+        logger.info("[Side-Step] tag_position=%s (from dataset metadata)", tag_position)
+
     try:
         for i, af in enumerate(audio_files):
             if cancel_check and cancel_check():
@@ -429,11 +232,14 @@ def _pass1_light(
             try:
                 # 1. Load audio (stereo, 48 kHz)
                 audio, _sr = load_audio_stereo(str(af), _TARGET_SR, max_duration)
-                audio = audio.unsqueeze(0).to(device).to(vae.dtype)
+                audio = audio.unsqueeze(0).to(device=device, dtype=vae.dtype)
 
                 # 2. VAE encode (tiled for long audio)
                 with torch.no_grad():
                     target_latents = _tiled_vae_encode(vae, audio, dtype)
+
+                # Free raw audio immediately -- no longer needed after VAE encode
+                del audio
 
                 latent_length = target_latents.shape[1]
                 attention_mask = torch.ones(1, latent_length, device=device, dtype=dtype)
@@ -443,8 +249,9 @@ def _pass1_light(
                 caption = sm.get("caption", af.stem)
                 lyrics = sm.get("lyrics", "[Instrumental]")
 
-                # Build a simple text prompt (matches upstream SFT_GEN_PROMPT format)
-                text_prompt = _build_simple_prompt(sm)
+                # Build text prompt using dataset-level tag_position and genre_ratio
+                use_genre = i in genre_indices
+                text_prompt = _build_simple_prompt(sm, tag_position=tag_position, use_genre=use_genre)
 
                 with torch.no_grad():
                     text_hs, text_mask = encode_text(text_enc, tokenizer, text_prompt, device, dtype)
@@ -470,10 +277,19 @@ def _pass1_light(
                         "bpm": sm.get("bpm"),
                         "keyscale": sm.get("keyscale", ""),
                         "timesignature": sm.get("timesignature", ""),
+                        "genre": sm.get("genre", ""),
                         "is_instrumental": sm.get("is_instrumental", True),
-                        "preprocess_mode": "lora",
+                        "custom_tag": sm.get("custom_tag", ""),
+                        "prompt_override": sm.get("prompt_override"),
                     },
                 }, tmp_path)
+
+                # Free GPU tensors from this iteration before the next one
+                del target_latents, attention_mask, text_hs, text_mask
+                del lyric_hs, lyric_mask
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
                 intermediates.append(tmp_path)
                 logger.info("[Side-Step] Pass 1 OK: %s", af.name)
 
@@ -541,22 +357,20 @@ def _pass2_heavy(
             try:
                 data = torch.load(str(tmp_path), weights_only=False)
 
-                text_hs = data["text_hidden_states"].to(device, dtype=dtype)
-                text_mask = data["text_attention_mask"].to(device, dtype=dtype)
-                lyric_hs = data["lyric_hidden_states"].to(device, dtype=dtype)
-                lyric_mask = data["lyric_attention_mask"].to(device, dtype=dtype)
-                silence_latent = data["silence_latent"].to(device, dtype=dtype)
-                latent_length = data["latent_length"]
-
-                # Move model tensors to model device if needed
+                # Move tensors directly to model device/dtype (single .to()
+                # avoids creating throwaway intermediate GPU copies).
                 model_device = next(model.parameters()).device
                 model_dtype = next(model.parameters()).dtype
-                text_hs = text_hs.to(model_device, dtype=model_dtype)
-                text_mask = text_mask.to(model_device, dtype=model_dtype)
-                lyric_hs = lyric_hs.to(model_device, dtype=model_dtype)
-                lyric_mask = lyric_mask.to(model_device, dtype=model_dtype)
 
-                # DIT encoder pass
+                text_hs = data["text_hidden_states"].to(model_device, dtype=model_dtype)
+                text_mask = data["text_attention_mask"].to(model_device, dtype=model_dtype)
+                lyric_hs = data["lyric_hidden_states"].to(model_device, dtype=model_dtype)
+                lyric_mask = data["lyric_attention_mask"].to(model_device, dtype=model_dtype)
+                silence_latent = data["silence_latent"].to(model_device, dtype=model_dtype)
+                latent_length = data["latent_length"]
+
+                # DIT encoder pass (adapter-agnostic: same tensors for
+                # LoRA and LoKR -- only the adapter injection differs).
                 encoder_hs, encoder_mask = run_encoder(
                     model,
                     text_hidden_states=text_hs,
@@ -567,25 +381,35 @@ def _pass2_heavy(
                     dtype=model_dtype,
                 )
 
-                # Build context latents
-                silence_latent = silence_latent.to(model_device, dtype=model_dtype)
+                # Free encoder inputs immediately after use
+                del text_hs, text_mask, lyric_hs, lyric_mask
+
+                # Build context latents (silence-based, standard text2music)
                 if silence_latent.dim() == 2:
                     silence_latent = silence_latent.unsqueeze(0)
+
                 context_latents = build_context_latents(
                     silence_latent, latent_length, str(model_device), model_dtype,
                 )
+                del silence_latent
 
                 # Write final .pt  (strip ".tmp" from "song.tmp.pt" -> "song.pt")
                 base_name = tmp_path.name.replace(".tmp.pt", ".pt")
                 final_path = out_path / base_name
+                meta = data["metadata"]
                 torch.save({
                     "target_latents": data["target_latents"],
                     "attention_mask": data["attention_mask"],
                     "encoder_hidden_states": encoder_hs.squeeze(0).cpu(),
                     "encoder_attention_mask": encoder_mask.squeeze(0).cpu(),
                     "context_latents": context_latents.squeeze(0).cpu(),
-                    "metadata": data["metadata"],
+                    "metadata": meta,
                 }, final_path)
+
+                # Free all GPU tensors and the loaded data dict before next iter
+                del encoder_hs, encoder_mask, context_latents, data
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
                 # Remove intermediate
                 tmp_path.unlink(missing_ok=True)
@@ -605,30 +429,3 @@ def _pass2_heavy(
         progress_callback(total, total, "[Pass 2] Done")
 
     return processed, failed
-
-
-# ---------------------------------------------------------------------------
-# Prompt builder (simplified -- no DatasetBuilder / AudioSample dependency)
-# ---------------------------------------------------------------------------
-
-def _build_simple_prompt(meta: Dict[str, Any]) -> str:
-    """Build a text prompt from sample metadata.
-
-    Mimics the upstream ``build_text_prompt`` + ``build_metas_str`` but
-    without requiring an ``AudioSample`` dataclass or ``DatasetBuilder``.
-    """
-    from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT
-
-    caption = meta.get("caption", "")
-    bpm = meta.get("bpm", "N/A") or "N/A"
-    ts = meta.get("timesignature", "N/A") or "N/A"
-    ks = meta.get("keyscale", "N/A") or "N/A"
-    dur = meta.get("duration", 0)
-
-    metas_str = (
-        f"- bpm: {bpm}\n"
-        f"- timesignature: {ts}\n"
-        f"- keyscale: {ks}\n"
-        f"- duration: {dur} seconds\n"
-    )
-    return SFT_GEN_PROMPT.format(DEFAULT_DIT_INSTRUCTION, caption, metas_str)

@@ -16,8 +16,43 @@ from typing import Any, Callable, Dict, Generator, Optional, Tuple
 
 import torch
 
-from acestep.training.configs import LoRAConfig, TrainingConfig
-from acestep.training.trainer import LoRATrainer
+try:
+    from acestep.training.configs import LoRAConfig, TrainingConfig
+    from acestep.training.trainer import LoRATrainer
+    _VANILLA_AVAILABLE = True
+except ImportError:
+    _VANILLA_AVAILABLE = False
+
+    # Stub definitions so the module can be imported for type-checking
+    # even when the real package is missing (avoids a second ImportError).
+    from dataclasses import dataclass as _dataclass
+
+    @_dataclass
+    class LoRAConfig:  # type: ignore[no-redef]
+        """Stub for ``acestep.training.configs.LoRAConfig``."""
+        r: int = 64
+        alpha: int = 128
+        dropout: float = 0.0
+        target_modules: list = None  # type: ignore[assignment]
+        bias: str = "none"
+
+    @_dataclass
+    class TrainingConfig:  # type: ignore[no-redef]
+        """Stub for ``acestep.training.configs.TrainingConfig``."""
+        learning_rate: float = 1e-4
+        batch_size: int = 1
+        gradient_accumulation_steps: int = 4
+        max_epochs: int = 100
+        warmup_steps: int = 500
+        weight_decay: float = 0.01
+        max_grad_norm: float = 1.0
+        seed: int = 42
+        output_dir: str = "./lora_output"
+        save_every_n_epochs: int = 10
+        num_workers: int = 0
+        pin_memory: bool = True
+
+    LoRATrainer = None  # type: ignore[assignment,misc]
 from acestep.training_v2.model_loader import load_decoder_for_training
 
 logger = logging.getLogger(__name__)
@@ -166,7 +201,17 @@ class VanillaTrainer:
     # -- Public API --------------------------------------------------------
 
     def train(self) -> None:
-        """Run vanilla training, calling *progress_callback* for each update."""
+        """Run vanilla training, calling *progress_callback* for each update.
+
+        Raises:
+            RuntimeError: If base ACE-Step is not installed.
+        """
+        if not _VANILLA_AVAILABLE:
+            raise RuntimeError(
+                "Vanilla training requires a full ACE-Step 1.5 installation.\n"
+                "Install it with:  pip install -e /path/to/ACE-Step-1.5\n"
+                "Or use the 'Corrected (fixed)' training mode which is standalone."
+            )
         cfg = self.training_config
 
         lora_cfg, train_cfg, _num_workers = self._build_configs()

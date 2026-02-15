@@ -1392,13 +1392,17 @@ def main():
     if use_flash_attention is None:
         use_flash_attention = dit_handler.is_flash_attention_available(device)
 
+    compile_model = os.environ.get("ACESTEP_COMPILE_MODEL", "").strip().lower() in {
+        "1", "true", "yes", "y", "on",
+    }
+
     print(f"Initializing DiT handler with model: {args.config_path}")
     dit_handler.initialize_service(
         project_root=args.project_root,
         config_path=args.config_path,
         device=device,
         use_flash_attention=use_flash_attention,
-        compile_model=False,
+        compile_model=compile_model,
         offload_to_cpu=args.offload_to_cpu,
         offload_dit_to_cpu=args.offload_dit_to_cpu,
     )

@@ -71,10 +71,10 @@ class AudioSaver:
         Initialize audio saver
         
         Args:
-            default_format: Default save format ('flac', 'wav', 'mp3', 'wav32')
+            default_format: Default save format ('flac', 'wav', 'mp3', 'wav32', 'opus', 'aac')
         """
         self.default_format = default_format.lower()
-        if self.default_format not in ["flac", "wav", "mp3", "wav32"]:
+        if self.default_format not in ["flac", "wav", "mp3", "wav32", "opus", "aac"]:
             logger.warning(f"Unsupported format {default_format}, using 'flac'")
             self.default_format = "flac"
     
@@ -93,14 +93,14 @@ class AudioSaver:
             audio_data: Audio data, torch.Tensor [channels, samples] or numpy.ndarray
             output_path: Output file path (extension can be omitted)
             sample_rate: Sample rate
-            format: Audio format ('flac', 'wav', 'mp3', 'wav32'), defaults to default_format
+            format: Audio format ('flac', 'wav', 'mp3', 'wav32', 'opus', 'aac'), defaults to default_format
             channels_first: If True, tensor format is [channels, samples], else [samples, channels]
         
         Returns:
             Actual saved file path
         """
         format = (format or self.default_format).lower()
-        if format not in ["flac", "wav", "mp3", "wav32"]:
+        if format not in ["flac", "wav", "mp3", "wav32", "opus", "aac"]:
             logger.warning(f"Unsupported format {format}, using {self.default_format}")
             format = self.default_format
         
@@ -110,11 +110,14 @@ class AudioSaver:
         # Determine extension based on format
         ext = ".wav" if format == "wav32" else f".{format}"
         
-        if output_path.suffix.lower() not in ['.flac', '.wav', '.mp3']:
+        if output_path.suffix.lower() not in ['.flac', '.wav', '.mp3', '.opus', '.aac', '.m4a']:
             output_path = output_path.with_suffix(ext)
         elif format == "wav32" and output_path.suffix.lower() == ".wav32":
              # Explicitly fix .wav32 extension if present
              output_path = output_path.with_suffix(".wav")
+        elif format == "aac" and output_path.suffix.lower() == ".m4a":
+             # Allow .m4a as valid extension for AAC (it's a container format for AAC)
+             pass
         
         # Convert to torch tensor
         if isinstance(audio_data, np.ndarray):
@@ -140,8 +143,8 @@ class AudioSaver:
         
         # Select backend and save
         try:
-            if format == "mp3":
-                # MP3 uses ffmpeg backend
+            if format in ["mp3", "opus", "aac"]:
+                # MP3, Opus, and AAC use ffmpeg backend
                 torchaudio.save(
                     str(output_path),
                     audio_tensor,
@@ -220,7 +223,7 @@ class AudioSaver:
         Args:
             input_path: Input audio file path
             output_path: Output audio file path
-            output_format: Target format ('flac', 'wav', 'mp3')
+            output_format: Target format ('flac', 'wav', 'mp3', 'wav32', 'opus', 'aac')
             remove_input: Whether to delete input file
         
         Returns:

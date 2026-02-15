@@ -17,6 +17,7 @@ from acestep.constants import (
     MODE_TO_TASK_TYPE,
 )
 from acestep.gradio_ui.i18n import t
+from acestep.gradio_ui.help_content import create_help_button
 from acestep.gradio_ui.events.generation_handlers import get_ui_control_config, _is_pure_base_model
 from acestep.gpu_config import get_global_gpu_config, GPUConfig, find_best_lm_model_on_disk, get_gpu_device_name, GPU_TIER_LABELS, GPU_TIER_CHOICES
 
@@ -108,14 +109,15 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
     accordion_open = not service_pre_initialized
     accordion_visible = not service_mode
 
-    with gr.Accordion(t("service.title"), open=accordion_open, visible=accordion_visible) as service_config_accordion:
+    with gr.Accordion(t("service.title"), open=accordion_open, visible=accordion_visible, elem_classes=["has-info-container"]) as service_config_accordion:
+        create_help_button("service_config")
         # Language selector
         with gr.Row():
             language_dropdown = gr.Dropdown(
                 choices=[("English", "en"), ("中文", "zh"), ("日本語", "ja")],
                 value=current_language,
                 label=t("service.language_label"),
-                info=t("service.language_info"),
+                info=t("service.language_info"), elem_classes=["has-info-container"],
                 scale=1,
             )
 
@@ -129,7 +131,7 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
                 choices=[(label, key) for key, label in GPU_TIER_LABELS.items()],
                 value=gpu_config.tier,
                 label=t("service.tier_label"),
-                info=t("service.tier_info"),
+                info=t("service.tier_info"), elem_classes=["has-info-container"],
                 scale=1,
             )
 
@@ -141,7 +143,7 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
                     label=t("service.checkpoint_label"),
                     choices=dit_handler.get_available_checkpoints(),
                     value=checkpoint_value,
-                    info=t("service.checkpoint_info"),
+                    info=t("service.checkpoint_info"), elem_classes=["has-info-container"],
                 )
             with gr.Column(scale=1, min_width=90):
                 refresh_btn = gr.Button(t("service.refresh_btn"), size="sm")
@@ -155,14 +157,14 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
                 label=t("service.model_path_label"),
                 choices=available_models,
                 value=config_path_value,
-                info=t("service.model_path_info"),
+                info=t("service.model_path_info"), elem_classes=["has-info-container"],
             )
             device_value = init_params.get('device', 'auto') if service_pre_initialized else 'auto'
             device = gr.Dropdown(
                 choices=["auto", "cuda", "mps", "xpu", "cpu"],
                 value=device_value,
                 label=t("service.device_label"),
-                info=t("service.device_info"),
+                info=t("service.device_info"), elem_classes=["has-info-container"],
             )
 
         # LM model and backend
@@ -176,14 +178,14 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
                 label=t("service.lm_model_path_label"),
                 choices=all_lm_models,
                 value=lm_model_path_value,
-                info=t("service.lm_model_path_info") + (f" (Recommended: {recommended_lm})" if recommended_lm else " (LM not available for this GPU tier)"),
+                info=t("service.lm_model_path_info") + (f" (Recommended: {recommended_lm})" if recommended_lm else " (LM not available for this GPU tier)"), elem_classes=["has-info-container"],
             )
             backend_value = init_params.get('backend', recommended_backend) if service_pre_initialized else recommended_backend
             backend_dropdown = gr.Dropdown(
                 choices=available_backends,
                 value=backend_value,
                 label=t("service.backend_label"),
-                info=t("service.backend_info") + (f" (vllm unavailable for {gpu_config.tier}: VRAM too low)" if gpu_config.lm_backend_restriction == "pt_mlx_only" else ""),
+                info=t("service.backend_info") + (f" (vllm unavailable for {gpu_config.tier}: VRAM too low)" if gpu_config.lm_backend_restriction == "pt_mlx_only" else ""), elem_classes=["has-info-container"],
             )
 
         # Checkboxes
@@ -200,31 +202,31 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
                 label=t("service.flash_attention_label"),
                 value=use_flash_attention_value,
                 interactive=flash_attn_available,
-                info=t("service.flash_attention_info_enabled") if flash_attn_available else t("service.flash_attention_info_disabled"),
+                info=t("service.flash_attention_info_enabled") if flash_attn_available else t("service.flash_attention_info_disabled"), elem_classes=["has-info-container"],
             )
 
             offload_to_cpu_value = init_params.get('offload_to_cpu', default_offload) if service_pre_initialized else default_offload
             offload_to_cpu_checkbox = gr.Checkbox(
                 label=t("service.offload_cpu_label"),
                 value=offload_to_cpu_value,
-                info=t("service.offload_cpu_info") + (" (recommended for this tier)" if default_offload else " (optional for this tier)"),
+                info=t("service.offload_cpu_info") + (" (recommended for this tier)" if default_offload else " (optional for this tier)"), elem_classes=["has-info-container"],
             )
 
             offload_dit_to_cpu_value = init_params.get('offload_dit_to_cpu', default_offload_dit) if service_pre_initialized else default_offload_dit
             offload_dit_to_cpu_checkbox = gr.Checkbox(
                 label=t("service.offload_dit_cpu_label"),
                 value=offload_dit_to_cpu_value,
-                info=t("service.offload_dit_cpu_info") + (" (recommended for this tier)" if default_offload_dit else " (optional for this tier)"),
+                info=t("service.offload_dit_cpu_info") + (" (recommended for this tier)" if default_offload_dit else " (optional for this tier)"), elem_classes=["has-info-container"],
             )
 
             compile_model_value = init_params.get('compile_model', default_compile) if service_pre_initialized else default_compile
-            compile_model_checkbox = gr.Checkbox(label=t("service.compile_model_label"), value=compile_model_value, info=t("service.compile_model_info"))
+            compile_model_checkbox = gr.Checkbox(label=t("service.compile_model_label"), value=compile_model_value, info=t("service.compile_model_info"), elem_classes=["has-info-container"])
 
             quantization_value = init_params.get('quantization', default_quantization) if service_pre_initialized else default_quantization
             quantization_checkbox = gr.Checkbox(
                 label=t("service.quantization_label"),
                 value=quantization_value,
-                info=t("service.quantization_info") + (" (recommended for this tier)" if default_quantization else " (optional for this tier)"),
+                info=t("service.quantization_info") + (" (recommended for this tier)" if default_quantization else " (optional for this tier)"), elem_classes=["has-info-container"],
             )
 
             from acestep.mlx_dit import mlx_available as _mlx_avail
@@ -234,7 +236,7 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
                 label=t("service.mlx_dit_label"),
                 value=mlx_dit_value,
                 interactive=_mlx_ok,
-                info=t("service.mlx_dit_info_enabled") if _mlx_ok else t("service.mlx_dit_info_disabled"),
+                info=t("service.mlx_dit_info_enabled") if _mlx_ok else t("service.mlx_dit_info_disabled"), elem_classes=["has-info-container"],
             )
 
         init_btn = gr.Button(t("service.init_btn"), variant="primary", size="lg")
@@ -313,7 +315,7 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
         # ═══════════════════════════════════════════
         # LoRA Adapter (sub-accordion, collapsed)
         # ═══════════════════════════════════════════
-        with gr.Accordion("🔧 LoRA Adapter", open=False):
+        with gr.Accordion("🔧 LoRA Adapter", open=False, elem_classes=["has-info-container"]):
             with gr.Row():
                 lora_path = gr.Textbox(label="LoRA Path", placeholder="./lora_output/final/adapter", info="Path to trained LoRA adapter directory", scale=3)
                 load_lora_btn = gr.Button("📥 Load LoRA", variant="secondary", scale=1)
@@ -324,9 +326,10 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
                 lora_status = gr.Textbox(label="LoRA Status", value="No LoRA loaded", interactive=False, scale=2)
 
         # ═══════════════════════════════════════════
-        # DiT Diffusion Parameters
+        # DiT Diffusion Parameters (with help button)
         # ═══════════════════════════════════════════
-        with gr.Accordion(t("generation.advanced_dit_section"), open=True):
+        with gr.Accordion(t("generation.advanced_dit_section"), open=True, elem_classes=["has-info-container"]):
+            create_help_button("generation_advanced")
             with gr.Row():
                 inference_steps = gr.Slider(
                     minimum=_ui_config["inference_steps_minimum"],
@@ -334,29 +337,29 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
                     value=_ui_config["inference_steps_value"],
                     step=1,
                     label=t("generation.inference_steps_label"),
-                    info=t("generation.inference_steps_info"),
+                    info=t("generation.inference_steps_info"), elem_classes=["has-info-container"],
                 )
                 guidance_scale = gr.Slider(
                     minimum=1.0, maximum=15.0, value=7.0, step=0.1,
                     label=t("generation.guidance_scale_label"),
-                    info=t("generation.guidance_scale_info"),
+                    info=t("generation.guidance_scale_info"), elem_classes=["has-info-container"],
                     visible=_ui_config["guidance_scale_visible"],
                 )
                 infer_method = gr.Dropdown(
                     choices=["ode", "sde"], value="ode",
                     label=t("generation.infer_method_label"),
-                    info=t("generation.infer_method_info"),
+                    info=t("generation.infer_method_info"), elem_classes=["has-info-container"],
                 )
             with gr.Row():
                 use_adg = gr.Checkbox(
                     label=t("generation.use_adg_label"), value=False,
-                    info=t("generation.use_adg_info"),
+                    info=t("generation.use_adg_info"), elem_classes=["has-info-container"],
                     visible=_ui_config["use_adg_visible"],
                 )
                 shift = gr.Slider(
                     minimum=1.0, maximum=5.0, value=_ui_config["shift_value"], step=0.1,
                     label=t("generation.shift_label"),
-                    info=t("generation.shift_info"),
+                    info=t("generation.shift_info"), elem_classes=["has-info-container"],
                     visible=_ui_config["shift_visible"],
                 )
             with gr.Row():
@@ -364,7 +367,7 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
                     label=t("generation.custom_timesteps_label"),
                     placeholder="0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0",
                     value="",
-                    info=t("generation.custom_timesteps_info"),
+                    info=t("generation.custom_timesteps_info"), elem_classes=["has-info-container"],
                 )
             with gr.Row():
                 cfg_interval_start = gr.Slider(
@@ -379,74 +382,74 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
                 )
             with gr.Row():
                 with gr.Column():
-                    seed = gr.Textbox(label=t("generation.seed_label"), value="-1", info=t("generation.seed_info"))
-                    random_seed_checkbox = gr.Checkbox(label=t("generation.random_seed_label"), value=True, info=t("generation.random_seed_info"))
+                    seed = gr.Textbox(label=t("generation.seed_label"), value="-1", info=t("generation.seed_info"), elem_classes=["has-info-container"])
+                    random_seed_checkbox = gr.Checkbox(label=t("generation.random_seed_label"), value=True, info=t("generation.random_seed_info"), elem_classes=["has-info-container"])
 
         # ═══════════════════════════════════════════
         # LM Generation Parameters
         # ═══════════════════════════════════════════
-        with gr.Accordion(t("generation.advanced_lm_section"), open=False):
+        with gr.Accordion(t("generation.advanced_lm_section"), open=False, elem_classes=["has-info-container"]):
             with gr.Row():
-                lm_temperature = gr.Slider(label=t("generation.lm_temperature_label"), minimum=0.0, maximum=2.0, value=0.85, step=0.1, scale=1, info=t("generation.lm_temperature_info"))
-                lm_cfg_scale = gr.Slider(label=t("generation.lm_cfg_scale_label"), minimum=1.0, maximum=3.0, value=2.0, step=0.1, scale=1, info=t("generation.lm_cfg_scale_info"))
+                lm_temperature = gr.Slider(label=t("generation.lm_temperature_label"), minimum=0.0, maximum=2.0, value=0.85, step=0.1, scale=1, info=t("generation.lm_temperature_info"), elem_classes=["has-info-container"])
+                lm_cfg_scale = gr.Slider(label=t("generation.lm_cfg_scale_label"), minimum=1.0, maximum=3.0, value=2.0, step=0.1, scale=1, info=t("generation.lm_cfg_scale_info"), elem_classes=["has-info-container"])
             with gr.Row():
-                lm_top_k = gr.Slider(label=t("generation.lm_top_k_label"), minimum=0, maximum=100, value=0, step=1, scale=1, info=t("generation.lm_top_k_info"))
-                lm_top_p = gr.Slider(label=t("generation.lm_top_p_label"), minimum=0.0, maximum=1.0, value=0.9, step=0.01, scale=1, info=t("generation.lm_top_p_info"))
+                lm_top_k = gr.Slider(label=t("generation.lm_top_k_label"), minimum=0, maximum=100, value=0, step=1, scale=1, info=t("generation.lm_top_k_info"), elem_classes=["has-info-container"])
+                lm_top_p = gr.Slider(label=t("generation.lm_top_p_label"), minimum=0.0, maximum=1.0, value=0.9, step=0.01, scale=1, info=t("generation.lm_top_p_info"), elem_classes=["has-info-container"])
             with gr.Row():
                 lm_negative_prompt = gr.Textbox(
                     label=t("generation.lm_negative_prompt_label"),
                     value="NO USER INPUT",
                     placeholder=t("generation.lm_negative_prompt_placeholder"),
-                    info=t("generation.lm_negative_prompt_info"),
+                    info=t("generation.lm_negative_prompt_info"), elem_classes=["has-info-container"],
                     lines=2,
                 )
             with gr.Row():
-                use_cot_metas = gr.Checkbox(label=t("generation.cot_metas_label"), value=True, info=t("generation.cot_metas_info"), scale=1)
-                use_cot_language = gr.Checkbox(label=t("generation.cot_language_label"), value=True, info=t("generation.cot_language_info"), scale=1)
+                use_cot_metas = gr.Checkbox(label=t("generation.cot_metas_label"), value=True, info=t("generation.cot_metas_info"), scale=1, elem_classes=["has-info-container"])
+                use_cot_language = gr.Checkbox(label=t("generation.cot_language_label"), value=True, info=t("generation.cot_language_info"), scale=1, elem_classes=["has-info-container"])
                 constrained_decoding_debug = gr.Checkbox(
                     label=t("generation.constrained_debug_label"), value=False,
                     info=t("generation.constrained_debug_info"), scale=1,
                     interactive=not service_mode,
                 )
             with gr.Row():
-                allow_lm_batch = gr.Checkbox(label=t("generation.parallel_thinking_label"), value=True, info=t("generation.parallel_thinking_info"), scale=1)
-                use_cot_caption = gr.Checkbox(label=t("generation.caption_rewrite_label"), value=False, info=t("generation.caption_rewrite_info"), scale=1)
+                allow_lm_batch = gr.Checkbox(label=t("generation.parallel_thinking_label"), value=True, info=t("generation.parallel_thinking_info"), scale=1, elem_classes=["has-info-container"])
+                use_cot_caption = gr.Checkbox(label=t("generation.caption_rewrite_label"), value=False, info=t("generation.caption_rewrite_info"), scale=1, elem_classes=["has-info-container"])
 
         # ═══════════════════════════════════════════
         # Audio Output & Post-processing
         # ═══════════════════════════════════════════
-        with gr.Accordion(t("generation.advanced_output_section"), open=False):
+        with gr.Accordion(t("generation.advanced_output_section"), open=False, elem_classes=["has-info-container"]):
             with gr.Row():
                 audio_format = gr.Dropdown(
-                    choices=[("FLAC", "flac"), ("MP3", "mp3"), ("WAV (16-bit)", "wav"), ("WAV (32-bit Float)", "wav32")],
+                    choices=[("FLAC", "flac"), ("MP3", "mp3"), ("Opus", "opus"), ("AAC", "aac"), ("WAV (16-bit)", "wav"), ("WAV (32-bit Float)", "wav32")],
                     value="mp3",
                     label=t("generation.audio_format_label"),
-                    info=t("generation.audio_format_info"),
+                    info=t("generation.audio_format_info"), elem_classes=["has-info-container"],
                     interactive=not service_mode,
                 )
                 score_scale = gr.Slider(
                     minimum=0.01, maximum=1.0, value=0.5, step=0.01,
                     label=t("generation.score_sensitivity_label"),
-                    info=t("generation.score_sensitivity_info"),
+                    info=t("generation.score_sensitivity_info"), elem_classes=["has-info-container"],
                     scale=1, visible=not service_mode,
                 )
             with gr.Row():
                 enable_norm_val = init_params.get("enable_normalization", True) if service_pre_initialized else True
                 norm_db_val = init_params.get("normalization_db", -1.0) if service_pre_initialized else -1.0
-                enable_normalization = gr.Checkbox(label=t("gen.enable_normalization"), value=enable_norm_val, info=t("gen.enable_normalization_info"))
-                normalization_db = gr.Slider(label=t("gen.normalization_db"), minimum=-10.0, maximum=0.0, step=0.1, value=norm_db_val, info=t("gen.normalization_db_info"))
+                enable_normalization = gr.Checkbox(label=t("gen.enable_normalization"), value=enable_norm_val, info=t("gen.enable_normalization_info"), elem_classes=["has-info-container"])
+                normalization_db = gr.Slider(label=t("gen.normalization_db"), minimum=-10.0, maximum=0.0, step=0.1, value=norm_db_val, info=t("gen.normalization_db_info"), elem_classes=["has-info-container"])
             with gr.Row():
                 latent_shift_val = init_params.get("latent_shift", 0.0) if service_pre_initialized else 0.0
                 latent_rescale_val = init_params.get("latent_rescale", 1.0) if service_pre_initialized else 1.0
-                latent_shift = gr.Slider(label=t("gen.latent_shift"), minimum=-0.2, maximum=0.2, step=0.01, value=latent_shift_val, info=t("gen.latent_shift_info"))
-                latent_rescale = gr.Slider(label=t("gen.latent_rescale"), minimum=0.5, maximum=1.5, step=0.01, value=latent_rescale_val, info=t("gen.latent_rescale_info"))
+                latent_shift = gr.Slider(label=t("gen.latent_shift"), minimum=-0.2, maximum=0.2, step=0.01, value=latent_shift_val, info=t("gen.latent_shift_info"), elem_classes=["has-info-container"])
+                latent_rescale = gr.Slider(label=t("gen.latent_rescale"), minimum=0.5, maximum=1.5, step=0.01, value=latent_rescale_val, info=t("gen.latent_rescale_info"), elem_classes=["has-info-container"])
 
         # ═══════════════════════════════════════════
         # Automation & Batch
         # ═══════════════════════════════════════════
-        with gr.Accordion(t("generation.advanced_automation_section"), open=False):
+        with gr.Accordion(t("generation.advanced_automation_section"), open=False, elem_classes=["has-info-container"]):
             with gr.Row():
-                lm_batch_chunk_size = gr.Number(label=t("generation.lm_batch_chunk_label"), value=8, minimum=1, maximum=32, step=1, info=t("generation.lm_batch_chunk_info"), scale=1, interactive=not service_mode)
+                lm_batch_chunk_size = gr.Number(label=t("generation.lm_batch_chunk_label"), value=8, minimum=1, maximum=32, step=1, info=t("generation.lm_batch_chunk_info"), scale=1, interactive=not service_mode, elem_classes=["has-info-container"])
 
     # Merge service components into the return dict
     result = {
@@ -531,7 +534,7 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
                 choices=initial_mode_choices,
                 value="Custom",
                 label=t("generation.mode_label"),
-                info=t("generation.mode_info_custom"),
+                info=t("generation.mode_info_custom"), elem_classes=["has-info-container"],
                 scale=10,
             )
             with gr.Column(scale=1, min_width=80, elem_classes="icon-btn-wrap") as load_file_col:
@@ -556,23 +559,24 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
             value=DEFAULT_DIT_INSTRUCTION,
             interactive=False,
             lines=1,
-            info=t("generation.instruction_info"),
+            info=t("generation.instruction_info"), elem_classes=["has-info-container"],
             visible=False,
         )
 
         # --- Simple Mode Components (only visible in Simple mode) ---
-        with gr.Group(visible=False) as simple_mode_group:
+        with gr.Group(visible=False, elem_classes=["has-info-container"]) as simple_mode_group:
+            create_help_button("generation_simple")
             with gr.Row(equal_height=True):
                 simple_query_input = gr.Textbox(
                     label=t("generation.simple_query_label"),
                     placeholder=t("generation.simple_query_placeholder"),
                     lines=2,
-                    info=t("generation.simple_query_info"),
+                    info=t("generation.simple_query_info"), elem_classes=["has-info-container"],
                     scale=9,
                 )
                 with gr.Column(scale=1):
                     simple_vocal_language = gr.Dropdown(
-                        choices=VALID_LANGUAGES, value="unknown",
+                        choices=[(lang if lang != "unknown" else "Instrumental / auto", lang) for lang in VALID_LANGUAGES], value="unknown",
                         allow_custom_value=True,
                         label=t("generation.simple_vocal_language_label"),
                         interactive=True,
@@ -593,6 +597,9 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         simple_sample_created = gr.State(value=False)
         # State to store lyrics before checking Instrumental (for restore on uncheck)
         lyrics_before_instrumental = gr.State(value="")
+        # Track previous generation mode so we can clean up polluted values
+        # when switching away from Extract/Lego.
+        previous_generation_mode = gr.State(value="Custom")
 
         # --- Source Audio Row (for remix/repaint/extract/lego/complete — hidden in Simple/Custom) ---
         with gr.Row(equal_height=True, visible=False) as src_audio_row:
@@ -608,8 +615,29 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
                     size="lg",
                 )
 
+        # --- Track selectors (for extract/lego/complete, base model only) ---
+        # Placed immediately below source audio for logical grouping
+        # Help buttons for extract/lego are shown alongside their track selectors
+        with gr.Group(visible=False) as extract_help_group:
+            create_help_button("generation_extract")
+        track_name = gr.Dropdown(
+            choices=TRACK_NAMES,
+            value=None,
+            label=t("generation.track_name_label"),
+            info=t("generation.track_name_info"), elem_classes=["has-info-container"],
+            visible=False,
+        )
+        with gr.Group(visible=False) as complete_help_group:
+            create_help_button("generation_complete")
+        complete_track_classes = gr.CheckboxGroup(
+            choices=TRACK_NAMES,
+            label=t("generation.track_classes_label"),
+            info=t("generation.track_classes_info"), elem_classes=["has-info-container"],
+            visible=False,
+        )
+
         # --- LM Codes Hints (only visible in Custom mode, collapsed by default) ---
-        with gr.Accordion(t("generation.lm_codes_hints"), open=False, visible=True) as text2music_audio_codes_group:
+        with gr.Accordion(t("generation.lm_codes_hints"), open=False, visible=True, elem_classes=["has-info-container"]) as text2music_audio_codes_group:
             with gr.Row(equal_height=True):
                 lm_codes_audio_upload = gr.Audio(
                     label=t("generation.source_audio"),
@@ -620,7 +648,7 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
                     label=t("generation.lm_codes_label"),
                     placeholder=t("generation.lm_codes_placeholder"),
                     lines=6,
-                    info=t("generation.lm_codes_info"),
+                    info=t("generation.lm_codes_info"), elem_classes=["has-info-container"],
                     scale=6,
                 )
             with gr.Row():
@@ -642,20 +670,23 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         audio_cover_strength = gr.Slider(
             minimum=0.0, maximum=1.0, value=1.0, step=0.01,
             label=t("generation.codes_strength_label"),
-            info=t("generation.codes_strength_info"),
+            info=t("generation.codes_strength_info"), elem_classes=["has-info-container"],
             visible=True,
         )
 
-        # --- Cover Strength slider (only visible in Remix mode) ---
+        # --- Cover Strength slider (only visible in Remix mode) + Remix help ---
+        with gr.Group(visible=False) as remix_help_group:
+            create_help_button("generation_remix")
         cover_noise_strength = gr.Slider(
             minimum=0.0, maximum=1.0, value=0.0, step=0.01,
             label=t("generation.cover_noise_strength_label"),
-            info=t("generation.cover_noise_strength_info"),
+            info=t("generation.cover_noise_strength_info"), elem_classes=["has-info-container"],
             visible=False,
         )
 
         # --- Custom Mode: Reference Audio | (Caption + Enhance) | (Lyrics + Instrumental + Enhance) | 🎲 ---
-        with gr.Group(visible=True) as custom_mode_group:
+        with gr.Group(visible=True, elem_classes=["has-info-container"]) as custom_mode_group:
+            create_help_button("generation_custom")
             with gr.Row(equal_height=True):
                 # Left: Reference Audio
                 with gr.Column(scale=2, min_width=200):
@@ -696,52 +727,39 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
                 with gr.Column(scale=1, min_width=80, elem_classes="icon-btn-wrap"):
                     sample_btn = gr.Button(t("generation.sample_btn"), variant="primary", size="lg")
 
-        # --- Track selectors (for extract/lego/complete, base model only) ---
-        track_name = gr.Dropdown(
-            choices=TRACK_NAMES,
-            value=None,
-            label=t("generation.track_name_label"),
-            info=t("generation.track_name_info"),
-            visible=False,
-        )
-        complete_track_classes = gr.CheckboxGroup(
-            choices=TRACK_NAMES,
-            label=t("generation.track_classes_label"),
-            info=t("generation.track_classes_info"),
-            visible=False,
-        )
-
-        # --- Repainting controls ---
+        # --- Repainting controls (also used for Lego stem area) ---
         with gr.Group(visible=False) as repainting_group:
-            gr.HTML(f"<h5>{t('generation.repainting_controls')}</h5>")
+            create_help_button("generation_repaint")
+            repainting_header_html = gr.HTML(f"<h5>{t('generation.repainting_controls')}</h5>")
             with gr.Row():
                 repainting_start = gr.Number(label=t("generation.repainting_start"), value=0.0, step=0.1)
                 repainting_end = gr.Number(label=t("generation.repainting_end"), value=-1, minimum=-1, step=0.1)
 
         # --- Optional Parameters (collapsed by default) ---
-        with gr.Accordion(t("generation.optional_params"), open=False, visible=True) as optional_params_accordion:
+        with gr.Accordion(t("generation.optional_params"), open=False, visible=True, elem_classes=["has-info-container"]) as optional_params_accordion:
             gr.Markdown(f"#### {t('generation.optional_music_props')}")
             with gr.Row():
-                bpm = gr.Number(label=t("generation.bpm_label"), value=None, step=1, info=t("generation.bpm_info"))
-                key_scale = gr.Textbox(label=t("generation.keyscale_label"), placeholder=t("generation.keyscale_placeholder"), value="", info=t("generation.keyscale_info"))
-                time_signature = gr.Dropdown(choices=["", "2", "3", "4", "6", "N/A"], value="", label=t("generation.timesig_label"), allow_custom_value=True, info=t("generation.timesig_info"))
+                bpm = gr.Number(label=t("generation.bpm_label"), value=None, step=1, info=t("generation.bpm_info"), elem_classes=["has-info-container"])
+                key_scale = gr.Textbox(label=t("generation.keyscale_label"), placeholder=t("generation.keyscale_placeholder"), value="", info=t("generation.keyscale_info"), elem_classes=["has-info-container"])
+                time_signature = gr.Dropdown(choices=["", "2", "3", "4", "6", "N/A"], value="", label=t("generation.timesig_label"), allow_custom_value=True, info=t("generation.timesig_info"), elem_classes=["has-info-container"])
                 vocal_language = gr.Dropdown(
-                    choices=VALID_LANGUAGES, value="unknown",
+                    choices=[(lang if lang != "unknown" else "Instrumental / auto", lang) for lang in VALID_LANGUAGES], value="unknown",
                     label=t("generation.vocal_language_label"),
                     info=t("generation.vocal_language_info"),
                     allow_custom_value=True,
+                    elem_classes=["has-info-container"],
                 )
             gr.Markdown(f"#### {t('generation.optional_gen_settings')}")
             with gr.Row():
                 audio_duration = gr.Number(
                     label=t("generation.duration_label"), value=-1, minimum=-1,
                     maximum=float(max_duration), step=0.1,
-                    info=t("generation.duration_info") + f" (Max: {max_duration}s / {max_duration // 60} min)",
+                    info=t("generation.duration_info") + f" (Max: {max_duration}s / {max_duration // 60} min)", elem_classes=["has-info-container"],
                 )
                 batch_size_input = gr.Number(
                     label=t("generation.batch_size_label"), value=default_batch_size,
                     minimum=1, maximum=max_batch_size, step=1,
-                    info=t("generation.batch_size_info") + f" (Max: {max_batch_size})",
+                    info=t("generation.batch_size_info") + f" (Max: {max_batch_size})", elem_classes=["has-info-container"],
                     interactive=not service_mode,
                 )
 
@@ -780,6 +798,7 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         "track_name": track_name,
         "complete_track_classes": complete_track_classes,
         "repainting_group": repainting_group,
+        "repainting_header_html": repainting_header_html,
         "repainting_start": repainting_start,
         "repainting_end": repainting_end,
         "simple_mode_group": simple_mode_group,
@@ -790,6 +809,7 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         "create_sample_btn": create_sample_btn,
         "simple_sample_created": simple_sample_created,
         "lyrics_before_instrumental": lyrics_before_instrumental,
+        "previous_generation_mode": previous_generation_mode,
         "custom_mode_group": custom_mode_group,
         "captions": captions,
         "sample_btn": sample_btn,
@@ -810,6 +830,10 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         "generate_btn_row": generate_btn_row,
         "autogen_checkbox": autogen_checkbox,
         "auto_lrc": auto_lrc,
+        # Mode-specific help button groups (visibility toggled with mode)
+        "remix_help_group": remix_help_group,
+        "extract_help_group": extract_help_group,
+        "complete_help_group": complete_help_group,
         # GPU config values for validation (passed through)
         "max_duration": max_duration,
         "max_batch_size": max_batch_size,

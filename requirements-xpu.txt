@@ -19,7 +19,7 @@ uvicorn[standard]>=0.27.0
 numba>=0.63.1
 vector-quantize-pytorch>=1.27.15
 # torchcodec>=0.9.1  # Not supported on Intel XPU - soundfile fallback will be used
-torchao
+torchao<0.16.0
 modelscope
 
 # LoRA Training dependencies (optional)

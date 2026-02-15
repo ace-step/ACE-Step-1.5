@@ -13,7 +13,7 @@ def create_dataset_section(dataset_handler) -> dict:
                 choices=["train", "test"],
                 value="train",
                 label="Dataset",
-                info="Choose dataset to explore",
+                info="Choose dataset to explore", elem_classes=["has-info-container"],
                 scale=2
             )
             import_dataset_btn = gr.Button("📥 Import Dataset", variant="primary", scale=1)
@@ -22,13 +22,13 @@ def create_dataset_section(dataset_handler) -> dict:
                 choices=["keys", "idx", "random"],
                 value="random",
                 label="Search Type",
-                info="How to find items",
+                info="How to find items", elem_classes=["has-info-container"],
                 scale=1
             )
             search_value = gr.Textbox(
                 label="Search Value",
                 placeholder="Enter keys or index (leave empty for random)",
-                info="Keys: exact match, Index: 0 to dataset size-1",
+                info="Keys: exact match, Index: 0 to dataset size-1", elem_classes=["has-info-container"],
                 scale=2
             )
 

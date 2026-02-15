@@ -1,9 +1,10 @@
 """
 Extended Training Configuration for ACE-Step Training V2
 
-Imports original LoRAConfig and TrainingConfig from acestep/training/configs.py
-and extends them with corrected-training-specific fields (CFG dropout, continuous
-timestep sampling parameters, estimation, TensorBoard, sample generation, etc.).
+Uses base configs from ``acestep.training.configs``.  Extends them with
+corrected-training-specific fields (CFG dropout,
+continuous timestep sampling parameters, estimation, TensorBoard, sample
+generation, etc.).
 """
 
 from __future__ import annotations
@@ -13,8 +14,12 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import List, Optional
 
-# Re-export originals so callers can import everything from training_v2.configs
-from acestep.training.configs import LoRAConfig, TrainingConfig
+# Vendored base configs -- no base ACE-Step installation required
+from acestep.training.configs import (  # noqa: F401
+    LoRAConfig,
+    LoKRConfig,
+    TrainingConfig,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +31,44 @@ class LoRAConfigV2(LoRAConfig):
     """Extended LoRA configuration.
 
     Inherits all fields from the original LoRAConfig and adds:
+    - attention_type: Which attention layers to target (self, cross, or both)
+    """
+
+    attention_type: str = "both"
+    """Which attention layers to target: 'self', 'cross', or 'both'."""
+
+    def to_dict(self) -> dict:
+        base = super().to_dict()
+        base["attention_type"] = self.attention_type
+        return base
+
+    # --- Data loading (declared here for compatibility with base packages
+    #     that may not include these fields in TrainingConfig) -----------------
+    num_workers: int = 4
+    """Number of DataLoader worker processes."""
+
+    pin_memory: bool = True
+    """Pin memory in DataLoader for faster host-to-device transfer."""
+
+    prefetch_factor: int = 2
+    """Number of batches to prefetch per DataLoader worker."""
+
+    persistent_workers: bool = True
+    """Keep DataLoader workers alive between epochs."""
+
+    pin_memory_device: str = ""
+    """Device for pinned memory ("" = default CUDA device)."""
+
+
+# ---------------------------------------------------------------------------
+# Extended LoKR config
+# ---------------------------------------------------------------------------
+
+@dataclass
+class LoKRConfigV2(LoKRConfig):
+    """Extended LoKR configuration.
+
+    Inherits all fields from the original LoKRConfig and adds:
     - attention_type: Which attention layers to target (self, cross, or both)
     """
 
@@ -73,19 +116,21 @@ class TrainingConfigV2(TrainingConfig):
     persistent_workers: bool = True
     """Keep DataLoader workers alive between epochs."""
 
-    pin_memory_device: Optional[str] = None
-    """Device for pinned memory (None = default CUDA device)."""
+    pin_memory_device: str = ""
+    """Device for pinned memory ("" = default CUDA device)."""
 
     # --- Optimizer / Scheduler ------------------------------------------------
     optimizer_type: str = "adamw"
     """Optimizer: 'adamw', 'adamw8bit', 'adafactor', 'prodigy'."""
 
     scheduler_type: str = "cosine"
-    """LR scheduler: 'cosine', 'linear', 'constant', 'constant_with_warmup'."""
+    """LR scheduler: 'cosine', 'cosine_restarts', 'linear', 'constant', 'constant_with_warmup'."""
 
     # --- VRAM management ------------------------------------------------------
-    gradient_checkpointing: bool = False
-    """Trade compute for memory by recomputing activations during backward."""
+    gradient_checkpointing: bool = True
+    """Trade compute for memory by recomputing activations during backward.
+    Enabled by default to match ACE-Step's behaviour and save ~40-60%
+    activation VRAM.  Adds ~10-30% training time overhead."""
 
     offload_encoder: bool = False
     """Move encoder/VAE to CPU after setup to free ~2-4 GB VRAM."""
@@ -105,6 +150,10 @@ class TrainingConfigV2(TrainingConfig):
 
     data_proportion: float = 0.5
     """Data proportion for sample_t_r (from model config)."""
+
+    # --- Adapter selection ----------------------------------------------------
+    adapter_type: str = "lora"
+    """Adapter type: 'lora' (PEFT) or 'lokr' (LyCORIS)."""
 
     # --- Model / paths ------------------------------------------------------
     model_variant: str = "turbo"
@@ -155,7 +204,7 @@ class TrainingConfigV2(TrainingConfig):
     """Path to JSON module config produced by the estimate subcommand."""
 
     auto_estimate: bool = False
-    """Run estimation inline before selective training."""
+    """Run estimation inline before training."""
 
     estimate_output: Optional[str] = None
     """Path to write module config JSON (estimate subcommand only)."""
@@ -202,6 +251,7 @@ class TrainingConfigV2(TrainingConfig):
                 "gradient_checkpointing": self.gradient_checkpointing,
                 "offload_encoder": self.offload_encoder,
                 "vram_profile": self.vram_profile,
+                "adapter_type": self.adapter_type,
                 "cfg_ratio": self.cfg_ratio,
                 "timestep_mu": self.timestep_mu,
                 "timestep_sigma": self.timestep_sigma,

@@ -23,8 +23,25 @@ logger = logging.getLogger(__name__)
 
 
 def _is_flash_attention_available(device: str) -> bool:
-    """Check if flash_attn is installed and the device is CUDA."""
+    """Check if flash_attn is usable on the target device.
+
+    Requirements (all must be met):
+        1. Device is CUDA.
+        2. GPU compute capability >= 8.0 (Ampere / RTX 30xx or newer).
+        3. ``flash_attn`` package is importable.
+    """
     if not device.startswith("cuda"):
+        return False
+    try:
+        dev_idx = int(device.split(":")[1]) if ":" in device else 0
+        props = torch.cuda.get_device_properties(dev_idx)
+        if props.major < 8:
+            logger.info(
+                "[INFO] Flash Attention skipped: GPU compute capability %d.%d < 8.0",
+                props.major, props.minor,
+            )
+            return False
+    except Exception:
         return False
     try:
         import flash_attn  # noqa: F401
@@ -42,14 +59,29 @@ _VARIANT_DIR = {
 
 
 def _resolve_model_dir(checkpoint_dir: str | Path, variant: str) -> Path:
-    """Return the model subdirectory for *variant* under *checkpoint_dir*."""
+    """Return the model subdirectory for *variant* under *checkpoint_dir*.
+
+    Checks the known ``_VARIANT_DIR`` mapping first.  If *variant* is not
+    a recognised alias, it is treated as a literal subdirectory name (to
+    support custom fine-tunes with arbitrary folder names).
+    """
+    # 1. Known alias (turbo -> acestep-v15-turbo, etc.)
     subdir = _VARIANT_DIR.get(variant)
-    if subdir is None:
-        raise ValueError(f"Unknown model variant: {variant!r}")
-    p = Path(checkpoint_dir) / subdir
-    if not p.is_dir():
-        raise FileNotFoundError(f"Model directory not found: {p}")
-    return p
+    if subdir is not None:
+        p = Path(checkpoint_dir) / subdir
+        if p.is_dir():
+            return p
+
+    # 2. Literal subdirectory name (e.g. "my-custom-finetune")
+    p = Path(checkpoint_dir) / variant
+    if p.is_dir():
+        return p
+
+    # 3. None found
+    raise FileNotFoundError(
+        f"Model directory not found: tried {_VARIANT_DIR.get(variant, variant)!r} "
+        f"and {variant!r} under {checkpoint_dir}"
+    )
 
 
 def _resolve_dtype(precision: str) -> torch.dtype:
@@ -106,6 +138,7 @@ def load_decoder_for_training(
     dtype = _resolve_dtype(precision)
 
     logger.info("[INFO] Loading model from %s (variant=%s, dtype=%s)", model_dir, variant, dtype)
+    print(f"[INFO] Loading model from {model_dir} (variant={variant}, dtype={dtype})")
 
     # Try attention implementations in preference order.
     # flash_attention_2 first (matches handler.initialize_service), then sdpa, then eager.
@@ -140,7 +173,7 @@ def load_decoder_for_training(
     for param in model.parameters():
         param.requires_grad = False
 
-    model = model.to(device).to(dtype)
+    model = model.to(device=device, dtype=dtype)
     model.eval()
 
     logger.info("[OK] Model on %s (%s), all params frozen", device, dtype)
@@ -182,7 +215,7 @@ def load_preprocessing_models(
     vae_path = ckpt / "vae"
     if vae_path.is_dir():
         vae = AutoencoderOobleck.from_pretrained(str(vae_path))
-        vae = vae.to(device).to(dtype)
+        vae = vae.to(device=device, dtype=dtype)
         vae.eval()
         result["vae"] = vae
         logger.info("[OK] VAE loaded from %s", vae_path)
@@ -195,7 +228,7 @@ def load_preprocessing_models(
     if text_path.is_dir():
         result["text_tokenizer"] = AutoTokenizer.from_pretrained(str(text_path))
         text_enc = AutoModel.from_pretrained(str(text_path))
-        text_enc = text_enc.to(device).to(dtype)
+        text_enc = text_enc.to(device=device, dtype=dtype)
         text_enc.eval()
         result["text_encoder"] = text_enc
         logger.info("[OK] Text encoder loaded from %s", text_path)
@@ -249,7 +282,7 @@ def load_vae(
 
     dtype = _resolve_dtype(precision)
     vae = AutoencoderOobleck.from_pretrained(str(vae_path))
-    vae = vae.to(device).to(dtype)
+    vae = vae.to(device=device, dtype=dtype)
     vae.eval()
     logger.info("[OK] VAE loaded from %s (%s)", vae_path, dtype)
     return vae
@@ -276,7 +309,7 @@ def load_text_encoder(
     dtype = _resolve_dtype(precision)
     tokenizer = AutoTokenizer.from_pretrained(str(text_path))
     encoder = AutoModel.from_pretrained(str(text_path))
-    encoder = encoder.to(device).to(dtype)
+    encoder = encoder.to(device=device, dtype=dtype)
     encoder.eval()
     logger.info("[OK] Text encoder loaded from %s (%s)", text_path, dtype)
     return tokenizer, encoder
@@ -331,7 +364,7 @@ def load_silence_latent(
 
     dtype = _resolve_dtype(precision)
     sl = torch.load(str(sl_path), weights_only=True).transpose(1, 2)
-    sl = sl.to(device).to(dtype)
+    sl = sl.to(device=device, dtype=dtype)
     logger.info("[OK] silence_latent loaded from %s", sl_path)
     return sl
 

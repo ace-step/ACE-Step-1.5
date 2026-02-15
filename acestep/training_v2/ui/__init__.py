@@ -88,6 +88,10 @@ class TrainingUpdate:
     lr: float = 0.0
     epoch_time: float = 0.0
     samples_per_sec: float = 0.0
+    steps_per_epoch: int = 0
+    """Total optimizer steps per epoch (for step-level progress bar)."""
+    checkpoint_path: str = ""
+    """Filesystem path emitted with kind='checkpoint'."""
 
     # -- backward compat: ``for step, loss, msg in trainer.train():`` --------
     def __iter__(self) -> Iterator[Tuple[int, float, str]]:  # type: ignore[override]

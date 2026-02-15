@@ -26,7 +26,7 @@
 
 | Item | Requirement |
 |------|-------------|
-| Python | 3.11+ (stable release, not pre-release) |
+| Python | 3.11-3.12 (stable release, not pre-release)<br>**Note:** ROCm on Windows requires Python 3.12 |
 | GPU | CUDA GPU recommended; MPS / ROCm / Intel XPU / CPU also supported |
 | VRAM | ≥4GB for DiT-only mode; ≥6GB for LLM+DiT |
 | Disk | ~10GB for core models |
@@ -360,7 +360,33 @@ Features: 10s timeout protection, smart conflict detection & backup, automatic r
 
 > ⚠️ `uv run acestep` installs CUDA PyTorch wheels and may overwrite an existing ROCm setup.
 
-### Recommended Workflow
+### Windows - ROCm 7.2 (Python 3.12 Required)
+
+**Important:** AMD ROCm 7.2 on Windows requires **Python 3.12** (AMD officially provides Python 3.12 wheels only).
+
+```bash
+# 1. Ensure you have Python 3.12 installed
+python --version  # Should show Python 3.12.x
+
+# 2. Create and activate a virtual environment
+python -m venv venv_rocm
+venv_rocm\Scripts\activate
+
+# 3. Follow the installation steps in requirements-rocm.txt
+# This installs ROCm SDK and PyTorch wheels from AMD's repository
+
+# 4. Install dependencies
+pip install -r requirements-rocm.txt
+
+# 5. Launch with the ROCm-specific launcher
+start_gradio_ui_rocm.bat
+# OR
+start_api_server_rocm.bat
+```
+
+See [`requirements-rocm.txt`](../../requirements-rocm.txt) for detailed ROCm 7.2 installation steps.
+
+### Linux - ROCm 6.0+ (Python 3.11 or 3.12)
 
 ```bash
 # 1. Create and activate a virtual environment
@@ -376,8 +402,6 @@ pip install -e .
 # 4. Start the service
 python -m acestep.acestep_v15_pipeline --port 7680
 ```
-
-On Windows, use `.venv\Scripts\activate` and the same steps.
 
 > **Note:** `torchcodec` is not available for AMD ROCm GPUs due to CUDA-specific dependencies. ACE-Step automatically uses `soundfile` as a fallback for audio I/O, which provides full functionality on ROCm platforms.
 
@@ -452,9 +476,20 @@ uv run acestep --backend pt
 
 ## Environment Variables (.env)
 
+The `.env` file provides a centralized way to configure ACE-Step. Settings in `.env` are:
+- Used by Python scripts (CLI, API server, Gradio UI)
+- **Now also used by launcher scripts** (`start_gradio_ui.bat`, `start_gradio_ui.sh`, etc.)
+- **Preserved across repository updates** (unlike hardcoded values in launcher scripts)
+
 ```bash
 cp .env.example .env   # Copy and edit
 ```
+
+### Benefits of Using .env
+
+✅ **Survives Updates**: Your custom model paths and settings won't be overwritten when you update ACE-Step  
+✅ **Cross-Platform**: Same configuration works on Windows, Linux, and macOS  
+✅ **Version Control Safe**: `.env` is in `.gitignore`, so your personal settings stay private
 
 ### Key Variables
 
@@ -465,6 +500,9 @@ cp .env.example .env   # Copy and edit
 | `ACESTEP_LM_MODEL_PATH` | model name | LM model path |
 | `ACESTEP_DOWNLOAD_SOURCE` | `auto` / `huggingface` / `modelscope` | Download source |
 | `ACESTEP_API_KEY` | string | API authentication key |
+| `PORT` | number | Server port (default: 7860) |
+| `SERVER_NAME` | IP address | Server host (default: 127.0.0.1) |
+| `LANGUAGE` | `en` / `zh` / `he` / `ja` | UI language (default: en) |
 
 ### LLM Initialization (`ACESTEP_INIT_LLM`)
 

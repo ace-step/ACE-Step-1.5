@@ -510,17 +510,34 @@ async def release_task(request: Request, authorization: Optional[str] = Header(N
         if not result.success:
             raise HTTPException(status_code=500, detail=result.error or result.status_message)
 
-        # Extract audio paths
-        audio_paths = [a["path"] for a in result.audios if a.get("path")]
-
-        # Build result data with download URLs
+        # Build result data with download URLs and per-audio metadata.
+        # Each audio in result.audios carries a "params" dict from GenerationParams
+        # which includes the actual seed used, caption, bpm, keyscale, etc.
         from urllib.parse import urlencode
-        result_data = [{
-            "file": p,
-            "url": f"/v1/audio?{urlencode({'path': p})}",
-            "status": 1,
-            "create_time": int(time.time()),
-        } for p in audio_paths]
+        result_data = []
+        for audio in result.audios:
+            audio_path = audio.get("path", "")
+            if not audio_path:
+                continue
+            audio_params = audio.get("params", {})
+
+            # Prefer CoT-derived metadata (model's actual decision) over input hints
+            item = {
+                "file": audio_path,
+                "url": f"/v1/audio?{urlencode({'path': audio_path})}",
+                "status": 1,
+                "create_time": int(time.time()),
+                # Per-audio generation metadata
+                "seed": audio_params.get("seed"),
+                "caption": audio_params.get("cot_caption") or audio_params.get("caption", ""),
+                "lyrics": audio_params.get("cot_lyrics") or audio_params.get("lyrics", ""),
+                "bpm": audio_params.get("cot_bpm") or audio_params.get("bpm"),
+                "duration": audio_params.get("cot_duration") or audio_params.get("duration"),
+                "keyscale": audio_params.get("cot_keyscale") or audio_params.get("keyscale", ""),
+                "timesignature": audio_params.get("cot_timesignature") or audio_params.get("timesignature", ""),
+                "vocal_language": audio_params.get("cot_vocal_language") or audio_params.get("vocal_language", ""),
+            }
+            result_data.append(item)
 
         # Store result
         store_result(task_id, result_data)

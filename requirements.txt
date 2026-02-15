@@ -1,4 +1,5 @@
 # PyTorch with CUDA 12.8 (for Windows/Linux)
+safetensors==0.7.0
 --extra-index-url https://download.pytorch.org/whl/cu128
 torch==2.7.1+cu128; sys_platform == 'win32'
 torchvision==0.22.1+cu128; sys_platform == 'win32'

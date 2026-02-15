@@ -1286,7 +1286,7 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
         outputs=[training_section["raw_lyrics_display"]],
     )
 
-    # Autolabel selected sample with Music-Flamingo (online)
+    # Autolabel selected sample with external API provider (online)
     training_section["autolabel_music_flamingo_btn"].click(
         fn=lambda idx, state, skip: train_h.autolabel_single_with_music_flamingo(
             dit_handler, llm_handler, idx, state, skip

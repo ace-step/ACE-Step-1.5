@@ -204,7 +204,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     )
 
                     autolabel_music_flamingo_btn = gr.Button(
-                        "Autolabel with Music-Flaming API",
+                        t("training.autolabel_external_api_btn"),
                         variant="secondary",
                     )
 

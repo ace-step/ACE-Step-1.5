@@ -26,6 +26,7 @@ import ast
 import contextlib
 import io
 import sys
+import threading
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -64,6 +65,7 @@ _SINGLE_QUOTED_STR_RE = re.compile(r"'([^'\\]*(?:\\.[^'\\]*)*)'")
 
 @dataclass
 class FlamingoMeta:
+    """Normalized metadata extracted from Music-Flamingo outputs."""
     caption: str = ""
     genres: str = ""
     bpm: Optional[int] = None
@@ -83,6 +85,10 @@ def _strip_status_prefix(text: str) -> str:
 
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
+    """Extract the first JSON object from a model response.
+
+    Returns None if no JSON object is present.
+    """
     if not text:
         return None
     m = _JSON_RE.search(text)
@@ -198,6 +204,7 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
 
 
 def _coerce_int(v: Any) -> Optional[int]:
+    """Coerce a value to an int if possible; otherwise return None."""
     if v is None:
         return None
     if isinstance(v, int):
@@ -211,6 +218,7 @@ def _coerce_int(v: Any) -> Optional[int]:
 
 
 def _first_nonempty(d: Dict[str, Any], keys: list[str]) -> Any:
+    """Return the first non-empty value for the given keys in a dict."""
     for k in keys:
         if k in d and d[k] not in (None, "", [], {}):
             return d[k]
@@ -218,6 +226,7 @@ def _first_nonempty(d: Dict[str, Any], keys: list[str]) -> Any:
 
 
 def _boolish(v: Any) -> bool:
+    """Best-effort conversion of common truthy/falsey values to bool."""
     if isinstance(v, bool):
         return v
     if isinstance(v, (int, float)):
@@ -425,6 +434,7 @@ class MusicFlamingoLabeler:
     """Client for the Hugging Face Space `nvidia/music-flamingo`."""
 
     _singleton: Optional["MusicFlamingoLabeler"] = None
+    _singleton_lock = threading.Lock()
 
     def __init__(
         self,
@@ -444,8 +454,14 @@ class MusicFlamingoLabeler:
 
     @classmethod
     def get(cls) -> "MusicFlamingoLabeler":
+        """Return a lazily-initialized singleton instance.
+
+        Thread-safe to avoid race conditions if called from concurrent Gradio workers.
+        """
         if cls._singleton is None:
-            cls._singleton = MusicFlamingoLabeler()
+            with cls._singleton_lock:
+                if cls._singleton is None:
+                    cls._singleton = MusicFlamingoLabeler()
         return cls._singleton
 
     def _ensure_client(self) -> None:
@@ -627,6 +643,10 @@ class MusicFlamingoLabeler:
         return meta
 
     def extract_lyrics(self, audio_path: str) -> str:
+        """Extract lyric-like text from the model response.
+
+        This is best-effort and may return an empty string when the model does not provide lyrics.
+        """
         prompt = os.getenv("ACESTEP_MUSIC_FLAMINGO_PROMPT_LYRICS", DEFAULT_PROMPT_LYRICS)
         raw = _strip_status_prefix(self._call(audio_path, prompt)).strip()
         if raw:

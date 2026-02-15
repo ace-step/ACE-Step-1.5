@@ -391,6 +391,25 @@
     "export_header": "ייצוא LoRA",
     "export_path": "נתיב ייצוא",
     "export_lora_btn": "📦 ייצוא LoRA",
-    "export_status": "מצב ייצוא"
+    "export_status": "מצב ייצוא",
+    "stop_no_training": "ℹ אין אימון בתהליך",
+    "stop_stopping": "⏹️ עוצר אימון...",
+    "latest_auto": "האחרון (אוטומטי)",
+    "export_path_required": "❌ נא להזין נתיב ייצוא",
+    "invalid_lora_output_dir": "❌ ספריית פלט LoRA לא תקינה",
+    "no_checkpoints_found": "❌ לא נמצאו נקודות ביקורת",
+    "no_trained_model_found": "❌ לא נמצא מודל מאומן ב-{path}",
+    "invalid_export_path": "❌ נתיב ייצוא לא תקין",
+    "lora_exported": "✅ LoRA יוצאה ל-{path}",
+    "export_failed": "❌ הייצוא נכשל: {error}",
+    "lokr_output_dir_required": "⚠️ נא להזין תחילה ספריית פלט LoKr",
+    "lokr_no_checkpoints_use_latest": "ℹ לא נמצאו נקודות ביקורת; הייצוא ישתמש במשקולות הזמינות האחרונות",
+    "lokr_no_exportable_checkpoints": "ℹ לא נמצאו נקודות ביקורת epoch ניתנות לייצוא",
+    "lokr_found_checkpoints": "✅ נמצאו {count} נקודות ביקורת LoKr",
+    "lokr_selected_epoch_not_found": "❌ ה-epoch הנבחר לא נמצא: {chosen}. זמינים: {available}",
+    "lokr_no_weights_selected_epoch": "❌ לא נמצאו משקולות LoKr ל-epoch הנבחר: {epoch}",
+    "lokr_no_weights_latest_checkpoint": "❌ לא נמצאו משקולות LoKr בנקודת הביקורת האחרונה: {checkpoint}",
+    "lokr_no_trained_weights_found": "❌ לא נמצאו משקולות LoKr מאומנות ב-{path}",
+    "lokr_exported": "✅ LoKr יוצא ל-{path}"
   }
 }

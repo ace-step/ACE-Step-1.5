@@ -24,6 +24,7 @@ from transformers.generation.logits_process import (
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.fused_musa_mlp import apply_fused_musa_mlp
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -41,6 +42,34 @@ def _warn_if_prerelease_python():
             RuntimeWarning,
             stacklevel=2,
         )
+
+
+def resolve_device(device: str) -> str:
+    """
+    Based on the requested device string, return the actual available devices.
+    
+    Parameters: 
+        device: Can be "auto", "cuda", "mps", "xpu", "musa", "cpu". 
+    
+    Return: 
+        The name of the device actually selected.
+    """
+    priority = ['cuda', 'mps', 'xpu', 'musa', 'cpu']
+    checks = {
+        'cuda': lambda: torch.cuda.is_available(),
+        'mps': lambda: hasattr(torch.backends, 'mps') and torch.backends.mps.is_available(),
+        'xpu': lambda: hasattr(torch, 'xpu') and torch.xpu.is_available(),
+        'musa': lambda: hasattr(torch, 'musa') and torch.musa.is_available(),
+        'cpu': lambda: True,
+    }
+    available = [d for d in priority if checks[d]()]
+    if device == "auto":
+        return available[0]
+    if device in available:
+        return device
+    fallback = available[0] if available else 'cpu'
+    logger.warning(f"[initialize] {device} requested but unavailable. Falling back to {fallback}.")
+    return fallback
 
 
 class LLMHandler:
@@ -110,6 +139,9 @@ class LLMHandler:
             elif hasattr(torch, "xpu") and torch.xpu.is_available():
                 torch.xpu.empty_cache()
                 torch.xpu.synchronize()
+            elif hasattr(torch, "musa") and torch.musa.is_available():
+                torch.musa.empty_cache()
+                torch.musa.synchronize()
         except Exception:
             pass
 
@@ -344,6 +376,8 @@ class LLMHandler:
                 self.llm = self.llm.to(device).to(self.dtype)
             else:
                 self.llm = self.llm.to("cpu").to(self.dtype)
+            if hasattr(torch, 'musa') and torch.musa.is_available():
+                self.llm = apply_fused_musa_mlp(self.llm)
             self.llm.eval()
             self.llm_backend = "pt"
             self.llm_initialized = True
@@ -458,47 +492,7 @@ class LLMHandler:
             (status_message, success)
         """
         try:
-            if device == "auto":
-                if torch.cuda.is_available():
-                    device = "cuda"
-                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    device = "mps"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    device = "xpu"
-                else:
-                    device = "cpu"
-            elif device == "cuda" and not torch.cuda.is_available():
-                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    logger.warning("[initialize] CUDA requested but unavailable. Falling back to MPS.")
-                    device = "mps"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    logger.warning("[initialize] CUDA requested but unavailable. Falling back to XPU.")
-                    device = "xpu"
-                else:
-                    logger.warning("[initialize] CUDA requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
-            elif device == "mps" and not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
-                if torch.cuda.is_available():
-                    logger.warning("[initialize] MPS requested but unavailable. Falling back to CUDA.")
-                    device = "cuda"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    logger.warning("[initialize] MPS requested but unavailable. Falling back to XPU.")
-                    device = "xpu"
-                else:
-                    logger.warning("[initialize] MPS requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
-            elif device == "xpu" and not (hasattr(torch, 'xpu') and torch.xpu.is_available()):
-                if torch.cuda.is_available():
-                    logger.warning("[initialize] XPU requested but unavailable. Falling back to CUDA.")
-                    device = "cuda"
-                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    logger.warning("[initialize] XPU requested but unavailable. Falling back to MPS.")
-                    device = "mps"
-                else:
-                    logger.warning("[initialize] XPU requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
-
-            self.device = device
+            self.device = resolve_device(device)
             self.offload_to_cpu = offload_to_cpu
 
             # Set dtype based on device: bfloat16 for cuda/xpu, float32 for mps/cpu
@@ -3872,6 +3866,8 @@ class LLMHandler:
                 torch.cuda.empty_cache()
             elif hasattr(torch, 'xpu') and torch.xpu.is_available():
                 torch.xpu.empty_cache()
+            elif hasattr(torch, 'musa') and torch.musa.is_available():
+                torch.musa.empty_cache()
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available() and hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
                 torch.mps.empty_cache()
             offload_time = time.time() - start_time

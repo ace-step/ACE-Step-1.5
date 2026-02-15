@@ -1,3 +1,4 @@
+import os
 from typing import Optional, Tuple
 
 from loguru import logger
@@ -18,6 +19,7 @@ class LabelSingleMixin:
         transcribe_lyrics: bool = False,
         skip_metas: bool = False,
         progress_callback=None,
+        provider_override: Optional[str] = None,
     ) -> Tuple[AudioSample, str]:
         """Label a single sample using the LLM."""
         if sample_idx < 0 or sample_idx >= len(self.samples):
@@ -29,10 +31,107 @@ class LabelSingleMixin:
         has_csv_bpm = sample.bpm is not None
         has_csv_key = bool(sample.keyscale)
 
+        provider = (provider_override or os.getenv("ACESTEP_AUTOLABEL_PROVIDER", "local")).strip().lower()
+        use_music_flamingo = provider in {"music-flamingo", "music_flamingo", "flamingo", "nvidia"}
+
         try:
             if progress_callback:
                 progress_callback(f"Processing: {sample.filename}")
 
+            # ===== Provider: Music-Flamingo (online) =====
+            if use_music_flamingo:
+                if progress_callback:
+                    progress_callback(f"Labeling with Music-Flamingo: {sample.filename}")
+
+                from acestep.training.music_flamingo_autolabel import MusicFlamingoLabeler
+                from acestep.constants import (
+                    BPM_MIN,
+                    BPM_MAX,
+                    DURATION_MIN,
+                    DURATION_MAX,
+                    VALID_KEYSCALES,
+                    VALID_TIME_SIGNATURES,
+                    VALID_LANGUAGES,
+                )
+                from acestep.training.music_flamingo_autolabel import detect_language_from_lyrics
+
+                mf = MusicFlamingoLabeler.get()
+                # Use a compact track-card prompt for the Space.
+                # This produces a single-paragraph caption suitable for training.
+                meta = mf.describe_full(sample.audio_path)
+
+                if meta.caption:
+                    sample.caption = meta.caption
+                if meta.genres:
+                    sample.genre = meta.genres
+
+                if not skip_metas:
+                    if not has_csv_bpm and meta.bpm is not None and BPM_MIN <= meta.bpm <= BPM_MAX:
+                        sample.bpm = meta.bpm
+                    if not has_csv_key and meta.keyscale and meta.keyscale in VALID_KEYSCALES:
+                        sample.keyscale = meta.keyscale
+                    if meta.timesignature:
+                        try:
+                            ts = int(str(meta.timesignature).strip())
+                        except Exception:
+                            ts = None
+                        if ts in VALID_TIME_SIGNATURES:
+                            sample.timesignature = str(ts)
+
+                    # Duration is already computed when loading audio, but if Music-Flamingo
+                    # provides it, keep it consistent (within supported range).
+                    if meta.duration_s is not None:
+                        d = int(meta.duration_s)
+                        if DURATION_MIN <= d <= DURATION_MAX:
+                            sample.duration = d
+
+                sample.language = (meta.vocal_language or "unknown").strip() or "unknown"
+                if sample.language not in VALID_LANGUAGES:
+                    sample.language = "unknown"
+
+                # Lyrics behavior:
+                # - If instrumental: force [Instrumental]
+                # - If transcribe_lyrics: always extract from audio via Music-Flamingo
+                # - Else: prefer raw lyrics if present, otherwise extract from audio
+                if sample.is_instrumental or meta.is_instrumental:
+                    sample.is_instrumental = True
+                    sample.lyrics = "[Instrumental]"
+                    sample.formatted_lyrics = ""
+                    status_suffix = "(music-flamingo, instrumental)"
+                else:
+                    if transcribe_lyrics or not has_preloaded_lyrics:
+                        lyrics = mf.extract_lyrics(sample.audio_path)
+                        sample.lyrics = lyrics
+                        sample.formatted_lyrics = lyrics
+                        status_suffix = "(music-flamingo, lyrics extracted)"
+                    else:
+                        sample.lyrics = sample.raw_lyrics
+                        sample.formatted_lyrics = ""
+                        status_suffix = "(music-flamingo, using raw lyrics)"
+
+                # If we have real lyrics but language is still unknown, infer from lyrics text.
+                if (
+                    sample.language == "unknown"
+                    and not sample.is_instrumental
+                    and sample.lyrics
+                    and sample.lyrics.strip()
+                    and sample.lyrics.strip().lower() != "[instrumental]"
+                ):
+                    inferred = detect_language_from_lyrics(sample.lyrics)
+                    if inferred in VALID_LANGUAGES:
+                        sample.language = inferred
+
+                sample.labeled = True
+                self.samples[sample_idx] = sample
+
+                status_msg = f"✅ Labeled: {sample.filename}"
+                if skip_metas:
+                    status_msg += " (skip metas)"
+                if status_suffix:
+                    status_msg += f" {status_suffix}"
+                return sample, status_msg
+
+            # ===== Provider: Local LM (default) =====
             audio_codes = get_audio_codes(sample.audio_path, dit_handler)
 
             if not audio_codes:

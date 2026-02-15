@@ -203,6 +203,11 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         interactive=False,
                     )
 
+                    autolabel_music_flamingo_btn = gr.Button(
+                        "Autolabel with Music-Flaming API",
+                        variant="secondary",
+                    )
+
                 with gr.Column(scale=2):
                     with gr.Row():
                         edit_caption = gr.Textbox(
@@ -750,6 +755,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
         "sample_selector": sample_selector,
         "preview_audio": preview_audio,
         "preview_filename": preview_filename,
+        "autolabel_music_flamingo_btn": autolabel_music_flamingo_btn,
         "edit_caption": edit_caption,
         "edit_genre": edit_genre,
         "prompt_override": prompt_override,

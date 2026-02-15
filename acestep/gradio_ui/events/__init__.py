@@ -1285,6 +1285,49 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
         inputs=[training_section["has_raw_lyrics_state"]],
         outputs=[training_section["raw_lyrics_display"]],
     )
+
+    # Autolabel selected sample with Music-Flamingo (online)
+    training_section["autolabel_music_flamingo_btn"].click(
+        fn=lambda idx, state, skip: train_h.autolabel_single_with_music_flamingo(
+            dit_handler, llm_handler, idx, state, skip
+        ),
+        inputs=[
+            training_section["sample_selector"],
+            training_section["dataset_builder_state"],
+            training_section["skip_metas"],
+        ],
+        outputs=[
+            training_section["audio_files_table"],
+            training_section["edit_status"],
+            training_section["dataset_builder_state"],
+        ],
+    ).then(
+        fn=train_h.get_sample_preview,
+        inputs=[
+            training_section["sample_selector"],
+            training_section["dataset_builder_state"],
+        ],
+        outputs=[
+            training_section["preview_audio"],
+            training_section["preview_filename"],
+            training_section["edit_caption"],
+            training_section["edit_genre"],
+            training_section["prompt_override"],
+            training_section["edit_lyrics"],
+            training_section["edit_bpm"],
+            training_section["edit_keyscale"],
+            training_section["edit_timesig"],
+            training_section["edit_duration"],
+            training_section["edit_language"],
+            training_section["edit_instrumental"],
+            training_section["raw_lyrics_display"],
+            training_section["has_raw_lyrics_state"],
+        ],
+    ).then(
+        fn=lambda has_raw: gr.update(visible=bool(has_raw)),
+        inputs=[training_section["has_raw_lyrics_state"]],
+        outputs=[training_section["raw_lyrics_display"]],
+    )
     
     # Save sample edit
     training_section["save_edit_btn"].click(

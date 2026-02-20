@@ -46,10 +46,10 @@ def _call_name(node: ast.AST) -> str | None:
 
 
 class DecompositionContractTests(unittest.TestCase):
-    """Verify delegation contracts introduced in PR2/PR3 wiring extraction."""
+    """Verify delegation contracts introduced in PR2/PR3/PR4 extraction."""
 
     def test_setup_event_handlers_uses_generation_wiring_helpers(self):
-        """setup_event_handlers should delegate service/metadata/mode registration."""
+        """setup_event_handlers should delegate service/metadata/mode/results registration."""
 
         setup_node = _load_setup_event_handlers_node()
         call_names = []
@@ -62,6 +62,7 @@ class DecompositionContractTests(unittest.TestCase):
         self.assertIn("register_generation_service_handlers", call_names)
         self.assertIn("register_generation_metadata_handlers", call_names)
         self.assertIn("register_generation_mode_handlers", call_names)
+        self.assertIn("register_results_aux_handlers", call_names)
         self.assertIn("build_mode_ui_outputs", call_names)
 
     def test_generation_mode_wiring_uses_mode_ui_outputs_variable(self):

@@ -9,7 +9,17 @@ from .context import GenerationWiringContext
 
 
 def register_generation_run_handlers(context: GenerationWiringContext) -> None:
-    """Register the generation click chain for batched audio inference."""
+    """Register batched generation-run event wiring for audio inference.
+
+    Args:
+        context (GenerationWiringContext): Shared wiring context used by
+        `register_generation_run_handlers`; reads `generation_section`,
+        `results_section`, `dit_handler`, and `llm_handler` to bind the
+        generate-button click chain.
+
+    Returns:
+        None: Registers click/then handlers in-place on generation components.
+    """
 
     generation_section = context.generation_section
     results_section = context.results_section
@@ -17,7 +27,20 @@ def register_generation_run_handlers(context: GenerationWiringContext) -> None:
     llm_handler = context.llm_handler
 
     def generation_wrapper(*args):
-        """Proxy batched generation to the results handler stream."""
+        """Proxy passthrough to `res_h.generate_with_batch_management`.
+
+        Args:
+            *args (Any): Positional passthrough inputs forwarded unchanged to
+                `res_h.generate_with_batch_management(dit_handler, llm_handler, *args)`.
+
+        Yields:
+            Any: Streamed generation updates yielded by
+            `res_h.generate_with_batch_management`.
+
+        Raises:
+            Exception: Propagates exceptions raised by
+            `res_h.generate_with_batch_management`.
+        """
 
         yield from res_h.generate_with_batch_management(dit_handler, llm_handler, *args)
 

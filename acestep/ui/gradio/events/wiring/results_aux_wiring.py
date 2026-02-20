@@ -1,4 +1,4 @@
-﻿"""Results auxiliary event wiring helpers.
+"""Results auxiliary event wiring helpers.
 
 This module contains results-side helper button wiring that is separate from
 core generation and batch navigation orchestration.
@@ -14,7 +14,22 @@ def register_results_aux_handlers(
     context: GenerationWiringContext,
     mode_ui_outputs: Sequence[Any],
 ) -> None:
-    """Register remix/repaint, scoring, LRC, and codes helper handlers."""
+    """Register remix/repaint, scoring, LRC, codes, and save helpers for results UI.
+
+    Args:
+        context (GenerationWiringContext): Shared generation/results wiring
+            context providing `generation_section`, `results_section`,
+            `dit_handler`, and `llm_handler`.
+        mode_ui_outputs (Sequence[Any]): Ordered mode UI outputs reused when
+            wiring send-to-remix/repaint updates (for example `src_audio`,
+            `lyrics`, `captions`, `generation_mode`, and mode visibility/state
+            outputs).
+
+    Returns:
+        None: Registers click handlers in-place for results controls including
+        `generated_audio_N`, `lm_metadata_state`, `generation_mode`,
+        `score_display_N`, `details_accordion_N`, and `batch_queue` updates.
+    """
 
     generation_section = context.generation_section
     results_section = context.results_section
@@ -67,7 +82,17 @@ def register_results_aux_handlers(
     # ========== Score Calculation Handlers ==========
     # Use default argument to capture btn_idx value at definition time.
     def make_score_handler(idx: int):
-        """Build a score-click callback bound to a fixed result slot index."""
+        """Build a score callback bound to one result-slot index.
+
+        Args:
+            idx (int): Result slot index (`1..8`) used by the callback.
+
+        Returns:
+            Callable[[Any, Any, Any], Any]: Callback with signature
+            `(scale, batch_idx, queue)` that forwards to
+            `res_h.calculate_score_handler_with_selection(...)` and returns
+            updates for score/details UI plus the batch queue state.
+        """
 
         return lambda scale, batch_idx, queue: res_h.calculate_score_handler_with_selection(
             dit_handler, llm_handler, idx, scale, batch_idx, queue
@@ -91,7 +116,17 @@ def register_results_aux_handlers(
     # ========== LRC Timestamp Handlers ==========
     # Use default argument to capture btn_idx value at definition time.
     def make_lrc_handler(idx: int):
-        """Build an LRC-generation callback bound to a fixed result slot index."""
+        """Build an LRC callback bound to one result-slot index.
+
+        Args:
+            idx (int): Result slot index (`1..8`) used by the callback.
+
+        Returns:
+            Callable[[Any, Any, Any, Any], Any]: Callback with signature
+            `(batch_idx, queue, vocal_lang, infer_steps)` that forwards to
+            `res_h.generate_lrc_handler(...)` and returns updates for LRC,
+            details UI, and batch queue state.
+        """
 
         return lambda batch_idx, queue, vocal_lang, infer_steps: res_h.generate_lrc_handler(
             dit_handler, idx, batch_idx, queue, vocal_lang, infer_steps

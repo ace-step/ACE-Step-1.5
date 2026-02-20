@@ -11,7 +11,23 @@ from .context import GenerationWiringContext
 
 
 def _build_navigation_outputs(results_section: dict[str, Any], include_next_status: bool) -> list[Any]:
-    """Return ordered outputs for prev/next batch navigation handlers."""
+    """Build ordered outputs for previous/next batch navigation callbacks.
+
+    Args:
+        results_section (dict[str, Any]): Results component map containing
+            generated audio outputs (`generated_audio_1..8`,
+            `generated_audio_batch`), navigation/status fields
+            (`generation_info`, `current_batch_index`, `batch_indicator`,
+            `prev_batch_btn`, `next_batch_btn`, `status_output`,
+            optional `next_batch_status`), plus score/code/LRC/details slots
+            (`score_display_1..8`, `codes_display_1..8`, `lrc_display_1..8`,
+            `details_accordion_1..8`) and `restore_params_btn`.
+        include_next_status (bool): Whether to include `next_batch_status` in
+            the navigation output contract.
+
+    Returns:
+        list[Any]: Ordered Gradio outputs used by batch navigation handlers.
+    """
 
     outputs = [
         results_section["generated_audio_1"],
@@ -73,7 +89,25 @@ def _build_navigation_outputs(results_section: dict[str, Any], include_next_stat
 
 
 def _build_capture_current_params_inputs(generation_section: dict[str, Any]) -> list[Any]:
-    """Return ordered generation controls captured before navigating batches."""
+    """Build ordered generation-control inputs captured before next-batch navigation.
+
+    Args:
+        generation_section (dict[str, Any]): Generation component map containing
+            core prompt/music controls (`captions`, `lyrics`, `bpm`,
+            `key_scale`, `inference_steps`, `guidance_scale`), seed/reference
+            controls (`random_seed_checkbox`, `seed`, `reference_audio`,
+            `batch_size_input`, `audio_format`), LM/COT controls
+            (`lm_temperature`, `lm_cfg_scale`, `lm_top_k`, `lm_top_p`,
+            `lm_negative_prompt`, `use_cot_metas`, `use_cot_caption`,
+            `use_cot_language`), automation controls
+            (`auto_score`, `auto_lrc`, `score_scale`), and normalization/latent
+            controls (`enable_normalization`, `normalization_db`,
+            `latent_shift`, `latent_rescale`).
+
+    Returns:
+        list[Any]: Ordered generation control values used to preserve and
+        restore generation state when navigating batches.
+    """
 
     return [
         generation_section["captions"],
@@ -129,7 +163,21 @@ def _build_capture_current_params_inputs(generation_section: dict[str, Any]) -> 
 
 
 def register_generation_batch_navigation_handlers(context: GenerationWiringContext) -> None:
-    """Register previous/next batch navigation handlers and pre-generation chain."""
+    """Register previous/next batch navigation and background pre-generation wiring.
+
+    Args:
+        context (GenerationWiringContext): Shared generation wiring context used
+            by `register_generation_batch_navigation_handlers`; reads
+            `generation_section`, `results_section`, `dit_handler`, and
+            `llm_handler` to bind Gradio events.
+
+    Returns:
+        None: Registers click-chain handlers in-place on batch navigation
+        components.
+
+    Raises:
+        KeyError: If required component keys are missing from context maps.
+    """
 
     generation_section = context.generation_section
     results_section = context.results_section

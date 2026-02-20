@@ -25,7 +25,35 @@ from acestep.ui.gradio.i18n import t
 
 
 def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, dataset_section, generation_section, results_section):
-    """Setup event handlers connecting UI components and business logic"""
+    """Setup generation/results event wiring for the Gradio UI.
+
+    Args:
+        demo (Any): Root Gradio demo/container used to register events.
+        dit_handler (Any): Inference service used by generation/results callbacks.
+        llm_handler (Any): LLM service used by metadata/text callbacks.
+        dataset_handler (Any): Dataset service used by generation wiring.
+        dataset_section (dict[str, Any]): Dataset UI component map.
+        generation_section (dict[str, Any]): Generation UI component map.
+        results_section (dict[str, Any]): Results UI component map.
+
+    Local wiring values:
+        wiring_context (GenerationWiringContext): Shared typed context for
+            generation/results wiring helper modules.
+        auto_checkbox_inputs (list[Any]): Ordered metadata fields used for
+            auto-checkbox synchronization; forwarded to
+            register_generation_metadata_handlers and
+            register_generation_mode_handlers.
+        auto_checkbox_outputs (list[Any]): Ordered auto toggles plus derived
+            metadata outputs returned by register_generation_service_handlers;
+            forwarded to register_generation_metadata_handlers and
+            register_generation_mode_handlers.
+        mode_ui_outputs (list[Any]): Ordered mode-UI outputs from
+            build_mode_ui_outputs; forwarded to
+            register_generation_mode_handlers and register_results_aux_handlers.
+
+    Returns:
+        None: Registers event handlers in-place on the supplied components.
+    """
     wiring_context = GenerationWiringContext(
         demo=demo,
         dit_handler=dit_handler,

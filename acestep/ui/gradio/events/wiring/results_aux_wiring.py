@@ -1,4 +1,4 @@
-"""Results auxiliary event wiring helpers.
+﻿"""Results auxiliary event wiring helpers.
 
 This module contains results-side helper button wiring that is separate from
 core generation and batch navigation orchestration.
@@ -22,7 +22,7 @@ def register_results_aux_handlers(
     llm_handler = context.llm_handler
 
     # ========== Send to Remix / Repaint Handlers ==========
-    # Mode-UI outputs shared with generation_mode.change â€” applied atomically
+    # Mode-UI outputs shared with generation_mode.change — applied atomically
     # so we don't rely on a chained .change() event for visibility/label updates.
     for btn_idx in range(1, 9):
         results_section[f"send_to_remix_btn_{btn_idx}"].click(

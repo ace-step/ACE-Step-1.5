@@ -1,14 +1,40 @@
 """Unit tests for generation_info module."""
 
+import importlib.util
 import os
+from pathlib import Path
+import sys
+import types
 import unittest
+from unittest.mock import patch
 
-from acestep.ui.gradio.events.results.generation_info import (
-    DEFAULT_RESULTS_DIR,
-    PROJECT_ROOT,
-    clear_audio_outputs_for_new_generation,
-    _build_generation_info,
-)
+
+def _load_module():
+    """Load target module directly by file path for isolated testing."""
+    # Stub i18n package path so importing generation_info.py does not require
+    # importing the full Gradio UI package in headless test environments.
+    acestep_pkg = sys.modules.setdefault("acestep", types.ModuleType("acestep"))
+    ui_pkg = sys.modules.setdefault("acestep.ui", types.ModuleType("acestep.ui"))
+    gradio_pkg = sys.modules.setdefault("acestep.ui.gradio", types.ModuleType("acestep.ui.gradio"))
+    i18n_mod = types.ModuleType("acestep.ui.gradio.i18n")
+    i18n_mod.t = lambda key, **kwargs: key
+    sys.modules["acestep.ui.gradio.i18n"] = i18n_mod
+    acestep_pkg.ui = ui_pkg
+    ui_pkg.gradio = gradio_pkg
+    gradio_pkg.i18n = i18n_mod
+
+    module_path = Path(__file__).with_name("generation_info.py")
+    spec = importlib.util.spec_from_file_location("generation_info", module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
+_MODULE = _load_module()
+DEFAULT_RESULTS_DIR = _MODULE.DEFAULT_RESULTS_DIR
+PROJECT_ROOT = _MODULE.PROJECT_ROOT
+clear_audio_outputs_for_new_generation = _MODULE.clear_audio_outputs_for_new_generation
+_build_generation_info = _MODULE._build_generation_info
 
 
 class ConstantsTests(unittest.TestCase):
@@ -37,6 +63,15 @@ class ClearAudioOutputsTests(unittest.TestCase):
         self.assertEqual(len(result), 9)
         for item in result:
             self.assertIsNone(item)
+
+    def test_gradio_runtime_skips_audio_clear_but_clears_batch_files(self):
+        """With Gradio available, audio outputs should be skip updates."""
+        fake_gradio = types.SimpleNamespace(skip=lambda: "SKIP")
+        with patch.dict("sys.modules", {"gradio": fake_gradio}):
+            result = clear_audio_outputs_for_new_generation()
+        self.assertEqual(len(result), 9)
+        self.assertEqual(result[:8], ("SKIP",) * 8)
+        self.assertIsNone(result[8])
 
 
 class BuildGenerationInfoTests(unittest.TestCase):

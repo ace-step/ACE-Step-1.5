@@ -25,6 +25,9 @@ from acestep.ui.gradio.events.results.generation_info import (
     DEFAULT_RESULTS_DIR,
     _build_generation_info,
 )
+from acestep.ui.gradio.events.results.audio_playback_updates import (
+    build_audio_slot_update,
+)
 from acestep.ui.gradio.events.results.scoring import calculate_score_handler
 from acestep.ui.gradio.events.results.lrc_utils import lrc_to_vtt_file
 
@@ -204,11 +207,12 @@ def generate_with_progress(
     clear_codes = [gr.update(value="", visible=True) for _ in range(8)]
     clear_lrcs = [gr.update(value="", visible=True) for _ in range(8)]
     clear_accordions = [gr.skip() for _ in range(8)]
-    dump_audio = [gr.update(value=None, subtitles=None, playback_position=0) for _ in range(8)]
+    # Keep existing players mounted during generation to avoid browser volume reset.
+    dump_audio = [gr.skip()] * 8
 
     yield (
         *dump_audio,
-        None, generation_info, "Clearing previous results...", gr.skip(),
+        None, generation_info, "Preparing generation...", gr.skip(),
         *clear_scores, *clear_codes, *clear_accordions, *clear_lrcs,
         lm_generated_metadata, is_format_caption, None, None,
     )
@@ -276,7 +280,7 @@ def generate_with_progress(
 
         # STEP 1: yield audio + clear LRC
         cur_audio = [gr.skip()] * 8
-        cur_audio[i] = audio_path
+        cur_audio[i] = build_audio_slot_update(gr, audio_path)
         cur_codes = [gr.skip()] * 8
         cur_codes[i] = gr.update(value=code_str, visible=True)
         cur_accordions = [gr.skip()] * 8
@@ -329,12 +333,10 @@ def generate_with_progress(
     for idx in range(8):
         path = audio_outputs[idx]
         if path:
-            audio_playback_updates.append(
-                gr.update(value=path, label=f"Sample {idx + 1} (Ready)", interactive=False)
-            )
+            audio_playback_updates.append(build_audio_slot_update(gr, path))
             logger.info(f"[generate_with_progress] Audio {idx + 1} path: {path}")
         else:
-            audio_playback_updates.append(gr.update(value=None, label="None", interactive=False))
+            audio_playback_updates.append(build_audio_slot_update(gr, None))
 
     final_codes_display = [gr.skip()] * 8
     final_accordions = [gr.skip()] * 8

@@ -23,8 +23,20 @@ os.makedirs(DEFAULT_RESULTS_DIR, exist_ok=True)
 
 
 def clear_audio_outputs_for_new_generation():
-    """Return None for all 9 audio outputs so Gradio clears them and stops playback."""
-    return (None,) * 9
+    """Return pre-generation output updates without remounting audio players.
+
+    In Gradio runtime, keep the 8 audio components unchanged via ``gr.skip()``
+    and only clear the batch-download file list (9th output). This avoids
+    replacing player DOM nodes while generation is in progress, which can
+    reset browser-side volume state.
+
+    In non-Gradio test environments, gracefully fall back to 9 ``None`` values.
+    """
+    try:
+        import gradio as gr  # local import keeps headless tests dependency-free
+    except Exception:
+        return (None,) * 9
+    return (gr.skip(),) * 8 + (None,)
 
 
 def _build_generation_info(

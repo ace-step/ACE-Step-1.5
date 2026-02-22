@@ -439,6 +439,10 @@
     let wsRegions = null;
     let activeRegion = null;
     let uploadedFile = null;
+    const AUDIO_VOLUME_STORAGE_KEY = "acestep.studio.audio.volume";
+    const AUDIO_EPSILON = 0.001;
+    const managedAudioElements = new WeakSet();
+    let preferredAudioVolume = null;
 
     // --- SMART PROGRESS CONFIGURATION (Ported from Hitster) ---
     // This allows the bar to move smoothly even when server is thinking
@@ -471,6 +475,99 @@
         speedMod: 1.0, 
         timerId: null 
     };
+
+    function clampVolume(value) {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return null;
+        if (parsed < 0) return 0;
+        if (parsed > 1) return 1;
+        return parsed;
+    }
+
+    function isTrustedUserEvent(event) {
+        return Boolean(event && event.isTrusted);
+    }
+
+    function loadPreferredAudioVolume() {
+        try {
+            return clampVolume(window.localStorage.getItem(AUDIO_VOLUME_STORAGE_KEY));
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function savePreferredAudioVolume(value) {
+        const clamped = clampVolume(value);
+        if (clamped === null) return;
+        preferredAudioVolume = clamped;
+        try {
+            window.localStorage.setItem(AUDIO_VOLUME_STORAGE_KEY, String(clamped));
+        } catch (_error) {
+            // Ignore storage failures (private mode / blocked storage).
+        }
+        if (wavesurfer && typeof wavesurfer.setVolume === 'function') {
+            wavesurfer.setVolume(clamped);
+        }
+    }
+
+    function applyPreferredVolumeToAudio(audioEl) {
+        if (!audioEl || preferredAudioVolume === null) return;
+        if (Math.abs(audioEl.volume - preferredAudioVolume) <= AUDIO_EPSILON) return;
+        audioEl.volume = preferredAudioVolume;
+    }
+
+    function syncAllAudioVolumes(sourceAudio = null) {
+        if (preferredAudioVolume === null) return;
+        document.querySelectorAll('audio').forEach((audioEl) => {
+            if (!audioEl) return;
+            if (sourceAudio && audioEl === sourceAudio) {
+                applyPreferredVolumeToAudio(audioEl);
+                return;
+            }
+            if (Math.abs(audioEl.volume - preferredAudioVolume) > AUDIO_EPSILON) {
+                audioEl.volume = preferredAudioVolume;
+            }
+        });
+        if (wavesurfer && typeof wavesurfer.setVolume === 'function') {
+            wavesurfer.setVolume(preferredAudioVolume);
+        }
+    }
+
+    function registerAudioElement(audioEl) {
+        if (!audioEl || managedAudioElements.has(audioEl)) return;
+        managedAudioElements.add(audioEl);
+        applyPreferredVolumeToAudio(audioEl);
+
+        audioEl.addEventListener('volumechange', (event) => {
+            if (!isTrustedUserEvent(event)) {
+                applyPreferredVolumeToAudio(audioEl);
+                return;
+            }
+            const next = clampVolume(audioEl.volume);
+            if (next === null) return;
+            if (preferredAudioVolume !== null && Math.abs(next - preferredAudioVolume) <= AUDIO_EPSILON) return;
+            savePreferredAudioVolume(next);
+            syncAllAudioVolumes(audioEl);
+        }, { passive: true });
+
+        audioEl.addEventListener('loadedmetadata', () => {
+            applyPreferredVolumeToAudio(audioEl);
+            if (audioEl.currentTime > 0) audioEl.currentTime = 0;
+        }, { passive: true });
+
+        audioEl.addEventListener('loadstart', () => {
+            applyPreferredVolumeToAudio(audioEl);
+            if (audioEl.currentTime > 0) audioEl.currentTime = 0;
+        }, { passive: true });
+    }
+
+    function scanAndRegisterAudioPlayers() {
+        document.querySelectorAll('audio').forEach(registerAudioElement);
+        syncAllAudioVolumes();
+    }
+
+    preferredAudioVolume = loadPreferredAudioVolume();
+    scanAndRegisterAudioPlayers();
 
     // --- UI Listeners ---
     elements.strength.addEventListener('input', (e) => {
@@ -508,6 +605,9 @@
         wavesurfer.on('ready', () => {
             const dur = wavesurfer.getDuration();
             elements.wsTimeDisplay.innerText = `0:00 / ${formatTime(dur)}`;
+            if (preferredAudioVolume !== null && typeof wavesurfer.setVolume === 'function') {
+                wavesurfer.setVolume(preferredAudioVolume);
+            }
         });
 
         wavesurfer.on('audioprocess', (time) => {
@@ -812,6 +912,7 @@
             `;
 
             elements.resultsGrid.prepend(card);
+            scanAndRegisterAudioPlayers();
         } catch (e) {
             log("Parsing error: " + e.message, "log-error");
         }

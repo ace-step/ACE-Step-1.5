@@ -9,7 +9,7 @@ from acestep.gpu_config import (
     find_best_lm_model_on_disk,
     get_gpu_device_name,
 )
-from acestep.ui.gradio.i18n import t
+from acestep.ui.gradio.i18n import t, available_languages_info
 
 
 def build_language_selector(current_language: str) -> dict[str, Any]:
@@ -24,7 +24,7 @@ def build_language_selector(current_language: str) -> dict[str, Any]:
 
     with gr.Row():
         language_dropdown = gr.Dropdown(
-            choices=[("English", "en"), ("\u4e2d\u6587", "zh"), ("\u65e5\u672c\u8a9e", "ja")],
+            choices=[(native_name + f" ({name})" if name != native_name else name, code) for code, name, native_name in available_languages_info()],
             value=current_language,
             label=t("service.language_label"),
             info=t("service.language_info"),

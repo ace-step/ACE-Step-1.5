@@ -138,7 +138,22 @@ def main():
     parser.add_argument("--share", action="store_true", help="Create a public link")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)")
-    parser.add_argument("--language", type=str, default="en", choices=["en", "zh", "he", "ja"], help="UI language: en (English), zh (中文), he (עברית), ja (日本語)")
+        
+    # UI language argument
+    available_ui_language_codes = []
+    i18n_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "gradio", "i18n")
+    if os.path.exists(i18n_dir):
+        for filename in os.listdir(i18n_dir):
+            if filename.endswith(".json"):
+                available_ui_language_codes.append(filename[:-5]) # Remove .json extension and append language code to list
+    parser.add_argument(
+        "--language", 
+        type=str, 
+        default="en", 
+        choices=available_ui_language_codes, 
+        help="UI language: " + ", ".join(available_ui_language_codes)
+    )
+    
     parser.add_argument(
         "--allowed-path",
         action="append",

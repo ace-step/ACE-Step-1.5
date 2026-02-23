@@ -3,7 +3,12 @@
     "title": "🎛️ סביבת העבודה ACE-Step V1.5 Playground💡",
     "subtitle": "פורצים את גבולות יצירת המוזיקה בקוד פתוח"
   },
-  "common": {},
+  "common": {
+    "language_metadata": {
+    "name": "Hebrew",
+    "native_name": "עברית"
+    }
+  },
   "dataset": {
     "title": "📊 סייר מערכי נתונים (Dataset Explorer)",
     "dataset_label": "מערך נתונים",

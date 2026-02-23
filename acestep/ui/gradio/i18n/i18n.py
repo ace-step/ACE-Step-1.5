@@ -18,6 +18,7 @@ class I18n:
             default_language: Default language code (en, zh, ja, etc.)
         """
         self.current_language = default_language
+        self.languages_info: list[tuple[str, str, str]] = []
         self.translations: Dict[str, Dict[str, str]] = {}
         self._load_all_translations()
     
@@ -41,6 +42,14 @@ class I18n:
                         self.translations[lang_code] = json.load(f)
                 except Exception as e:
                     print(f"Error loading translation file {filename}: {e}")
+                else:
+                    lang_name = self._get_nested_value(
+                        self.translations.get(lang_code, {}),
+                        "common.language_metadata.name") or lang_code.upper()
+                    lang_native_name = self._get_nested_value(
+                        self.translations.get(lang_code, {}),
+                        "common.language_metadata.native_name") or lang_code
+                    self.languages_info.append((lang_code, lang_name, lang_native_name))
     
     def set_language(self, language: str):
         """Set current language"""
@@ -111,6 +120,15 @@ class I18n:
     def get_available_languages(self) -> list:
         """Get list of available language codes"""
         return list(self.translations.keys())
+    
+    def get_available_languages_info(self) -> list[tuple[str, str, str]]:
+        """
+        Provides a list of tuples containing ISO codes and descriptive language names
+        
+        Returns:
+            List of tuples (iso code, english name, native name)
+         """
+        return list(self.languages_info)
 
 
 # Global i18n instance
@@ -149,3 +167,12 @@ def t(key: str, **kwargs) -> str:
         Translated string
     """
     return get_i18n().t(key, **kwargs)
+
+def available_languages_info() -> list[tuple[str, str, str]]:
+    """
+    Provides a list of tuples containing ISO codes and descriptive language names
+    
+    Returns:
+        List of tuples (iso code, english name, native name)
+    """
+    return get_i18n().get_available_languages_info()

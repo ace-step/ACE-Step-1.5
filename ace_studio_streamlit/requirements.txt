@@ -1,0 +1,7 @@
+streamlit==1.40.2
+streamlit-player==0.1.5
+streamlit-audio-recorder==0.0.8
+plotly==5.24.1
+librosa==0.10.2
+numpy==1.26.4
+scipy==1.14.1

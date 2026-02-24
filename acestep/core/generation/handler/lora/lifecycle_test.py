@@ -68,6 +68,10 @@ class _DummyHandler:
         """Return simple debug payload."""
         return {}
 
+    def add_lora(self, lora_path, adapter_name=None):
+        """Forward to lifecycle implementation to mimic mixin wiring."""
+        return lifecycle.add_lora(self, lora_path, adapter_name=adapter_name)
+
 
 class LifecycleTests(unittest.TestCase):
     """Coverage for LoKr path detection and load branching."""
@@ -87,6 +91,21 @@ class LifecycleTests(unittest.TestCase):
             weights.write_bytes(b"")
             resolved = lifecycle._resolve_lokr_weights_path(str(weights))
             self.assertEqual(resolved, str(weights))
+
+    def test_resolve_lokr_weights_from_custom_safetensors_name(self):
+        """Directory should resolve custom LyCORIS safetensors filenames when metadata matches."""
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter_dir = Path(tmp)
+            custom = adapter_dir / "custom_lycoris.safetensors"
+            custom.write_bytes(b"")
+
+            with patch(
+                "acestep.core.generation.handler.lora.lifecycle._is_lokr_safetensors",
+                side_effect=lambda path: path == str(custom),
+            ):
+                resolved = lifecycle._resolve_lokr_weights_path(str(adapter_dir))
+
+        self.assertEqual(resolved, str(custom))
 
     def test_load_lora_accepts_lokr_directory_without_adapter_config(self):
         """LoKr directory should bypass PEFT config-file requirement."""

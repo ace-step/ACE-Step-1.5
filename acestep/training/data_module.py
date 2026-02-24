@@ -11,6 +11,8 @@ import random
 from typing import Optional, List, Dict, Any, Tuple
 from loguru import logger
 
+from acestep.training.path_safety import safe_path
+
 import torch
 import torchaudio
 from torch.utils.data import Dataset, DataLoader
@@ -48,30 +50,83 @@ class PreprocessedTensorDataset(Dataset):
         
         Args:
             tensor_dir: Directory containing preprocessed .pt files and manifest.json
+            
+        Raises:
+            ValueError: If tensor_dir is not an existing directory or escapes safe root.
         """
-        self.tensor_dir = tensor_dir
-        self.sample_paths = []
+        validated_dir = safe_path(tensor_dir)
+        if not os.path.isdir(validated_dir):
+            raise ValueError(f"Not an existing directory: {tensor_dir}")
+        self.tensor_dir = validated_dir
+        self.sample_paths: List[str] = []
         
         # Load manifest if exists
-        manifest_path = os.path.join(tensor_dir, "manifest.json")
+        manifest_path = safe_path("manifest.json", base=self.tensor_dir)
         if os.path.exists(manifest_path):
             with open(manifest_path, 'r') as f:
                 manifest = json.load(f)
-            self.sample_paths = manifest.get("samples", [])
+            raw_paths = manifest.get("samples", [])
+            for raw in raw_paths:
+                resolved = self._resolve_manifest_path(raw)
+                if resolved is not None:
+                    self.sample_paths.append(resolved)
         else:
-            # Fallback: scan directory for .pt files
-            for f in os.listdir(tensor_dir):
+            # Fallback: scan directory for .pt files (already inside tensor_dir)
+            for f in os.listdir(self.tensor_dir):
                 if f.endswith('.pt') and f != "manifest.json":
-                    self.sample_paths.append(os.path.join(tensor_dir, f))
+                    self.sample_paths.append(
+                        safe_path(f, base=self.tensor_dir)
+                    )
         
-        # Validate paths
+        # Validate paths exist on disk
         self.valid_paths = [p for p in self.sample_paths if os.path.exists(p)]
         
         if len(self.valid_paths) != len(self.sample_paths):
-            logger.warning(f"Some tensor files not found: {len(self.sample_paths) - len(self.valid_paths)} missing")
+            logger.warning(
+                f"Some tensor files not found: "
+                f"{len(self.sample_paths) - len(self.valid_paths)} missing"
+            )
         
-        logger.info(f"PreprocessedTensorDataset: {len(self.valid_paths)} samples from {tensor_dir}")
+        logger.info(
+            f"PreprocessedTensorDataset: {len(self.valid_paths)} samples "
+            f"from {self.tensor_dir}"
+        )
     
+    def _resolve_manifest_path(self, raw: str) -> Optional[str]:
+        """Resolve a single manifest sample path to a validated absolute path.
+
+        Tries ``base=tensor_dir`` first (correct for new manifests that store
+        paths relative to the tensor directory).  If the resulting path does
+        not exist on disk, falls back to resolving against the global safe
+        root (backward compat for legacy manifests that stored CWD-relative
+        paths like ``./datasets/…/foo.pt``).
+
+        Returns:
+            Validated absolute path, or ``None`` if the path cannot be
+            resolved safely.
+        """
+        # Primary: resolve relative to tensor_dir
+        try:
+            child = safe_path(raw, base=self.tensor_dir)
+            if os.path.exists(child):
+                return child
+        except ValueError:
+            pass
+
+        # Legacy fallback: resolve relative to global safe root (CWD)
+        try:
+            child = safe_path(raw)
+            if os.path.exists(child):
+                logger.debug(
+                    f"Resolved legacy manifest path via safe root: {raw}"
+                )
+                return child
+        except ValueError:
+            pass
+
+        logger.warning(f"Skipping unresolvable manifest path: {raw}")
+        return None
+
     def __len__(self) -> int:
         return len(self.valid_paths)
     
@@ -295,11 +350,21 @@ class AceStepTrainingDataset(Dataset):
         logger.info(f"Dataset initialized with {len(self.valid_samples)} valid samples")
     
     def _validate_samples(self) -> List[Dict[str, Any]]:
-        """Validate and filter samples."""
+        """Validate and filter samples, resolving audio paths to safe paths."""
         valid = []
         for i, sample in enumerate(self.samples):
             audio_path = sample.get("audio_path", "")
-            if not audio_path or not os.path.exists(audio_path):
+            if not audio_path:
+                logger.warning(f"Sample {i}: Missing audio_path")
+                continue
+
+            try:
+                validated = safe_path(audio_path)
+            except ValueError:
+                logger.warning(f"Sample {i}: Rejected unsafe path: {audio_path}")
+                continue
+
+            if not os.path.isfile(validated):
                 logger.warning(f"Sample {i}: Audio file not found: {audio_path}")
                 continue
             
@@ -307,6 +372,8 @@ class AceStepTrainingDataset(Dataset):
                 logger.warning(f"Sample {i}: Missing caption")
                 continue
             
+            # Store validated path so downstream code never uses raw user input
+            sample = {**sample, "audio_path": validated}
             valid.append(sample)
         
         return valid
@@ -474,8 +541,22 @@ class AceStepDataModule(LightningDataModule if LIGHTNING_AVAILABLE else object):
 
 
 def load_dataset_from_json(json_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """Load a dataset from JSON file."""
-    with open(json_path, 'r', encoding='utf-8') as f:
+    """Load a dataset from JSON file.
+
+    Args:
+        json_path: Path to the JSON dataset file.
+
+    Returns:
+        Tuple of (samples list, metadata dict).
+
+    Raises:
+        ValueError: If json_path does not point to an existing file or escapes safe root.
+    """
+    validated = safe_path(json_path)
+    if not os.path.isfile(validated):
+        raise ValueError(f"Dataset JSON file not found: {json_path}")
+
+    with open(validated, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
     metadata = data.get("metadata", {})

@@ -108,8 +108,8 @@ class IoAudioMixin:
             back_audio = audio[:, back_start : back_start + segment_frames]
 
             return torch.cat([front_audio, middle_audio, back_audio], dim=-1)
-        except (OSError, RuntimeError, ValueError):
-            logger.exception("[process_reference_audio] Error processing reference audio")
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.warning(f"[process_reference_audio] Invalid or unsupported reference audio: {exc}")
             return None
 
     def process_src_audio(self, audio_file: Optional[str]) -> Optional[torch.Tensor]:

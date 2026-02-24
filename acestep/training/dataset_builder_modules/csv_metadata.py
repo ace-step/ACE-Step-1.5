@@ -4,15 +4,18 @@ from typing import Any, Dict
 
 from loguru import logger
 
+from acestep.training.path_safety import safe_path
+
 
 def load_csv_metadata(directory: str) -> Dict[str, Dict[str, Any]]:
     """Load metadata from CSV files in the directory."""
     metadata: Dict[str, Dict[str, Any]] = {}
 
+    validated_dir = safe_path(directory)
     csv_files = []
-    for file in os.listdir(directory):
+    for file in os.listdir(validated_dir):
         if file.lower().endswith(".csv"):
-            csv_files.append(os.path.join(directory, file))
+            csv_files.append(safe_path(file, base=validated_dir))
 
     if not csv_files:
         return metadata

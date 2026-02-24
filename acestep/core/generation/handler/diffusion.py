@@ -3,7 +3,7 @@
 from typing import Any, Dict
 
 import torch
-from acestep.mlx_dit.generate import mlx_generate_diffusion
+from acestep.models.mlx.dit_generate import mlx_generate_diffusion
 
 
 class DiffusionMixin:

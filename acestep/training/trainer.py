@@ -50,6 +50,7 @@ from acestep.training.lokr_utils import (
     check_lycoris_available,
 )
 from acestep.training.data_module import PreprocessedDataModule
+from acestep.training.path_safety import safe_path
 
 
 # Turbo model shift=3.0 discrete timesteps (8 steps, same as inference)
@@ -383,13 +384,24 @@ class PreprocessedLoRAModule(nn.Module):
             self.lora_info = {}
             logger.warning("PEFT not available, training without LoRA adapters")
             
-        # Added Torch Compile Logic
-        if hasattr(torch, "compile") and self.device_type == "cuda":
-            logger.info("Compiling DiT decoder...")
-            self.model.decoder = torch.compile(self.model.decoder, mode="default") # 'default' is more stable for LoRA
-            logger.info("torch.compile successful")
+        # torch.compile: optional perf optimization.
+        # PEFT LoRA wraps the decoder in PeftModelForFeatureExtraction which is
+        # incompatible with torch.compile/inductor on PyTorch 2.7.x
+        # (AssertionError at first forward pass, not at compile time).
+        # Only compile when NOT using PEFT adapters.
+        has_peft = bool(self.lora_info)
+        if hasattr(torch, "compile") and self.device_type == "cuda" and not has_peft:
+            try:
+                logger.info("Compiling DiT decoder...")
+                self.model.decoder = torch.compile(self.model.decoder, mode="default")
+                logger.info("torch.compile successful")
+            except Exception as e:
+                logger.warning(f"torch.compile failed ({e}), continuing without compilation")
         else:
-            logger.warning("torch.compile is not available on this PyTorch version.")
+            if has_peft:
+                logger.info("Skipping torch.compile (incompatible with PEFT LoRA adapters)")
+            else:
+                logger.info("torch.compile not available on this device/PyTorch version, skipping")
         
         # Model config for flow matching
         self.config = model.config
@@ -502,6 +514,8 @@ class LoRATrainer:
         """
         self.dit_handler = dit_handler
         self.lora_config = lora_config
+        # Validate output_dir early so all downstream path operations are safe
+        training_config.output_dir = safe_path(training_config.output_dir)
         self.training_config = training_config
         
         self.module = None
@@ -541,7 +555,12 @@ class LoRATrainer:
                 return
 
             # Validate tensor directory
-            if not os.path.exists(tensor_dir):
+            try:
+                tensor_dir = safe_path(tensor_dir)
+            except ValueError:
+                yield 0, 0.0, f"❌ Rejected unsafe tensor directory: {tensor_dir}"
+                return
+            if not os.path.isdir(tensor_dir):
                 yield 0, 0.0, f"❌ Tensor directory not found: {tensor_dir}"
                 return
             
@@ -738,6 +757,12 @@ class LoRATrainer:
         global_step = 0
         checkpoint_info = None
 
+        if resume_from:
+            try:
+                resume_from = safe_path(resume_from)
+            except ValueError:
+                yield 0, 0.0, f"⚠️ Rejected unsafe checkpoint path: {resume_from}, starting fresh"
+                resume_from = None
         if resume_from and os.path.exists(resume_from):
             try:
                 yield 0, 0.0, f"🔄 Loading checkpoint from {resume_from}..."
@@ -1188,6 +1213,8 @@ class LoKRTrainer:
     ):
         self.dit_handler = dit_handler
         self.lokr_config = lokr_config
+        # Validate output_dir early so all downstream path operations are safe
+        training_config.output_dir = safe_path(training_config.output_dir)
         self.training_config = training_config
 
         self.module = None
@@ -1215,7 +1242,12 @@ class LoKRTrainer:
                 )
                 return
 
-            if not os.path.exists(tensor_dir):
+            try:
+                tensor_dir = safe_path(tensor_dir)
+            except ValueError:
+                yield 0, 0.0, f"❌ Rejected unsafe tensor directory: {tensor_dir}"
+                return
+            if not os.path.isdir(tensor_dir):
                 yield 0, 0.0, f"❌ Tensor directory not found: {tensor_dir}"
                 return
 

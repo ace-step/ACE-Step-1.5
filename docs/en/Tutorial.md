@@ -248,7 +248,7 @@ You can reshape DiT's capabilities and preferences with your own data recipe:
 
 This greatly expands **customization and playability**—train a model unique to you with your aesthetic taste.
 
-> For detailed LoRA training guide, see the "LoRA Training" tab in Gradio UI.
+> For the detailed LoRA training guide, see the [LoRA Training Tutorial](./LoRA_Training_Tutorial.md). You can also use the "LoRA Training" tab in Gradio UI for one-click training.
 
 #### DiT Selection Summary
 

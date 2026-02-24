@@ -9,8 +9,31 @@ from acestep.constants import DEBUG_MODEL_LOADING
 from acestep.debug_utils import debug_log
 
 
+def _toggle_lokr(decoder, enable: bool, scale: float = 1.0) -> bool:
+    """Toggle a LyCORIS LoKr adapter via its multiplier.
+
+    Args:
+        decoder: Model decoder that may carry a ``_lycoris_net`` attribute.
+        enable: ``True`` to activate (restore multiplier), ``False`` to zero it.
+        scale: Multiplier value when enabling (default 1.0).
+
+    Returns:
+        ``True`` if a LyCORIS net was found and toggled, ``False`` otherwise.
+    """
+    lycoris_net = getattr(decoder, "_lycoris_net", None)
+    if lycoris_net is None:
+        return False
+    set_mul = getattr(lycoris_net, "set_multiplier", None)
+    if not callable(set_mul):
+        return False
+    target = float(scale) if enable else 0.0
+    set_mul(target)
+    logger.info(f"LoKr multiplier set to {target}")
+    return True
+
+
 def set_use_lora(self, use_lora: bool) -> str:
-    """Toggle LoRA usage for inference."""
+    """Toggle LoRA/LoKr usage for inference."""
     if use_lora and not self.lora_loaded:
         return "❌ No LoRA adapter loaded. Please load a LoRA first."
 
@@ -20,28 +43,41 @@ def set_use_lora(self, use_lora: bool) -> str:
     if self.lora_loaded and decoder is None:
         logger.warning("LoRA is marked as loaded, but model/decoder is unavailable during toggle.")
 
-    if self.lora_loaded and decoder is not None and hasattr(decoder, "disable_adapter_layers"):
-        try:
-            if use_lora:
-                active = getattr(self, "_lora_active_adapter", None)
-                if active and hasattr(decoder, "set_adapter"):
-                    try:
-                        decoder.set_adapter(active)
-                    except Exception:
-                        pass
-                decoder.enable_adapter_layers()
-                logger.info("LoRA adapter enabled")
-                scale = getattr(self, "_active_loras", {}).get(active, 1.0)
-                if active and scale != 1.0:
-                    self.set_lora_scale(active, scale)
-            else:
-                decoder.disable_adapter_layers()
-                logger.info("LoRA adapter disabled")
-        except Exception as e:
-            logger.warning(f"Could not toggle adapter layers: {e}")
+    if self.lora_loaded and decoder is not None:
+        adapter_type = getattr(self, "_adapter_type", None)
 
+        # LoKr (LyCORIS) path: toggle via set_multiplier
+        if adapter_type == "lokr":
+            active = getattr(self, "_lora_active_adapter", None)
+            scale = getattr(self, "_active_loras", {}).get(active, 1.0) if active else self.lora_scale
+            toggled = _toggle_lokr(decoder, use_lora, scale=scale)
+            if not toggled:
+                logger.warning("LoKr adapter type set but no _lycoris_net found on decoder")
+
+        # PEFT LoRA path: toggle via enable/disable adapter layers
+        elif hasattr(decoder, "disable_adapter_layers"):
+            try:
+                if use_lora:
+                    active = getattr(self, "_lora_active_adapter", None)
+                    if active and hasattr(decoder, "set_adapter"):
+                        try:
+                            decoder.set_adapter(active)
+                        except Exception:
+                            pass
+                    decoder.enable_adapter_layers()
+                    logger.info("LoRA adapter enabled")
+                    scale = getattr(self, "_active_loras", {}).get(active, 1.0)
+                    if active and scale != 1.0:
+                        self.set_lora_scale(active, scale)
+                else:
+                    decoder.disable_adapter_layers()
+                    logger.info("LoRA adapter disabled")
+            except Exception as e:
+                logger.warning(f"Could not toggle adapter layers: {e}")
+
+    adapter_label = "LoKr" if getattr(self, "_adapter_type", None) == "lokr" else "LoRA"
     status = "enabled" if use_lora else "disabled"
-    return f"✅ LoRA {status}"
+    return f"✅ {adapter_label} {status}"
 
 
 def set_lora_scale(self, adapter_name_or_scale: str | float, scale: float | None = None) -> str:
@@ -76,10 +112,23 @@ def set_lora_scale(self, adapter_name_or_scale: str | float, scale: float | None
     self._active_loras[effective_name] = scale_value
     self.lora_scale = scale_value  # backward compat: single "current" scale for status/UI
 
-    if not self.use_lora:
-        logger.info(f"LoRA scale for '{effective_name}' set to {scale_value:.2f} (will apply when LoRA is enabled)")
-        return f"✅ LoRA scale ({effective_name}): {scale_value:.2f} (LoRA disabled)"
+    adapter_label = "LoKr" if getattr(self, "_adapter_type", None) == "lokr" else "LoRA"
 
+    if not self.use_lora:
+        logger.info(f"{adapter_label} scale for '{effective_name}' set to {scale_value:.2f} (will apply when enabled)")
+        return f"✅ {adapter_label} scale ({effective_name}): {scale_value:.2f} ({adapter_label} disabled)"
+
+    # LoKr (LyCORIS) path: apply scale via set_multiplier
+    if getattr(self, "_adapter_type", None) == "lokr":
+        decoder = getattr(getattr(self, "model", None), "decoder", None)
+        if decoder is not None:
+            toggled = _toggle_lokr(decoder, True, scale=scale_value)
+            if toggled:
+                return f"✅ {adapter_label} scale ({effective_name}): {scale_value:.2f}"
+            logger.warning("LoKr adapter type set but no _lycoris_net found for scale")
+        return f"⚠️ {adapter_label} scale set to {scale_value:.2f} (no LyCORIS net found)"
+
+    # PEFT LoRA path: apply scale via registry
     try:
         rebuilt_adapters: list[str] | None = None
         if not getattr(self, "_lora_adapter_registry", None):

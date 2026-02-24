@@ -35,7 +35,7 @@ try:
     from .handler import AceStepHandler
     from .llm_inference import LLMHandler
     from .dataset_handler import DatasetHandler
-    from .gradio_ui import create_gradio_interface
+    from .ui.gradio import create_gradio_interface
     from .gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB, VRAM_AUTO_OFFLOAD_THRESHOLD_GB, is_mps_platform
     from .model_downloader import ensure_lm_model
 except ImportError:
@@ -46,7 +46,7 @@ except ImportError:
     from acestep.handler import AceStepHandler
     from acestep.llm_inference import LLMHandler
     from acestep.dataset_handler import DatasetHandler
-    from acestep.gradio_ui import create_gradio_interface
+    from acestep.ui.gradio import create_gradio_interface
     from acestep.gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB, VRAM_AUTO_OFFLOAD_THRESHOLD_GB, is_mps_platform
     from acestep.model_downloader import ensure_lm_model
 
@@ -138,7 +138,22 @@ def main():
     parser.add_argument("--share", action="store_true", help="Create a public link")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)")
-    parser.add_argument("--language", type=str, default="en", choices=["en", "zh", "he", "ja"], help="UI language: en (English), zh (中文), he (עברית), ja (日本語)")
+        
+    # UI language argument
+    available_ui_language_codes = []
+    i18n_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "gradio", "i18n")
+    if os.path.exists(i18n_dir):
+        for filename in os.listdir(i18n_dir):
+            if filename.endswith(".json"):
+                available_ui_language_codes.append(filename[:-5]) # Remove .json extension and append language code to list
+    parser.add_argument(
+        "--language", 
+        type=str, 
+        default="en", 
+        choices=available_ui_language_codes, 
+        help="UI language: " + ", ".join(available_ui_language_codes)
+    )
+    
     parser.add_argument(
         "--allowed-path",
         action="append",
@@ -414,7 +429,7 @@ def main():
         # Enable API endpoints if requested
         if args.enable_api:
             print("Enabling API endpoints...")
-            from acestep.gradio_ui.api_routes import setup_api_routes
+            from acestep.ui.gradio.api.api_routes import setup_api_routes
 
             # Launch Gradio first with prevent_thread_lock=True
             demo.launch(

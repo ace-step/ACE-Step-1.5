@@ -166,10 +166,7 @@ class GenerateMusicRequestMixin:
             time_signature,
         )
 
-        is_repaint_task, is_lego_task, is_cover_task, can_use_repainting = self.determine_task_type(
-            task_type,
-            audio_code_string,
-        )
+        is_repaint_task, is_lego_task, is_cover_task, can_use_repainting = self.determine_task_type(task_type, audio_code_string)
         repainting_start_batch, repainting_end_batch, target_wavs_tensor = self.prepare_padding_info(
             actual_batch_size,
             processed_src_audio,
@@ -181,7 +178,6 @@ class GenerateMusicRequestMixin:
             is_cover_task,
             can_use_repainting,
         )
-
         audio_code_hints_batch = None
         if self._has_non_empty_audio_codes(audio_code_string):
             if isinstance(audio_code_string, list):

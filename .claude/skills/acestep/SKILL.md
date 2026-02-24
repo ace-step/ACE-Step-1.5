@@ -179,7 +179,7 @@ cd "{project_root}/{.claude or .codex}/skills/acestep/" && bash ./scripts/aceste
 If `api_url` is `https://api.acemusic.ai` and `api_key` is `empty`, you MUST stop and guide the user to configure their key:
 
 1. Tell the user: "You're using the ACE-Step official cloud API, but no API key is configured. An API key is required to use this service."
-2. Explain how to get a key: API keys are currently available through the official ACE-Step Discord community (https://discord.gg/bGVxwUyD). Additional distribution methods will be added in the future.
+2. Explain how to get a key: API keys are currently available through [acemusic.ai](https://acemusic.ai/api-key) for free.
 3. Use `AskUserQuestion` to ask the user to provide their API key.
 4. Once provided, configure it:
    ```bash
@@ -208,7 +208,7 @@ If health check fails:
 ./scripts/acestep.sh config --set api_key "your-key"
 ./scripts/acestep.sh config --set api_mode completion
 ```
-API keys are currently available through the official ACE-Step Discord community. Additional distribution methods will be added in the future.
+API keys are currently available through [acemusic.ai](https://acemusic.ai/api-key) for free. 
 
 **Local Service (Default):** No configuration needed — connects to `http://127.0.0.1:8001`.
 

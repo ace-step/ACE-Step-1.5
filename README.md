@@ -177,12 +177,12 @@ LANGUAGE=en
 
 ### Multi-Language Docs
 
-| Language | API | Gradio | Inference | Tutorial | Install | Benchmark |
-|----------|-----|--------|-----------|----------|---------|-----------|
-| 🇺🇸 English | [Link](./docs/en/API.md) | [Link](./docs/en/GRADIO_GUIDE.md) | [Link](./docs/en/INFERENCE.md) | [Link](./docs/en/Tutorial.md) | [Link](./docs/en/INSTALL.md) | [Link](./docs/en/BENCHMARK.md) |
-| 🇨🇳 中文 | [Link](./docs/zh/API.md) | [Link](./docs/zh/GRADIO_GUIDE.md) | [Link](./docs/zh/INFERENCE.md) | [Link](./docs/zh/Tutorial.md) | [Link](./docs/zh/INSTALL.md) | [Link](./docs/zh/BENCHMARK.md) |
-| 🇯🇵 日本語 | [Link](./docs/ja/API.md) | [Link](./docs/ja/GRADIO_GUIDE.md) | [Link](./docs/ja/INFERENCE.md) | [Link](./docs/ja/Tutorial.md) | [Link](./docs/ja/INSTALL.md) | — |
-| 🇰🇷 한국어 | [Link](./docs/ko/API.md) | [Link](./docs/ko/GRADIO_GUIDE.md) | [Link](./docs/ko/INFERENCE.md) | [Link](./docs/ko/Tutorial.md) | — | — |
+| Language | API | Gradio | Inference | Tutorial | LoRA Training | Install | Benchmark |
+|----------|-----|--------|-----------|----------|---------------|---------|-----------|
+| 🇺🇸 English | [Link](./docs/en/API.md) | [Link](./docs/en/GRADIO_GUIDE.md) | [Link](./docs/en/INFERENCE.md) | [Link](./docs/en/Tutorial.md) | [Link](./docs/en/LoRA_Training_Tutorial.md) | [Link](./docs/en/INSTALL.md) | [Link](./docs/en/BENCHMARK.md) |
+| 🇨🇳 中文 | [Link](./docs/zh/API.md) | [Link](./docs/zh/GRADIO_GUIDE.md) | [Link](./docs/zh/INFERENCE.md) | [Link](./docs/zh/Tutorial.md) | [Link](./docs/zh/LoRA_Training_Tutorial.md) | [Link](./docs/zh/INSTALL.md) | [Link](./docs/zh/BENCHMARK.md) |
+| 🇯🇵 日本語 | [Link](./docs/ja/API.md) | [Link](./docs/ja/GRADIO_GUIDE.md) | [Link](./docs/ja/INFERENCE.md) | [Link](./docs/ja/Tutorial.md) | [Link](./docs/ja/LoRA_Training_Tutorial.md) | [Link](./docs/ja/INSTALL.md) | — |
+| 🇰🇷 한국어 | [Link](./docs/ko/API.md) | [Link](./docs/ko/GRADIO_GUIDE.md) | [Link](./docs/ko/INFERENCE.md) | [Link](./docs/ko/Tutorial.md) | [Link](./docs/ko/LoRA_Training_Tutorial.md) | — | — |
 
 ## 📖 Tutorial
 
@@ -198,7 +198,18 @@ This tutorial covers: mental models and design philosophy, model architecture an
 
 ## 🔨 Train
 
-See the **LoRA Training** tab in Gradio UI for one-click training, or check [Gradio Guide - LoRA Training](./docs/en/GRADIO_GUIDE.md#lora-training) for details.
+📖 **LoRA Training Tutorial** — step-by-step guide covering data preparation, annotation, preprocessing, and training:
+
+| Language | Link |
+|----------|------|
+| 🇺🇸 English | [LoRA Training Tutorial](./docs/en/LoRA_Training_Tutorial.md) |
+| 🇨🇳 中文 | [LoRA 训练教程](./docs/zh/LoRA_Training_Tutorial.md) |
+| 🇯🇵 日本語 | [LoRA トレーニングチュートリアル](./docs/ja/LoRA_Training_Tutorial.md) |
+| 🇰🇷 한국어 | [LoRA 학습 튜토리얼](./docs/ko/LoRA_Training_Tutorial.md) |
+
+See also the **LoRA Training** tab in Gradio UI for one-click training, or [Gradio Guide - LoRA Training](./docs/en/GRADIO_GUIDE.md#lora-training) for UI reference.
+
+🔧 **Advanced Training with [Side-Step](https://github.com/koda-dernet/Side-Step)** — CLI-based training toolkit with corrected timestep sampling, LoKR adapters, VRAM optimization, gradient sensitivity analysis, and more. See the [Side-Step documentation](./docs/sidestep/Getting%20Started.md).
 
 ## 🏗️ Architecture
 

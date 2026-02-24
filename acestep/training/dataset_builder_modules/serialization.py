@@ -5,6 +5,7 @@ from typing import List, Tuple
 
 from loguru import logger
 
+from acestep.training.path_safety import safe_path
 from .models import AudioSample, DatasetMetadata
 
 
@@ -28,23 +29,30 @@ class SerializationMixin:
         }
 
         try:
-            os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+            validated_output = safe_path(output_path)
+            parent = os.path.dirname(validated_output)
+            os.makedirs(parent if parent else ".", exist_ok=True)
 
-            with open(output_path, "w", encoding="utf-8") as f:
+            with open(validated_output, "w", encoding="utf-8") as f:
                 json.dump(dataset, f, indent=2, ensure_ascii=False)
 
-            return f"✅ Dataset saved to {output_path}\n{len(self.samples)} samples, tag: '{self.metadata.custom_tag}'"
+            return f"✅ Dataset saved to {validated_output}\n{len(self.samples)} samples, tag: '{self.metadata.custom_tag}'"
         except Exception as e:
             logger.exception("Error saving dataset")
             return f"❌ Failed to save dataset: {str(e)}"
 
     def load_dataset(self, dataset_path: str) -> Tuple[List[AudioSample], str]:
         """Load a dataset from a JSON file."""
-        if not os.path.exists(dataset_path):
+        try:
+            validated_path = safe_path(dataset_path)
+        except ValueError:
+            return [], f"❌ Rejected unsafe dataset path: {dataset_path}"
+
+        if not os.path.exists(validated_path):
             return [], f"❌ Dataset not found: {dataset_path}"
 
         try:
-            with open(dataset_path, "r", encoding="utf-8") as f:
+            with open(validated_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             if "metadata" in data:

@@ -243,7 +243,7 @@ Base 是**任务的集大成者**，比 SFT 和 Turbo 多出三个独占任务�
 
 这极大拓展了**定制化和可玩性**——用你的审美品味，训练出专属你的模型。
 
-> 关于 LoRA 训练的详细指南，请参阅 Gradio UI 中的「LoRA Training」标签页。
+> 关于 LoRA 训练的详细指南，请参阅 [LoRA 训练教程](./LoRA_Training_Tutorial.md)。你也可以使用 Gradio UI 中的「LoRA Training」标签页进行一键训练。
 
 #### DiT 选择总结
 

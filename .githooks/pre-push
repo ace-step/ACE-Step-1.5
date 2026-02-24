@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+set -eu
+
+# Prevent cross-polluted PR branches by ensuring the current branch is
+# independently based on upstream/main and does not reuse non-main commits
+# from other remote feature/fix/docs branches.
+
+current_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+[ -z "$current_branch" ] && exit 0
+
+base_ref="${PR_BASE_REF:-upstream/main}"
+if ! git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
+  # If upstream/main is unavailable locally, do not block pushes.
+  exit 0
+fi
+
+if ! git merge-base --is-ancestor "$base_ref" HEAD; then
+  echo "ERROR: '$current_branch' is not based on '$base_ref'."
+  echo "Create PR branches from upstream/main to keep PRs independent."
+  exit 1
+fi
+
+ahead_commits="$(git rev-list "$base_ref"..HEAD)"
+[ -z "$ahead_commits" ] && exit 0
+
+remote_branches="$(git for-each-ref --format='%(refname:short)' \
+  refs/remotes/origin/feat \
+  refs/remotes/origin/fix \
+  refs/remotes/origin/docs)"
+
+for commit in $ahead_commits; do
+  for remote_branch in $remote_branches; do
+    [ "$remote_branch" = "origin/$current_branch" ] && continue
+    if git merge-base --is-ancestor "$commit" "$remote_branch"; then
+      echo "ERROR: Commit $commit is also present in $remote_branch."
+      echo "This branch appears stacked or cross-polluted."
+      echo "Recreate from '$base_ref' and cherry-pick only intended commits."
+      exit 1
+    fi
+  done
+done
+
+exit 0

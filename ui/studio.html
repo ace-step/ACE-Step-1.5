@@ -1,224 +1,822 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ACE-Step Studio (Experimental)</title>
-  <style>
-    :root { --bg: #1a1a2e; --card: #16213e; --accent: #0f3460; --text: #e8e8e8; --muted: #a0a0a0; }
-    * { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1rem; }
-    h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
-    .badge { font-size: 0.7rem; background: var(--accent); padding: 0.2rem 0.5rem; border-radius: 4px; margin-left: 0.5rem; }
-    section { background: var(--card); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-    section h2 { font-size: 0.9rem; margin: 0 0 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-    label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; }
-    input[type="text"], input[type="number"], input[type="url"], textarea { width: 100%; padding: 0.5rem; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 0.9rem; }
-    textarea { min-height: 80px; resize: vertical; }
-    .row { display: flex; gap: 1rem; flex-wrap: wrap; }
-    .row > * { flex: 1 1 200px; }
-    button { background: var(--accent); color: var(--text); border: none; padding: 0.6rem 1.2rem; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
-    button:hover { filter: brightness(1.1); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .checkbox { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
-    .checkbox input { width: auto; }
-    #log { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
-    #results { margin-top: 1rem; }
-    .result-item { margin-bottom: 1rem; padding: 0.75rem; background: var(--bg); border-radius: 4px; }
-    .result-item audio { width: 100%; margin-top: 0.5rem; }
-    .result-item .meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
-    .error { color: #e57373; }
-    .success { color: #81c784; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ACE-Step Studio (Pro)</title>
+    
+    <script src="https://unpkg.com/wavesurfer.js@7"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #080808;
+            --card-bg: #141414;
+            --panel-bg: #1e1e1e;
+            --accent: #1DB954; 
+            --accent-hover: #1ed760;
+            --text: #ffffff;
+            --muted: #b3b3b3;
+            --border: #333;
+            --input-bg: #2a2a2a;
+            --danger: #ff4444;
+            --gold: #FFD700;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; 
+        }
+
+        /* --- Header --- */
+        header {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        h1 { margin: 0; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+        .badge { font-size: 0.65rem; background: var(--accent); color: black; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
+
+        .connection-bar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex: 1;
+            justify-content: flex-end;
+            min-width: 200px;
+        }
+
+        /* --- Layout --- */
+        .main-container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            flex: 1;
+            overflow: hidden; 
+        }
+
+        /* --- Sidebar (Controls) --- */
+        .sidebar {
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border);
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .control-group { margin-bottom: 0; }
+        label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        input[type="text"], input[type="number"], input[type="url"], select, textarea {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 12px; 
+            border-radius: 8px;
+            font-size: 0.95rem; 
+            outline: none;
+            -webkit-appearance: none; 
+        }
+        
+        textarea { resize: vertical; min-height: 80px; font-family: monospace; }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+
+        .row { display: flex; gap: 12px; }
+        .row > div { flex: 1; }
+
+        .range-container { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+        input[type="range"] { flex: 1; accent-color: var(--accent); height: 20px; }
+        .range-val { width: 35px; text-align: right; font-size: 0.8rem; color: var(--accent); }
+
+        .checkbox-group { display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 5px 0; }
+        input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 50px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: 0.2s;
+            touch-action: manipulation;
+        }
+        .btn-primary { background: var(--accent); color: black; box-shadow: 0 4px 15px rgba(29, 185, 84, 0.3); }
+        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-primary:active { transform: translateY(1px); }
+        .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; box-shadow: none; transform: none; }
+
+        .file-upload { position: relative; display: inline-block; width: 100%; }
+        .file-upload input[type="file"] { display: none; }
+        .file-upload-label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px dashed var(--muted);
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--muted);
+            font-size: 0.9rem;
+            transition: 0.2s;
+            text-align: center;
+        }
+        .file-upload-label:hover { border-color: var(--accent); color: var(--accent); background: rgba(29, 185, 84, 0.05); }
+
+        /* --- Content Area --- */
+        .content-area {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            background: linear-gradient(135deg, #101010 0%, #080808 100%);
+        }
+
+        #waveform-wrapper {
+            background: #111;
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid #333;
+            min-height: 140px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+        }
+        #waveform-wrapper.empty { display: none; }
+        #waveform { width: 100%; }
+        
+        .region-info {
+            font-size: 0.8rem;
+            color: var(--gold);
+            margin-top: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .transport-controls { display: flex; align-items: center; gap: 8px; }
+        .btn-icon {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid var(--border);
+            color: var(--text);
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: 0.2s; font-size: 0.9rem; padding: 0;
+        }
+        .btn-icon:hover { background: rgba(255,255,255,0.2); border-color: var(--accent); }
+        .btn-icon.active { background: var(--accent); color: black; border-color: var(--accent); }
+        .btn-icon.main { width: 44px; height: 44px; font-size: 1.1rem; background: var(--accent); color: black; border:none; }
+        .btn-icon.main:hover { transform: scale(1.05); filter: brightness(1.1); }
+
+        /* --- Logs & Smart Progress --- */
+        .log-console {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            color: #ccc;
+            height: 120px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .log-info { color: #888; }
+        .log-success { color: var(--accent); }
+        .log-error { color: var(--danger); }
+        .log-progress { color: var(--gold); }
+
+        .progress-container {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+            display: none; /* Hidden until needed */
+            position: relative;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 100%);
+            transition: width 0.2s linear; /* Smooth linear movement */
+            box-shadow: 0 0 15px rgba(29, 185, 84, 0.5);
+        }
+        
+        .progress-text-overlay {
+            position: absolute;
+            top: -20px;
+            right: 0;
+            font-size: 0.75rem;
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+        }
+        .result-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 15px;
+            transition: transform 0.2s;
+        }
+        .result-card:hover { border-color: var(--accent); }
+        .result-meta { font-size: 0.8rem; color: var(--muted); margin-bottom: 10px; line-height: 1.4; }
+        audio { width: 100%; margin-top: 5px; height: 40px; }
+
+        @media (max-width: 768px) {
+            body { height: auto; min-height: 100vh; overflow-y: auto; }
+            .main-container { display: flex; flex-direction: column; overflow: visible; height: auto; }
+            header { position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+            .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); overflow: visible; padding: 20px 15px; }
+            .content-area { overflow: visible; padding: 15px; min-height: 500px; }
+            .connection-bar { width: 100%; margin-top: 5px; }
+            .connection-bar label { display: none; }
+        }
+    </style>
 </head>
 <body>
-  <h1>ACE-Step Studio <span class="badge">Experimental</span></h1>
-  <p style="color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem;">Optional frontend for the ACE-Step REST API. Start the API server, then open this file in a browser.</p>
 
-  <section>
-    <h2>Connection</h2>
-    <label for="apiBase">API base URL</label>
-    <input type="url" id="apiBase" value="http://localhost:8001" placeholder="http://localhost:8001">
-  </section>
-
-  <section>
-    <h2>Prompt</h2>
-    <label for="prompt">Music description (prompt)</label>
-    <input type="text" id="prompt" placeholder="e.g. upbeat pop song with electric guitar">
-    <label for="lyrics" style="margin-top: 0.5rem;">Lyrics (optional)</label>
-    <textarea id="lyrics" placeholder="[Verse 1]&#10;..."></textarea>
-    <div class="checkbox">
-      <input type="checkbox" id="sampleMode">
-      <label for="sampleMode" style="margin:0;">Sample mode (generate from description only)</label>
+<header>
+    <h1>ACE-Step Studio <span class="badge">PRO</span></h1>
+    <div class="connection-bar">
+        <input type="url" id="apiBase" value="http://localhost:8001" placeholder="API URL (e.g. http://localhost:8001)">
     </div>
-    <div id="sampleQueryRow" style="display: none;">
-      <label for="sampleQuery">Sample query</label>
-      <input type="text" id="sampleQuery" placeholder="e.g. a soft Bengali love song">
-    </div>
-  </section>
+</header>
 
-  <section>
-    <h2>Options</h2>
-    <div class="row">
-      <div>
-        <label for="vocalLanguage">Vocal language</label>
-        <input type="text" id="vocalLanguage" value="en" placeholder="en">
-      </div>
-      <div>
-        <label for="audioDuration">Duration (seconds)</label>
-        <input type="number" id="audioDuration" min="10" max="600" placeholder="30">
-      </div>
-      <div>
-        <label for="batchSize">Batch size</label>
-        <input type="number" id="batchSize" value="1" min="1" max="8">
-      </div>
-    </div>
-    <div class="checkbox">
-      <input type="checkbox" id="thinking" checked>
-      <label for="thinking" style="margin:0;">Thinking (LM generates codes + metas)</label>
-    </div>
-  </section>
+<div class="main-container">
+    <aside class="sidebar">
+        <!-- Audio Input -->
+        <div class="control-group">
+            <label>1. Source Audio (Reference)</label>
+            <div class="file-upload">
+                <label for="audioUpload" class="file-upload-label" id="uploadLabel">📁 Tap to Upload Audio</label>
+                <input type="file" id="audioUpload" accept="audio/*">
+            </div>
+            <div style="font-size: 0.7rem; color: #666; margin-top: 5px;">Required for Cover, Repaint, Lego & Extract.</div>
+        </div>
 
-  <section>
-    <button id="submitBtn">Generate</button>
-    <div id="log"></div>
-    <div id="results"></div>
-  </section>
+        <!-- Task Configuration -->
+        <div class="control-group">
+            <label for="taskType">2. Task Mode</label>
+            <select id="taskType">
+                <option value="text2music">Text to Music (Generate)</option>
+                <option value="cover">Style Transfer (Cover)</option>
+                <option value="repaint">In-Painting (Repaint)</option>
+                <option value="lego">Add Layer (Lego)</option>
+                <option value="extract">Isolate Layer (Extract)</option>
+                <option value="complete">Complete / Extend</option>
+            </select>
+        </div>
 
-  <script>
-    const apiBaseEl = document.getElementById('apiBase');
-    const promptEl = document.getElementById('prompt');
-    const lyricsEl = document.getElementById('lyrics');
-    const sampleModeEl = document.getElementById('sampleMode');
-    const sampleQueryRow = document.getElementById('sampleQueryRow');
-    const sampleQueryEl = document.getElementById('sampleQuery');
-    const vocalLanguageEl = document.getElementById('vocalLanguage');
-    const audioDurationEl = document.getElementById('audioDuration');
-    const batchSizeEl = document.getElementById('batchSize');
-    const thinkingEl = document.getElementById('thinking');
-    const submitBtn = document.getElementById('submitBtn');
-    const logEl = document.getElementById('log');
-    const resultsEl = document.getElementById('results');
+        <div class="control-group" id="trackNameGroup" style="display:none;">
+            <label for="trackName">Target Layer</label>
+            <select id="trackName">
+                <option value="vocals">Vocals</option>
+                <option value="drums">Drums</option>
+                <option value="bass">Bass</option>
+                <option value="guitar">Guitar</option>
+                <option value="piano">Piano</option>
+                <option value="synth">Synth</option>
+            </select>
+        </div>
 
-    sampleModeEl.addEventListener('change', function () {
-      sampleQueryRow.style.display = this.checked ? 'block' : 'none';
+        <div class="control-group">
+            <label for="prompt">3. Style / Description</label>
+            <textarea id="prompt" placeholder="e.g. 80s pop song, upbeat, female vocals"></textarea>
+        </div>
+
+        <div class="control-group">
+            <label for="lyrics">Lyrics (Optional)</label>
+            <textarea id="lyrics" placeholder="[Verse 1]&#10;..." style="min-height: 60px;"></textarea>
+        </div>
+
+        <div class="control-group">
+            <label>4. Parameters</label>
+            <div class="row">
+                <div>
+                    <label>Language</label>
+                    <input type="text" id="vocalLanguage" value="en" placeholder="en/nl/fr">
+                </div>
+                <div>
+                    <label>Duration (s)</label>
+                    <input type="number" id="duration" value="30" min="10" max="300">
+                </div>
+            </div>
+            <div class="row" style="margin-top: 10px;">
+                <div>
+                    <label>Steps</label>
+                    <input type="number" id="steps" value="8" min="1" max="50">
+                </div>
+                <div>
+                    <label>CFG Scale</label>
+                    <input type="number" id="guidance" value="7.0" step="0.5">
+                </div>
+            </div>
+        </div>
+
+        <div class="control-group" id="strengthGroup" style="display:none;">
+            <label>Audio Influence</label>
+            <div class="range-container">
+                <span style="font-size:0.7rem">Creative</span>
+                <input type="range" id="strength" min="0" max="100" value="40">
+                <span class="range-val" id="strengthVal">0.4</span>
+            </div>
+        </div>
+
+        <div class="checkbox-group">
+            <input type="checkbox" id="thinking" checked>
+            <label for="thinking" style="margin:0; color: #fff; font-size: 0.9rem;">Use Reasoning (Thinking)</label>
+        </div>
+
+        <div style="margin-top: 10px;">
+            <button id="submitBtn" class="btn btn-primary">✨ Generate Music</button>
+        </div>
+    </aside>
+
+    <main class="content-area">
+        <div id="waveform-wrapper" class="empty">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; font-size: 0.9rem; color: #888;">Reference Audio</h3>
+                <div class="transport-controls">
+                    <button id="wsLoopBtn" class="btn-icon" title="Toggle Loop">🔁</button>
+                    <button id="wsStopBtn" class="btn-icon" title="Stop">⏹</button>
+                    <button id="wsPlayBtn" class="btn-icon main" title="Play/Pause">▶</button>
+                    <span id="wsTimeDisplay" style="font-family:monospace; font-size:0.8rem; color:var(--accent); margin-left:8px; min-width: 80px; text-align:right;">0:00</span>
+                </div>
+            </div>
+            <div id="waveform"></div>
+            <div class="region-info">
+                <span id="regionText" style="flex: 1;">No region selected</span>
+                <button id="clearRegionBtn" style="background:none; border:1px solid #444; color:#888; border-radius:4px; cursor:pointer; font-size:0.7rem; padding: 4px 8px;">Clear</button>
+            </div>
+        </div>
+
+        <input type="hidden" id="regionStart" value="0">
+        <input type="hidden" id="regionEnd" value="-1">
+
+        <div id="statusArea">
+            <div class="progress-container" id="progressContainer">
+                <span id="progressText" class="progress-text-overlay">0%</span>
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="log-console" id="logConsole">
+                <div>Welcome to ACE-Step Studio. Ready.</div>
+            </div>
+        </div>
+
+        <div>
+            <h3 style="border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 15px; font-size: 1rem;">Generated Results</h3>
+            <div id="resultsGrid" class="results-grid"></div>
+        </div>
+    </main>
+</div>
+
+<script>
+    // --- Configuration ---
+    const elements = {
+        apiBase: document.getElementById('apiBase'),
+        fileInput: document.getElementById('audioUpload'),
+        uploadLabel: document.getElementById('uploadLabel'),
+        taskType: document.getElementById('taskType'),
+        prompt: document.getElementById('prompt'),
+        lyrics: document.getElementById('lyrics'),
+        language: document.getElementById('vocalLanguage'),
+        duration: document.getElementById('duration'),
+        steps: document.getElementById('steps'),
+        guidance: document.getElementById('guidance'),
+        strength: document.getElementById('strength'),
+        strengthVal: document.getElementById('strengthVal'),
+        trackName: document.getElementById('trackName'),
+        trackNameGroup: document.getElementById('trackNameGroup'),
+        strengthGroup: document.getElementById('strengthGroup'),
+        thinking: document.getElementById('thinking'),
+        submitBtn: document.getElementById('submitBtn'),
+        logConsole: document.getElementById('logConsole'),
+        resultsGrid: document.getElementById('resultsGrid'),
+        waveformWrapper: document.getElementById('waveform-wrapper'),
+        regionStart: document.getElementById('regionStart'),
+        regionEnd: document.getElementById('regionEnd'),
+        regionText: document.getElementById('regionText'),
+        clearRegionBtn: document.getElementById('clearRegionBtn'),
+        progressContainer: document.getElementById('progressContainer'),
+        progressFill: document.getElementById('progressFill'),
+        progressText: document.getElementById('progressText'),
+        wsPlayBtn: document.getElementById('wsPlayBtn'),
+        wsStopBtn: document.getElementById('wsStopBtn'),
+        wsLoopBtn: document.getElementById('wsLoopBtn'),
+        wsTimeDisplay: document.getElementById('wsTimeDisplay')
+    };
+
+    let wavesurfer = null;
+    let wsRegions = null;
+    let activeRegion = null;
+    let uploadedFile = null;
+
+    // --- SMART PROGRESS CONFIGURATION (Ported from Hitster) ---
+    // This allows the bar to move smoothly even when server is thinking
+    const ESTIMATED_DURATION_SEC = 300; // 5 Minutes baseline
+    const UPDATE_INTERVAL_MS = 200;     // Update animation every 200ms
+    const BASE_INCREMENT = 100 / ((ESTIMATED_DURATION_SEC * 1000) / UPDATE_INTERVAL_MS);
+
+    // Mappings from server logs to percentages
+    const progressSteps = {
+        "queued": 0,
+        "initializing": 2,
+        "llm usage": 5,
+        "processing source": 10,
+        "cuda gpu": 15,
+        "loading text_encoder": 18,
+        "loaded model": 22,
+        "dit diffusion": 50,       // The long wait starts here
+        "offloading model": 80,
+        "tiled_decode": 90,
+        "decoding": 92,
+        "downloading": 95,
+        "saving": 98,
+        "done": 100
+    };
+
+    // State object for the smart progress bar
+    let progressState = { 
+        current: 0, 
+        target: 0, 
+        speedMod: 1.0, 
+        timerId: null 
+    };
+
+    // --- UI Listeners ---
+    elements.strength.addEventListener('input', (e) => {
+        elements.strengthVal.innerText = (e.target.value / 100).toFixed(2);
     });
 
-    function log(msg, type) {
-      const p = document.createElement('div');
-      p.className = type || '';
-      p.textContent = new Date().toLocaleTimeString() + ' ' + msg;
-      logEl.appendChild(p);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    function clearLog() { logEl.innerHTML = ''; }
-    function clearResults() { resultsEl.innerHTML = ''; }
-
-    function getBase() {
-      let base = (apiBaseEl.value || '').trim().replace(/\/+$/, '');
-      if (!base) base = 'http://localhost:8001';
-      return base;
-    }
-
-    async function releaseTask(body) {
-      const base = getBase();
-      const res = await fetch(base + '/release_task', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (data.code !== 200 || !data.data || !data.data.task_id) {
-        throw new Error(data.error || data.data?.message || 'Release task failed');
-      }
-      return data.data.task_id;
-    }
-
-    async function queryResult(taskIdList) {
-      const base = getBase();
-      const res = await fetch(base + '/query_result', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_id_list: taskIdList }),
-      });
-      const data = await res.json();
-      if (data.code !== 200) throw new Error(data.error || 'Query failed');
-      return data.data;
-    }
-
-    function renderResult(taskId, item, base) {
-      const file = item.file || '';
-      const url = file.startsWith('http') ? file : base + (file.startsWith('/') ? '' : '/') + file;
-      const meta = item.metas || {};
-      const metaStr = [meta.bpm && 'BPM ' + meta.bpm, meta.keyscale, meta.timesignature, meta.duration && meta.duration + 's'].filter(Boolean).join(' · ');
-      const div = document.createElement('div');
-      div.className = 'result-item';
-      div.innerHTML = '<div><strong>' + (item.prompt || '—').replace(/</g, '&lt;') + '</strong></div>' +
-        (metaStr ? '<div class="meta">' + metaStr + '</div>' : '') +
-        '<audio controls src="' + url + '"></audio>';
-      resultsEl.appendChild(div);
-    }
-
-    submitBtn.addEventListener('click', async function () {
-      clearLog();
-      clearResults();
-      submitBtn.disabled = true;
-      const base = getBase();
-
-      const body = {
-        prompt: promptEl.value.trim() || '',
-        lyrics: lyricsEl.value.trim() || '',
-        vocal_language: vocalLanguageEl.value.trim() || 'en',
-        thinking: thinkingEl.checked,
-        batch_size: Math.min(8, Math.max(1, parseInt(batchSizeEl.value, 10) || 1)),
-      };
-      const dur = parseInt(audioDurationEl.value, 10);
-      if (dur >= 10 && dur <= 600) body.audio_duration = dur;
-      if (sampleModeEl.checked) {
-        body.sample_mode = true;
-        body.sample_query = sampleQueryEl.value.trim() || '';
-      }
-
-      try {
-        log('Submitting task...');
-        const taskId = await releaseTask(body);
-        log('Task ID: ' + taskId, 'success');
-
-        const pollInterval = 1500;
-        const maxWait = 600000;
-        const start = Date.now();
-        let list;
-
-        while (Date.now() - start < maxWait) {
-          await new Promise(function (r) { setTimeout(r, pollInterval); });
-          list = await queryResult([taskId]);
-          if (!list || !list.length) { log('No result in response'); continue; }
-          const item = list[0];
-          const status = item.status;
-          if (item.progress_text) log(item.progress_text);
-          if (status === 1) {
-            log('Done.', 'success');
-            try {
-              const result = typeof item.result === 'string' ? JSON.parse(item.result) : item.result;
-              const arr = Array.isArray(result) ? result : [result];
-              arr.forEach(function (r) { renderResult(taskId, r, base); });
-            } catch (e) {
-              log('Parse result: ' + e.message, 'error');
-            }
-            break;
-          }
-          if (status === 2) {
-            log('Task failed.', 'error');
-            break;
-          }
+    elements.taskType.addEventListener('change', (e) => {
+        const type = e.target.value;
+        elements.strengthGroup.style.display = (type === 'cover' || type === 'lego') ? 'block' : 'none';
+        elements.trackNameGroup.style.display = (type === 'lego' || type === 'extract') ? 'block' : 'none';
+        if(['lego', 'extract', 'repaint', 'complete'].includes(type)) {
+            elements.thinking.checked = false;
+        } else {
+            elements.thinking.checked = true;
         }
-        if (Date.now() - start >= maxWait) log('Timeout.', 'error');
-      } catch (e) {
-        log(e.message || 'Error', 'error');
-      }
-      submitBtn.disabled = false;
     });
-  </script>
+
+    // --- WaveSurfer Logic ---
+    function initWaveSurfer() {
+        if(wavesurfer) return;
+        
+        wavesurfer = WaveSurfer.create({
+            container: '#waveform',
+            waveColor: '#1DB954',
+            progressColor: '#1ed760',
+            height: 80,
+            cursorColor: '#FF6B35',
+            cursorWidth: 2,
+            barWidth: 3,
+            barGap: 2,
+            barRadius: 3,
+            normalize: true,
+        });
+
+        wavesurfer.on('ready', () => {
+            const dur = wavesurfer.getDuration();
+            elements.wsTimeDisplay.innerText = `0:00 / ${formatTime(dur)}`;
+        });
+
+        wavesurfer.on('audioprocess', (time) => {
+            const dur = wavesurfer.getDuration();
+            elements.wsTimeDisplay.innerText = `${formatTime(time)} / ${formatTime(dur)}`;
+        });
+
+        wavesurfer.on('play', () => elements.wsPlayBtn.innerText = "⏸");
+        wavesurfer.on('pause', () => elements.wsPlayBtn.innerText = "▶");
+        wavesurfer.on('finish', () => {
+            elements.wsPlayBtn.innerText = "▶";
+            if(elements.wsLoopBtn.classList.contains('active')) wavesurfer.play();
+        });
+
+        wsRegions = wavesurfer.registerPlugin(WaveSurfer.Regions.create());
+        wsRegions.enableDragSelection({ color: 'rgba(29, 185, 84, 0.3)' });
+
+        wsRegions.on('region-created', (region) => {
+            if (activeRegion) { activeRegion.remove(); }
+            activeRegion = region;
+            updateRegionInputs(region);
+        });
+
+        wsRegions.on('region-updated', (region) => updateRegionInputs(region));
+        wsRegions.on('region-out', (region) => {
+            if (elements.wsLoopBtn.classList.contains('active')) region.play();
+        });
+        wsRegions.on('region-clicked', (region, e) => {
+            e.stopPropagation();
+            region.play();
+        });
+    }
+
+    function formatTime(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    function updateRegionInputs(region) {
+        elements.regionStart.value = region.start.toFixed(2);
+        elements.regionEnd.value = region.end.toFixed(2);
+        elements.regionText.innerText = `Selected: ${region.start.toFixed(1)}s - ${region.end.toFixed(1)}s`;
+    }
+
+    // --- Transport & File ---
+    elements.wsPlayBtn.addEventListener('click', () => { if(wavesurfer) wavesurfer.playPause(); });
+    elements.wsStopBtn.addEventListener('click', () => { 
+        if(wavesurfer) { 
+            wavesurfer.stop(); 
+            elements.wsTimeDisplay.innerText = `0:00 / ${formatTime(wavesurfer.getDuration())}`;
+        } 
+    });
+    elements.wsLoopBtn.addEventListener('click', () => { elements.wsLoopBtn.classList.toggle('active'); });
+    elements.clearRegionBtn.addEventListener('click', () => {
+        if(wsRegions) wsRegions.clearRegions();
+        elements.regionStart.value = 0;
+        elements.regionEnd.value = -1;
+        elements.regionText.innerText = "No region selected";
+        activeRegion = null;
+    });
+
+    window.addEventListener('resize', () => { if(wavesurfer) setTimeout(() => {}, 100); });
+
+    elements.fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        uploadedFile = file;
+        elements.uploadLabel.innerText = "✅ " + file.name;
+        elements.uploadLabel.style.borderColor = "var(--accent)";
+        elements.uploadLabel.style.color = "var(--accent)";
+        elements.waveformWrapper.classList.remove('empty');
+        initWaveSurfer();
+        wavesurfer.load(URL.createObjectURL(file));
+    });
+
+    // --- SMART PROGRESS LOGIC ---
+
+    function startSmartProgressBar() {
+        if (progressState.timerId) clearInterval(progressState.timerId);
+        
+        progressState.current = 0;
+        progressState.target = 0;
+        progressState.speedMod = 1.0;
+        
+        progressState.timerId = setInterval(() => {
+            const gap = progressState.target - progressState.current;
+
+            // 1. Determine Speed
+            if (gap > 0) {
+                // Behind target? Speed up to catch up
+                progressState.speedMod = 2.0 + (gap * 2); 
+            } else if (gap < -5) {
+                // Way ahead? Slow down significantly
+                progressState.speedMod = 0.1;
+            } else {
+                // Cruise speed (simulates slow processing)
+                progressState.speedMod = 1.0;
+            }
+
+            // 2. Increment
+            progressState.current += BASE_INCREMENT * progressState.speedMod;
+
+            // 3. Clamp
+            // If target is 100, allow completion. Else cap at 99.5%
+            const hardLimit = (progressState.target >= 100) ? 100 : 99.5;
+            if (progressState.current > hardLimit) progressState.current = hardLimit;
+
+            // 4. Render
+            elements.progressFill.style.width = `${progressState.current}%`;
+            elements.progressText.innerText = `${progressState.current.toFixed(1)}%`;
+
+        }, UPDATE_INTERVAL_MS);
+    }
+
+    function stopSmartProgressBar() {
+        if (progressState.timerId) clearInterval(progressState.timerId);
+        elements.progressFill.style.width = '100%';
+        elements.progressText.innerText = '100%';
+    }
+
+    function updateProgressTarget(text) {
+        if (!text) return;
+        
+        const lastLog = elements.logConsole.lastElementChild;
+        if (!lastLog || lastLog.innerText.indexOf(text) === -1) {
+            log(text, "log-progress");
+        }
+
+        const t = text.toLowerCase();
+        let foundPercent = 0;
+
+        // Check against the Hitster map
+        for (const [key, percent] of Object.entries(progressSteps)) {
+            if (t.includes(key) && percent > foundPercent) {
+                foundPercent = percent;
+            }
+        }
+
+        // Only update if greater (never move target backwards)
+        if (foundPercent > progressState.target) {
+            progressState.target = foundPercent;
+        }
+    }
+
+    // --- API Logic ---
+
+    function log(msg, type = 'log-info') {
+        const div = document.createElement('div');
+        div.className = type;
+        div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        elements.logConsole.appendChild(div);
+        elements.logConsole.scrollTop = elements.logConsole.scrollHeight;
+    }
+
+    function getBaseUrl() {
+        return elements.apiBase.value.trim().replace(/\/+$/, '');
+    }
+
+    elements.submitBtn.addEventListener('click', async () => {
+        const taskType = elements.taskType.value;
+        if (taskType !== 'text2music' && !uploadedFile) {
+            alert("Upload an audio file first!");
+            return;
+        }
+
+        elements.submitBtn.disabled = true;
+        elements.progressContainer.style.display = 'block';
+        elements.logConsole.innerHTML = '';
+        log("Preparing task...", "log-info");
+        
+        // Start the smart animator
+        startSmartProgressBar();
+
+        try {
+            const formData = new FormData();
+            formData.append('task_type', taskType);
+            formData.append('prompt', elements.prompt.value);
+            formData.append('lyrics', elements.lyrics.value);
+            formData.append('vocal_language', elements.language.value);
+            formData.append('thinking', elements.thinking.checked);
+            formData.append('batch_size', 1);
+            formData.append('inference_steps', elements.steps.value);
+            formData.append('guidance_scale', elements.guidance.value);
+            formData.append('audio_duration', elements.duration.value);
+            
+            if (taskType === 'cover' || taskType === 'lego') {
+                formData.append('audio_cover_strength', elements.strength.value / 100);
+            } else {
+                formData.append('audio_cover_strength', 1.0);
+            }
+
+            if (taskType === 'lego' || taskType === 'extract') {
+                formData.append('track_name', elements.trackName.value);
+            }
+
+            if (uploadedFile) {
+                formData.append('src_audio', uploadedFile);
+            }
+
+            if (taskType === 'repaint' || taskType === 'lego') {
+                formData.append('repainting_start', elements.regionStart.value);
+                formData.append('repainting_end', elements.regionEnd.value);
+            }
+
+            log("Uploading...", "log-info");
+            const releaseRes = await fetch(`${getBaseUrl()}/release_task`, {
+                method: 'POST',
+                body: formData 
+            });
+            const releaseData = await releaseRes.json();
+
+            if (releaseData.code !== 200 || !releaseData.data || !releaseData.data.task_id) {
+                throw new Error(releaseData.error || 'Failed to start task');
+            }
+
+            const taskId = releaseData.data.task_id;
+            log(`Task Started: ${taskId}`, "log-success");
+            startPolling(taskId);
+
+        } catch (e) {
+            log(`Error: ${e.message}`, "log-error");
+            stopSmartProgressBar();
+            elements.submitBtn.disabled = false;
+        }
+    });
+
+    async function startPolling(taskId) {
+        const pollInterval = 1500;
+        const maxTime = 900000; // 15 mins (increased for diffusion)
+        const startTime = Date.now();
+
+        const timer = setInterval(async () => {
+            if (Date.now() - startTime > maxTime) {
+                clearInterval(timer);
+                log("Timed out.", "log-error");
+                stopSmartProgressBar();
+                elements.submitBtn.disabled = false;
+                return;
+            }
+
+            try {
+                const res = await fetch(`${getBaseUrl()}/query_result`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task_id_list: [taskId] })
+                });
+                const data = await res.json();
+
+                if (data.code === 200 && data.data && data.data.length > 0) {
+                    const task = data.data[0];
+                    
+                    // Update Smart Target
+                    updateProgressTarget(task.progress_text);
+
+                    if (task.status === 1) { // Success
+                        clearInterval(timer);
+                        stopSmartProgressBar(); // Force to 100%
+                        log("Done!", "log-success");
+                        handleSuccess(task);
+                        elements.submitBtn.disabled = false;
+                    } else if (task.status === 2) { // Failed
+                        clearInterval(timer);
+                        stopSmartProgressBar();
+                        log("Task Failed.", "log-error");
+                        elements.submitBtn.disabled = false;
+                    }
+                }
+            } catch (e) {
+                console.error("Poll error", e);
+            }
+        }, pollInterval);
+    }
+
+    function handleSuccess(task) {
+        try {
+            let result = task.result;
+            if (typeof result === 'string') result = JSON.parse(result);
+            if (Array.isArray(result)) result = result[0];
+
+            const baseUrl = getBaseUrl();
+            const fileUrl = result.url || result.file;
+            const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${baseUrl}/${fileUrl.replace(/^\//, '')}`;
+
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            
+            const metas = result.metas || {};
+            const metaHtml = `
+                <div class="result-meta">
+                    <strong>${(result.prompt || elements.prompt.value).substring(0, 50)}...</strong><br>
+                    <span>BPM: ${metas.bpm || '-'} | Key: ${metas.keyscale || '-'} | Dur: ${metas.duration || '-'}s</span>
+                </div>
+            `;
+
+            card.innerHTML = `
+                ${metaHtml}
+                <audio controls src="${fullUrl}"></audio>
+                <div style="margin-top:12px; display:flex; gap:10px;">
+                    <a href="${fullUrl}" download class="btn" style="padding:10px; font-size:0.8rem; background:#333; text-decoration:none; color:white; text-align:center;">Download</a>
+                </div>
+            `;
+
+            elements.resultsGrid.prepend(card);
+        } catch (e) {
+            log("Parsing error: " + e.message, "log-error");
+        }
+    }
+</script>
+
 </body>
 </html>

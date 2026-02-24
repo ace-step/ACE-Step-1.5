@@ -99,7 +99,7 @@ class LyricAlignmentMixinTests(unittest.TestCase):
                 }
 
         fake_module = types.SimpleNamespace(MusicStampsAligner=_FakeStampsAligner)
-        with patch.dict("sys.modules", {"acestep.dit_alignment_score": fake_module}):
+        with patch.dict("sys.modules", {"acestep.core.scoring.dit_alignment": fake_module}):
 
             result = host.get_lyric_timestamp(
                 pred_latent=pred,
@@ -141,7 +141,7 @@ class LyricAlignmentMixinTests(unittest.TestCase):
                 return {"lyrics_score": 0.77, "final_score": 0.66}
 
         fake_module = types.SimpleNamespace(MusicLyricScorer=_FakeLyricScorer)
-        with patch.dict("sys.modules", {"acestep.dit_alignment_score": fake_module}):
+        with patch.dict("sys.modules", {"acestep.core.scoring.dit_score": fake_module}):
 
             result = host.get_lyric_score(
                 pred_latent=pred,

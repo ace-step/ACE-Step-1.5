@@ -110,7 +110,7 @@ class LyricTimestampMixin(LyricAlignmentCommonMixin):
             )
             pure_lyric_matrix = all_layers_matrix[:, :, start_idx:end_idx, :]
 
-            from acestep.dit_alignment_score import MusicStampsAligner
+            from acestep.core.scoring.dit_alignment import MusicStampsAligner
 
             aligner = MusicStampsAligner(self.text_tokenizer)
             align_info = aligner.stamps_align_info(

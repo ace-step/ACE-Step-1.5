@@ -53,6 +53,36 @@ def is_mps_platform() -> bool:
         return False
 
 
+def is_cuda_available() -> bool:
+    """Return whether CUDA runtime is available."""
+    try:
+        import torch
+
+        return torch.cuda.is_available()
+    except Exception:
+        return False
+
+
+def is_mps_available() -> bool:
+    """Return whether MPS runtime is available."""
+    try:
+        import torch
+
+        return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    except Exception:
+        return False
+
+
+def is_xpu_available() -> bool:
+    """Return whether XPU runtime is available."""
+    try:
+        import torch
+
+        return hasattr(torch, "xpu") and torch.xpu.is_available()
+    except Exception:
+        return False
+
+
 # ===========================================================================
 # Empirical VRAM measurements (GB) -- model weights only, bf16 precision
 # These values should be calibrated using scripts/profile_vram.py

@@ -87,6 +87,7 @@ class LLMHandler:
                         self.llm.reset()
                 except Exception:
                     pass
+                self._cleanup_torch_distributed_state()
             self.llm = None
             self.llm_tokenizer = None
             self.constrained_processor = None
@@ -112,6 +113,16 @@ class LLMHandler:
                 torch.xpu.synchronize()
         except Exception:
             pass
+
+    def _cleanup_torch_distributed_state(self) -> None:
+        """Destroy default torch distributed process group when already initialized."""
+        try:
+            import torch.distributed as dist
+            if dist.is_available() and dist.is_initialized():
+                logger.warning("[LLM vLLM] Destroying stale default process group before/after vLLM lifecycle")
+                dist.destroy_process_group()
+        except Exception as exc:
+            logger.warning(f"[LLM vLLM] Failed to clean torch distributed state: {exc}")
 
     def _get_checkpoint_dir(self) -> str:
         """Get checkpoint directory, prioritizing persistent storage"""
@@ -668,6 +679,7 @@ class LLMHandler:
             device_name = torch.cuda.get_device_name(current_device)
 
             torch.cuda.empty_cache()
+            self._cleanup_torch_distributed_state()
 
             # Use adaptive GPU memory utilization based on model size
             gpu_memory_utilization, low_gpu_memory_mode = self.get_gpu_memory_utilization(
@@ -3916,8 +3928,8 @@ class LLMHandler:
 
                 # When offload_to_cpu is enabled, keep the model on CPU to save
                 # VRAM.  The caller (_load_scoring_model_context in
-                # test_time_scaling.py) will move it to the accelerator only for
-                # the duration of the forward pass.
+                # core/scoring/lm_score.py) will move it to the accelerator only
+                # for the duration of the forward pass.
                 if self.offload_to_cpu:
                     self._hf_model_for_scoring.eval()
                     logger.info("HuggingFace model for scoring kept on CPU (offload_to_cpu=True)")

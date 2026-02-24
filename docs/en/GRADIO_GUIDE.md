@@ -368,6 +368,8 @@ The "Batch Results & Generation Details" accordion contains:
 
 The LoRA Training tab provides tools for creating custom LoRA adapters.
 
+> 📖 **For a comprehensive step-by-step walkthrough** (data preparation, annotation, preprocessing, training, and export), see the [LoRA Training Tutorial](./LoRA_Training_Tutorial.md).
+
 ### Dataset Builder Tab
 
 #### Step 1: Load or Scan

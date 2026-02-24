@@ -46,6 +46,7 @@ class ServiceGenerateRequestMixin:
         audio_code_hints: Optional[Union[str, List[str]]],
         infer_steps: int,
         seed: Optional[Union[int, List[int]]],
+        return_intermediate: bool = False,
     ) -> Dict[str, Any]:
         """Normalize scalar/list generation inputs and clamp turbo infer steps."""
         if self.config.is_turbo and infer_steps > 8:
@@ -126,4 +127,5 @@ class ServiceGenerateRequestMixin:
             "audio_code_hints": audio_code_hints,
             "infer_steps": infer_steps,
             "seed_list": self._build_service_seed_list(seed=seed, batch_size=batch_size),
+            "return_intermediate": return_intermediate,
         }

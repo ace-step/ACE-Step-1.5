@@ -27,13 +27,14 @@ import tempfile
 import urllib.parse
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 from loguru import logger
+import torch
 
 try:
     from dotenv import load_dotenv
@@ -44,12 +45,15 @@ from fastapi import FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.datastructures import UploadFile as StarletteUploadFile
+from acestep.api.train_api_service import (
+    initialize_training_state,
+    register_training_api_routes,
+)
 
 from acestep.handler import AceStepHandler
 from acestep.llm_inference import LLMHandler
 from acestep.constants import (
     DEFAULT_DIT_INSTRUCTION,
-    DEFAULT_LM_INSTRUCTION,
     TASK_INSTRUCTIONS,
 )
 from acestep.inference import (
@@ -59,16 +63,12 @@ from acestep.inference import (
     create_sample,
     format_sample,
 )
-from acestep.gradio_ui.events.results_handlers import _build_generation_info
+from acestep.ui.gradio.events.results_handlers import _build_generation_info
 from acestep.gpu_config import (
     get_gpu_config,
-    get_gpu_memory_gb,
-    print_gpu_config_info,
     set_global_gpu_config,
     get_recommended_lm_model,
     is_lm_model_supported,
-    GPUConfig,
-    VRAM_16GB_MIN_GB,
     VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
 )
 
@@ -383,27 +383,27 @@ PARAM_ALIASES = {
 def _parse_description_hints(description: str) -> tuple[Optional[str], bool]:
     """
     Parse a description string to extract language code and instrumental flag.
-    
+
     This function analyzes user descriptions like "Pop rock. English" or "piano solo"
     to detect:
     - Language: Maps language names to ISO codes (e.g., "English" -> "en")
     - Instrumental: Detects patterns indicating instrumental/no-vocal music
-    
+
     Args:
         description: User's natural language music description
-        
+
     Returns:
         (language_code, is_instrumental) tuple:
         - language_code: ISO language code (e.g., "en", "zh") or None if not detected
         - is_instrumental: True if description indicates instrumental music
     """
     import re
-    
+
     if not description:
         return None, False
-    
+
     description_lower = description.lower().strip()
-    
+
     # Language mapping: input patterns -> ISO code
     language_mapping = {
         'english': 'en', 'en': 'en',
@@ -426,7 +426,7 @@ def _parse_description_hints(description: str) -> tuple[Optional[str], bool]:
         'dutch': 'nl', 'nl': 'nl',
         'polish': 'pl', 'pl': 'pl',
     }
-    
+
     # Detect language
     detected_language = None
     for lang_name, lang_code in language_mapping.items():
@@ -434,11 +434,11 @@ def _parse_description_hints(description: str) -> tuple[Optional[str], bool]:
             pattern = r'(?:^|\s|[.,;:!?])' + re.escape(lang_name) + r'(?:$|\s|[.,;:!?])'
         else:
             pattern = r'\b' + re.escape(lang_name) + r'\b'
-        
+
         if re.search(pattern, description_lower):
             detected_language = lang_code
             break
-    
+
     # Detect instrumental
     is_instrumental = False
     if 'instrumental' in description_lower:
@@ -447,7 +447,7 @@ def _parse_description_hints(description: str) -> tuple[Optional[str], bool]:
         is_instrumental = True
     elif description_lower.endswith(' solo') or description_lower == 'solo':
         is_instrumental = True
-    
+
     return detected_language, is_instrumental
 
 
@@ -540,12 +540,221 @@ class GenerateMusicRequest(BaseModel):
         allow_population_by_alias = True
 
 
+class LoadLoRARequest(BaseModel):
+    lora_path: str = Field(..., description="Path to LoRA adapter directory or LoKr/LyCORIS safetensors file")
+    adapter_name: Optional[str] = Field(default=None, description="Optional adapter name (uses path-derived name if omitted)")
+
+
+class SetLoRAScaleRequest(BaseModel):
+    adapter_name: Optional[str] = Field(default=None, description="Optional adapter name; defaults to active adapter")
+    scale: float = Field(..., ge=0.0, le=1.0, description="LoRA scale (0.0-1.0)")
+
+
+class ToggleLoRARequest(BaseModel):
+    use_lora: bool = Field(..., description="Enable or disable LoRA")
+
+
+def _stop_tensorboard(app: FastAPI) -> None:
+    """Stop TensorBoard process if running."""
+    try:
+        proc = getattr(app.state, "tensorboard_process", None)
+    except Exception:
+        proc = None
+
+    if proc is None:
+        return
+
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=3)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        app.state.tensorboard_process = None
+    except Exception:
+        pass
+
+
+def _start_tensorboard(app: FastAPI, logdir: str) -> Optional[str]:
+    """(Re)start TensorBoard with the given logdir and return URL if successful."""
+    try:
+        import subprocess
+        import sys
+        import os
+
+        tensorboard_port = int(os.getenv("TENSORBOARD_PORT", "6006"))
+        _stop_tensorboard(app)
+
+        # Use virtual environment's tensorboard if available
+        if sys.prefix != sys.base_prefix:  # Running in virtual environment
+            tensorboard_cmd = os.path.join(sys.prefix, "Scripts", "tensorboard.exe")
+            if not os.path.exists(tensorboard_cmd):
+                tensorboard_cmd = os.path.join(sys.prefix, "bin", "tensorboard")
+            if not os.path.exists(tensorboard_cmd):
+                # Fallback to system tensorboard if venv version not found
+                tensorboard_cmd = "tensorboard"
+        else:
+            tensorboard_cmd = "tensorboard"
+
+        app.state.tensorboard_process = subprocess.Popen(
+            [
+                tensorboard_cmd,
+                "--logdir",
+                logdir,
+                "--port",
+                str(tensorboard_port),
+                "--bind_all",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return f"http://localhost:{tensorboard_port}"
+    except Exception:
+        return None
+
+
+@contextmanager
+def _temporary_llm_model(app: FastAPI, llm: "LLMHandler", lm_model_path: Optional[str]):
+    """Temporarily switch LLM model for a critical section and restore afterward.
+
+    This is intentionally best-effort and conservative:
+    - If lm_model_path is empty/None -> no-op
+    - If LLM isn't initialized -> no-op (handlers already validate this)
+    - Uses app.state._llm_init_lock to serialize LLM re-inits
+    """
+    desired = (lm_model_path or "").strip()
+    if not desired:
+        yield
+        return
+
+    if llm is None or not getattr(llm, "llm_initialized", False):
+        yield
+        return
+
+    lock = getattr(app.state, "_llm_init_lock", None)
+    if lock is None:
+        yield
+        return
+
+    with lock:
+        prev_params = getattr(llm, "last_init_params", None)
+        prev_model = (prev_params or {}).get("lm_model_path") if isinstance(prev_params, dict) else None
+        if prev_model and prev_model.strip() == desired:
+            yield
+            return
+
+        project_root = _get_project_root()
+        checkpoint_dir = os.path.join(project_root, "checkpoints")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+        lm_model_name = _get_model_name(desired)
+        if lm_model_name:
+            try:
+                _ensure_model_downloaded(lm_model_name, checkpoint_dir)
+            except Exception:
+                pass
+
+        restore_params = prev_params if isinstance(prev_params, dict) else None
+
+        ok_switched = False
+        try:
+            new_params = dict(restore_params) if restore_params else {
+                "checkpoint_dir": checkpoint_dir,
+                "backend": os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower() or "vllm",
+                "device": os.getenv("ACESTEP_LM_DEVICE", os.getenv("ACESTEP_DEVICE", "auto")),
+                "offload_to_cpu": _env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False),
+                "dtype": None,
+            }
+            new_params["checkpoint_dir"] = checkpoint_dir
+            new_params["lm_model_path"] = desired
+
+            status, ok = llm.initialize(**new_params)
+            if ok:
+                ok_switched = True
+                try:
+                    app.state._llm_initialized = True
+                    app.state._llm_init_error = None
+                except Exception:
+                    pass
+            else:
+                try:
+                    app.state._llm_initialized = False
+                    app.state._llm_init_error = status
+                except Exception:
+                    pass
+        except Exception as e:
+            try:
+                app.state._llm_initialized = False
+                app.state._llm_init_error = str(e)
+            except Exception:
+                pass
+
+        try:
+            yield
+        finally:
+            if not ok_switched:
+                return
+            if not restore_params:
+                return
+            try:
+                llm.initialize(**restore_params)
+                try:
+                    app.state._llm_initialized = True
+                    app.state._llm_init_error = None
+                except Exception:
+                    pass
+            except Exception as e:
+                try:
+                    app.state._llm_initialized = False
+                    app.state._llm_init_error = str(e)
+                except Exception:
+                    pass
+
+
+def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
+    """Write JSON atomically to reduce corruption risk during incremental saves."""
+
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", suffix=".json", dir=directory or None)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+        raise
+
+
+def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
+    """Append a single JSONL record for audit/progress tracing."""
+
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 class CreateJobResponse(BaseModel):
     task_id: str
     status: JobStatus
     queue_position: int = 0  # 1-based best-effort position when queued
     progress_text: Optional[str] = ""
-    
+
 
 class JobResult(BaseModel):
     first_audio_path: Optional[str] = None
@@ -562,7 +771,7 @@ class JobResult(BaseModel):
     genres: Optional[str] = None
     keyscale: Optional[str] = None
     timesignature: Optional[str] = None
-    
+
     # Model information
     lm_model: Optional[str] = None
     dit_model: Optional[str] = None
@@ -721,7 +930,7 @@ class _JobStore:
                 if rec.status in stats:
                     stats[rec.status] += 1
             return stats
-    
+
     def update_status_text(self, job_id: str, text: str) -> None:
         with self._lock:
             if job_id in self._jobs:
@@ -744,10 +953,10 @@ def _env_bool(name: str, default: bool) -> bool:
 def _get_model_name(config_path: str) -> str:
     """
     Extract model name from config_path.
-    
+
     Args:
         config_path: Path like "acestep-v15-turbo" or "/path/to/acestep-v15-turbo"
-        
+
     Returns:
         Model name (last directory name from config_path)
     """
@@ -903,13 +1112,13 @@ def _validate_audio_path(path: Optional[str]) -> Optional[str]:
 
     Accepts absolute paths strictly only if they are within the system temporary directory.
     Otherwise, rejects absolute paths and paths containing '..' traversal sequences.
-    
+
     Returns the validated, normalized path or None if the input is None/empty.
     Raises HTTPException 400 if the path is unsafe.
     """
     if not path:
         return None
-    
+
     # Resolve requested path and system temp path to normalized absolute forms
     import tempfile
     system_temp = os.path.realpath(tempfile.gettempdir())
@@ -1065,12 +1274,12 @@ def create_app() -> FastAPI:
         handler3 = None
         config_path2 = os.getenv("ACESTEP_CONFIG_PATH2", "").strip()
         config_path3 = os.getenv("ACESTEP_CONFIG_PATH3", "").strip()
-        
+
         if config_path2:
             handler2 = AceStepHandler()
         if config_path3:
             handler3 = AceStepHandler()
-        
+
         app.state.handler2 = handler2
         app.state.handler3 = handler3
         app.state._initialized2 = False
@@ -1100,7 +1309,8 @@ def create_app() -> FastAPI:
         app.state.executor = executor
         app.state.job_store = store
         app.state._python_executable = sys.executable
-        
+        initialize_training_state(app)
+
         # Temporary directory for saving generated audio files
         app.state.temp_audio_dir = os.path.join(tmp_root, "api_audio")
         os.makedirs(app.state.temp_audio_dir, exist_ok=True)
@@ -1253,15 +1463,15 @@ def create_app() -> FastAPI:
             await _ensure_initialized()
             job_store.mark_running(job_id)
             _update_local_cache_progress(job_id, 0.01, "running")
-            
+
             # Select DiT handler based on user's model choice
             # Default: use primary handler
             selected_handler: AceStepHandler = app.state.handler
             selected_model_name = _get_model_name(app.state._config_path)
-            
+
             if req.model:
                 model_matched = False
-                
+
                 # Check if it matches the second model
                 if app.state.handler2 and getattr(app.state, "_initialized2", False):
                     model2_name = _get_model_name(app.state._config_path2)
@@ -1270,7 +1480,7 @@ def create_app() -> FastAPI:
                         selected_model_name = model2_name
                         model_matched = True
                         print(f"[API Server] Job {job_id}: Using second model: {model2_name}")
-                
+
                 # Check if it matches the third model
                 if not model_matched and app.state.handler3 and getattr(app.state, "_initialized3", False):
                     model3_name = _get_model_name(app.state._config_path3)
@@ -1279,7 +1489,7 @@ def create_app() -> FastAPI:
                         selected_model_name = model3_name
                         model_matched = True
                         print(f"[API Server] Job {job_id}: Using third model: {model3_name}")
-                
+
                 if not model_matched:
                     available_models = [_get_model_name(app.state._config_path)]
                     if app.state.handler2 and getattr(app.state, "_initialized2", False):
@@ -1287,7 +1497,7 @@ def create_app() -> FastAPI:
                     if app.state.handler3 and getattr(app.state, "_initialized3", False):
                         available_models.append(_get_model_name(app.state._config_path3))
                     print(f"[API Server] Job {job_id}: Model '{req.model}' not found in {available_models}, using primary: {selected_model_name}")
-            
+
             # Use selected handler for generation
             h: AceStepHandler = selected_handler
 
@@ -1310,7 +1520,7 @@ def create_app() -> FastAPI:
                                 "in .env or environment variables. For this request, optional LLM features "
                                 "(use_cot_caption, use_cot_language) will be auto-disabled."
                             )
-                            print(f"[API Server] LLM lazy load blocked: LLM was not initialized at startup")
+                            print("[API Server] LLM lazy load blocked: LLM was not initialized at startup")
                             return
 
                         project_root = _get_project_root()
@@ -1427,7 +1637,7 @@ def create_app() -> FastAPI:
                 # Save original user input for metas
                 original_prompt = req.prompt or ""
                 original_lyrics = req.lyrics or ""
-                
+
                 if sample_mode or has_sample_query:
                     # Parse description hints from sample_query (if provided)
                     sample_query = req.sample_query if has_sample_query else "NO USER INPUT"
@@ -1471,7 +1681,7 @@ def create_app() -> FastAPI:
                     _ensure_llm_ready()
                     if getattr(app.state, "_llm_init_error", None):
                         raise RuntimeError(f"5Hz LM init failed (needed for format): {app.state._llm_init_error}")
-                    
+
                     # Build user_metadata from request params (matching bot.py behavior)
                     user_metadata_for_format = {}
                     if bpm is not None:
@@ -1484,7 +1694,7 @@ def create_app() -> FastAPI:
                         user_metadata_for_format['timesignature'] = time_signature
                     if req.vocal_language and req.vocal_language != "unknown":
                         user_metadata_for_format['language'] = req.vocal_language
-                    
+
                     format_result = format_sample(
                         llm_handler=llm,
                         caption=caption,
@@ -1495,7 +1705,7 @@ def create_app() -> FastAPI:
                         top_p=lm_top_p if lm_top_p < 1.0 else None,
                         use_constrained_decoding=True,
                     )
-                    
+
                     if format_result.success:
                         # Extract all formatted data (matching bot.py behavior)
                         caption = format_result.caption or caption
@@ -1513,15 +1723,12 @@ def create_app() -> FastAPI:
                 # Parse timesteps string to list of floats if provided
                 parsed_timesteps = _parse_timesteps(req.timesteps)
 
-                # Determine actual inference steps (timesteps override inference_steps)
-                actual_inference_steps = len(parsed_timesteps) if parsed_timesteps else req.inference_steps
-
                 # Auto-select instruction based on task_type if user didn't provide custom instruction
                 # This matches gradio behavior which uses TASK_INSTRUCTIONS for each task type
                 instruction_to_use = req.instruction
                 if instruction_to_use == DEFAULT_DIT_INSTRUCTION and req.task_type in TASK_INSTRUCTIONS:
                     raw_instruction = TASK_INSTRUCTIONS[req.task_type]
-                    
+
                     if req.task_type == "complete":
                          #  Use track_classes joined by pipes
                          if req.track_classes:
@@ -1783,23 +1990,23 @@ def create_app() -> FastAPI:
                 # Get metadata from LM or CoT results
                 lm_metadata = result.extra_outputs.get("lm_metadata", {})
                 metas_out = _normalize_metas(lm_metadata)
-                
+
                 # Update metas with actual values used
                 if params.cot_bpm:
                     metas_out["bpm"] = params.cot_bpm
                 elif bpm:
                     metas_out["bpm"] = bpm
-                    
+
                 if params.cot_duration:
                     metas_out["duration"] = params.cot_duration
                 elif audio_duration:
                     metas_out["duration"] = audio_duration
-                    
+
                 if params.cot_keyscale:
                     metas_out["keyscale"] = params.cot_keyscale
                 elif key_scale:
                     metas_out["keyscale"] = key_scale
-                    
+
                 if params.cot_timesignature:
                     metas_out["timesignature"] = params.cot_timesignature
                 elif time_signature:
@@ -1840,7 +2047,7 @@ def create_app() -> FastAPI:
                 lm_model_name = os.getenv("ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-0.6B")
                 # Use selected_model_name (set at the beginning of _run_one_job)
                 dit_model_name = selected_model_name
-                
+
                 return {
                     "first_audio_path": _path_to_audio_url(first_audio) if first_audio else None,
                     "second_audio_path": _path_to_audio_url(second_audio) if second_audio else None,
@@ -1989,9 +2196,9 @@ def create_app() -> FastAPI:
             print("[API Server] Initializing models at startup...")
 
             if auto_offload:
-                print(f"[API Server] Auto-enabling CPU offload (GPU < 16GB)")
+                print("[API Server] Auto-enabling CPU offload (GPU < 16GB)")
             elif gpu_memory_gb > 0:
-                print(f"[API Server] CPU offload disabled by default (GPU >= 16GB)")
+                print("[API Server] CPU offload disabled by default (GPU >= 16GB)")
             else:
                 print("[API Server] No GPU detected, running on CPU")
 
@@ -2007,7 +2214,7 @@ def create_app() -> FastAPI:
             else:
                 offload_to_cpu = auto_offload
                 if auto_offload:
-                    print(f"[API Server] Auto-setting offload_to_cpu=True based on GPU memory")
+                    print("[API Server] Auto-setting offload_to_cpu=True based on GPU memory")
 
             offload_dit_to_cpu = _env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
             compile_model = _env_bool("ACESTEP_COMPILE_MODEL", False)
@@ -2121,19 +2328,19 @@ def create_app() -> FastAPI:
 
             # Step 2: Apply user override if set
             if not init_llm_env or init_llm_env == "auto":
-                print(f"[API Server] ACESTEP_INIT_LLM=auto, using GPU auto-detection result")
+                print("[API Server] ACESTEP_INIT_LLM=auto, using GPU auto-detection result")
             elif init_llm_env in {"1", "true", "yes", "y", "on"}:
                 if init_llm:
-                    print(f"[API Server] ACESTEP_INIT_LLM=true (GPU already supports LLM, no override needed)")
+                    print("[API Server] ACESTEP_INIT_LLM=true (GPU already supports LLM, no override needed)")
                 else:
                     init_llm = True
-                    print(f"[API Server] ACESTEP_INIT_LLM=true, overriding GPU auto-detection (force enable)")
+                    print("[API Server] ACESTEP_INIT_LLM=true, overriding GPU auto-detection (force enable)")
             else:
                 if not init_llm:
-                    print(f"[API Server] ACESTEP_INIT_LLM=false (GPU already disabled LLM, no override needed)")
+                    print("[API Server] ACESTEP_INIT_LLM=false (GPU already disabled LLM, no override needed)")
                 else:
                     init_llm = False
-                    print(f"[API Server] ACESTEP_INIT_LLM=false, overriding GPU auto-detection (force disable)")
+                    print("[API Server] ACESTEP_INIT_LLM=false, overriding GPU auto-detection (force disable)")
 
             if init_llm:
                 print("[API Server] Loading LLM model...")
@@ -2324,7 +2531,7 @@ def create_app() -> FastAPI:
             if not isinstance(body, dict):
                 raise HTTPException(status_code=400, detail="JSON payload must be an object")
             verify_token_from_request(body, authorization)
-            
+
             # Explicitly validate manual string paths from JSON input
             p = RequestParser(body)
             req = _build_request(
@@ -2338,7 +2545,7 @@ def create_app() -> FastAPI:
             if not isinstance(body, dict):
                 raise HTTPException(status_code=400, detail="JSON payload must be an object")
             verify_token_from_request(body, authorization)
-            
+
             p = RequestParser(body)
             req = _build_request(
                 p,
@@ -2348,7 +2555,7 @@ def create_app() -> FastAPI:
 
         elif content_type.startswith("multipart/form-data"):
             form = await request.form()
-            
+
             # Parse form data correctly to support lists ---
             form_dict = {}
             for k in form.keys():
@@ -2610,7 +2817,7 @@ def create_app() -> FastAPI:
     async def list_models(_: None = Depends(verify_api_key)):
         """List available DiT models."""
         models = []
-        
+
         # Primary model (always available if initialized)
         if getattr(app.state, "_initialized", False):
             primary_model = _get_model_name(app.state._config_path)
@@ -2619,7 +2826,7 @@ def create_app() -> FastAPI:
                     "name": primary_model,
                     "is_default": True,
                 })
-        
+
         # Secondary model
         if getattr(app.state, "_initialized2", False) and app.state._config_path2:
             secondary_model = _get_model_name(app.state._config_path2)
@@ -2628,7 +2835,7 @@ def create_app() -> FastAPI:
                     "name": secondary_model,
                     "is_default": False,
                 })
-        
+
         # Third model
         if getattr(app.state, "_initialized3", False) and app.state._config_path3:
             third_model = _get_model_name(app.state._config_path3)
@@ -2637,7 +2844,7 @@ def create_app() -> FastAPI:
                     "name": third_model,
                     "is_default": False,
                 })
-        
+
         return _wrap_response({
             "models": models,
             "default_model": models[0]["name"] if models else None,
@@ -2721,8 +2928,6 @@ def create_app() -> FastAPI:
 
                 lm_device = os.getenv("ACESTEP_LM_DEVICE", os.getenv("ACESTEP_DEVICE", "auto"))
                 lm_offload = _env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False)
-
-                h: AceStepHandler = app.state.handler
                 status, ok = llm.initialize(
                     checkpoint_dir=checkpoint_dir,
                     lm_model_path=lm_model_path,
@@ -2805,6 +3010,218 @@ def create_app() -> FastAPI:
             })
         except Exception as e:
             return _wrap_response(None, code=500, error=f"format_sample error: {str(e)}")
+
+    @app.post("/v1/lora/load")
+    async def load_lora_endpoint(request: LoadLoRARequest, _: None = Depends(verify_api_key)):
+        """Load LoRA adapter into the primary model."""
+        handler: AceStepHandler = app.state.handler
+
+        if handler is None or handler.model is None:
+            raise HTTPException(status_code=500, detail="Model not initialized")
+
+        try:
+            adapter_name = request.adapter_name.strip() if isinstance(request.adapter_name, str) else None
+            if adapter_name:
+                result = handler.add_lora(request.lora_path, adapter_name=adapter_name)
+            else:
+                result = handler.load_lora(request.lora_path)
+
+            if result.startswith("✅"):
+                response_data = {"message": result, "lora_path": request.lora_path}
+                if adapter_name:
+                    response_data["adapter_name"] = adapter_name
+                return _wrap_response(response_data)
+            else:
+                raise HTTPException(status_code=400, detail=result)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load LoRA: {str(e)}")
+
+    @app.post("/v1/lora/unload")
+    async def unload_lora_endpoint(_: None = Depends(verify_api_key)):
+        """Unload LoRA adapter and restore base model."""
+        handler: AceStepHandler = app.state.handler
+
+        if handler is None or handler.model is None:
+            raise HTTPException(status_code=500, detail="Model not initialized")
+
+        try:
+            result = handler.unload_lora()
+
+            if result.startswith("✅") or result.startswith("⚠️"):
+                return _wrap_response({"message": result})
+            else:
+                raise HTTPException(status_code=400, detail=result)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to unload LoRA: {str(e)}")
+
+    @app.post("/v1/lora/toggle")
+    async def toggle_lora_endpoint(request: ToggleLoRARequest, _: None = Depends(verify_api_key)):
+        """Enable or disable LoRA adapter for inference."""
+        handler: AceStepHandler = app.state.handler
+
+        if handler is None or handler.model is None:
+            raise HTTPException(status_code=500, detail="Model not initialized")
+
+        try:
+            result = handler.set_use_lora(request.use_lora)
+
+            if result.startswith("✅"):
+                return _wrap_response({"message": result, "use_lora": request.use_lora})
+            else:
+                return _wrap_response(None, code=400, error=result)
+        except Exception as e:
+            return _wrap_response(None, code=500, error=f"Failed to toggle LoRA: {str(e)}")
+
+    @app.post("/v1/lora/scale")
+    async def set_lora_scale_endpoint(request: SetLoRAScaleRequest, _: None = Depends(verify_api_key)):
+        """Set LoRA adapter scale/strength (0.0-1.0)."""
+        handler: AceStepHandler = app.state.handler
+
+        if handler is None or handler.model is None:
+            raise HTTPException(status_code=500, detail="Model not initialized")
+
+        try:
+            adapter_name = request.adapter_name.strip() if isinstance(request.adapter_name, str) else None
+            if adapter_name:
+                result = handler.set_lora_scale(adapter_name, request.scale)
+            else:
+                result = handler.set_lora_scale(request.scale)
+
+            if result.startswith("✅") or result.startswith("⚠️"):
+                response_data = {"message": result, "scale": request.scale}
+                if adapter_name:
+                    response_data["adapter_name"] = adapter_name
+                return _wrap_response(response_data)
+            else:
+                return _wrap_response(None, code=400, error=result)
+        except Exception as e:
+            return _wrap_response(None, code=500, error=f"Failed to set LoRA scale: {str(e)}")
+
+    @app.get("/v1/lora/status")
+    async def get_lora_status_endpoint(_: None = Depends(verify_api_key)):
+        """Get current LoRA/LoKr adapter state for the primary handler."""
+        handler: AceStepHandler = app.state.handler
+
+        if handler is None or handler.model is None:
+            raise HTTPException(status_code=500, detail="Model not initialized")
+
+        status = handler.get_lora_status()
+        return _wrap_response({
+            # Legacy fields for existing clients
+            "lora_loaded": bool(status.get("loaded", getattr(handler, "lora_loaded", False))),
+            "use_lora": bool(status.get("active", getattr(handler, "use_lora", False))),
+            "lora_scale": float(status.get("scale", getattr(handler, "lora_scale", 1.0))),
+            "adapter_type": getattr(handler, "_adapter_type", None),
+            # Extended fields from refactored LoRA service
+            "scales": status.get("scales", {}),
+            "active_adapter": status.get("active_adapter"),
+            "adapters": status.get("adapters", []),
+            "synthetic_default_mode": bool(status.get("synthetic_default_mode", False)),
+        })
+
+    @app.post("/v1/reinitialize")
+    async def reinitialize_service(_: None = Depends(verify_api_key)):
+        """Reinitialize components that were unloaded during training/preprocessing."""
+        handler: AceStepHandler = app.state.handler
+        llm: LLMHandler = app.state.llm_handler
+
+        if handler is None:
+            raise HTTPException(status_code=500, detail="Service not initialized")
+
+        try:
+            import gc
+            reloaded = []
+
+            # Reload full handler stack if critical components were destroyed.
+            # This is the only reliable recovery path from legacy code that set
+            # handler.vae/text_encoder/model.encoder = None.
+            params = getattr(handler, "last_init_params", None) or None
+            if params and (handler.model is None or handler.vae is None or handler.text_encoder is None):
+                status, ok = handler.initialize_service(
+                    project_root=params["project_root"],
+                    config_path=params["config_path"],
+                    device=params["device"],
+                    use_flash_attention=params["use_flash_attention"],
+                    compile_model=params["compile_model"],
+                    offload_to_cpu=params["offload_to_cpu"],
+                    offload_dit_to_cpu=params["offload_dit_to_cpu"],
+                    quantization=params.get("quantization"),
+                    prefer_source=params.get("prefer_source"),
+                    use_mlx_dit=params.get("use_mlx_dit", True),
+                )
+                if ok:
+                    reloaded.append("DiT/VAE/Text Encoder")
+
+            # Reload LLM if needed
+            if llm and not llm.llm_initialized:
+                llm_params = getattr(llm, "last_init_params", None)
+                if llm_params is None:
+                    project_root = _get_project_root()
+                    checkpoint_dir = os.path.join(project_root, "checkpoints")
+                    lm_model_path = os.getenv("ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-0.6B").strip()
+                    backend = os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower()
+                    lm_device = os.getenv("ACESTEP_LM_DEVICE", os.getenv("ACESTEP_DEVICE", "auto"))
+                    lm_offload = _env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False)
+                    llm_params = {
+                        "checkpoint_dir": checkpoint_dir,
+                        "lm_model_path": lm_model_path,
+                        "backend": backend,
+                        "device": lm_device,
+                        "offload_to_cpu": lm_offload,
+                        "dtype": None,
+                    }
+
+                status, ok = llm.initialize(**llm_params)
+                if ok:
+                    reloaded.append("LLM")
+                    try:
+                        app.state._llm_initialized = True
+                        app.state._llm_init_error = None
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        app.state._llm_initialized = False
+                        app.state._llm_init_error = status
+                    except Exception:
+                        pass
+
+            # Reload model components if needed
+            if handler.model is not None:
+                # Check if decoder is on CPU, move to GPU
+                if hasattr(handler.model, 'decoder') and handler.model.decoder is not None:
+                    first_param = next(handler.model.decoder.parameters(), None)
+                    if first_param is not None and first_param.device.type == "cpu":
+                        handler.model.decoder = handler.model.decoder.to(handler.device).to(handler.dtype)
+                        reloaded.append("Decoder (moved to GPU)")
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            message = "✅ Service reinitialized"
+            if reloaded:
+                message += f"\n🔄 Reloaded: {', '.join(reloaded)}"
+
+            return _wrap_response({"message": message, "reloaded": reloaded})
+
+        except Exception as e:
+            return _wrap_response(None, code=500, error=f"Reinitialization failed: {str(e)}")
+
+    register_training_api_routes(
+        app=app,
+        verify_api_key=verify_api_key,
+        wrap_response=_wrap_response,
+        start_tensorboard=_start_tensorboard,
+        stop_tensorboard=_stop_tensorboard,
+        temporary_llm_model=_temporary_llm_model,
+        atomic_write_json=_atomic_write_json,
+        append_jsonl=_append_jsonl,
+    )
 
     @app.get("/v1/audio")
     async def get_audio(path: str, request: Request, _: None = Depends(verify_api_key)):

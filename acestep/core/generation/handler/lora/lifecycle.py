@@ -13,13 +13,47 @@ from acestep.training.configs import LoKRConfig
 LOKR_WEIGHTS_FILENAME = "lokr_weights.safetensors"
 
 
+def _is_lokr_safetensors(weights_path: str) -> bool:
+    """Return whether ``weights_path`` looks like a LoKr/LyCORIS safetensors file."""
+    if not os.path.isfile(weights_path) or not weights_path.lower().endswith(".safetensors"):
+        return False
+    if os.path.basename(weights_path) == LOKR_WEIGHTS_FILENAME:
+        return True
+
+    try:
+        from safetensors import safe_open
+    except ImportError:
+        return False
+
+    try:
+        with safe_open(weights_path, framework="pt", device="cpu") as sf:
+            metadata: dict[str, Any] = sf.metadata() or {}
+    except Exception:
+        return False
+
+    raw_config = metadata.get("lokr_config")
+    return isinstance(raw_config, str) and bool(raw_config.strip())
+
+
 def _resolve_lokr_weights_path(adapter_path: str) -> str | None:
     """Return LoKr safetensors path when ``adapter_path`` points to LoKr artifacts."""
     if os.path.isfile(adapter_path):
-        return adapter_path if os.path.basename(adapter_path) == LOKR_WEIGHTS_FILENAME else None
+        return adapter_path if _is_lokr_safetensors(adapter_path) else None
     if os.path.isdir(adapter_path):
         weights_path = os.path.join(adapter_path, LOKR_WEIGHTS_FILENAME)
-        return weights_path if os.path.exists(weights_path) else None
+        if os.path.exists(weights_path):
+            return weights_path
+
+        # Backward-compat: support custom LyCORIS safetensors filenames that
+        # carry ``lokr_config`` metadata.
+        try:
+            entries = os.listdir(adapter_path)
+        except OSError:
+            return None
+        for name in entries:
+            candidate = os.path.join(adapter_path, name)
+            if _is_lokr_safetensors(candidate):
+                return candidate
     return None
 
 
@@ -176,7 +210,7 @@ def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
 
     try:
         decoder = self.model.decoder
-        is_peft = isinstance(decoder, PeftModel)
+        is_peft = PeftModel is not None and isinstance(decoder, PeftModel)
 
         if not is_peft:
             # First LoRA: backup base once, then wrap with PEFT
@@ -199,17 +233,20 @@ def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
                 logger.info(f"Loading LoKr adapter from {lokr_weights_path} as '{effective_name}'")
                 _load_lokr_adapter(decoder, lokr_weights_path)
                 self.model.decoder = decoder
+                self._adapter_type = "lokr"
             else:
                 logger.info(f"Loading LoRA adapter from {lora_path} as '{effective_name}'")
                 self.model.decoder = PeftModel.from_pretrained(
                     decoder, lora_path, adapter_name=effective_name, is_trainable=False
                 )
+                self._adapter_type = "lora"
         else:
             # Already PEFT: load additional adapter (no base restore). LoKr not supported as second adapter.
             if lokr_weights_path is not None:
                 return "❌ LoKr cannot be added as a second adapter when PEFT is already loaded."
             logger.info(f"Loading additional LoRA from {lora_path} as '{effective_name}'")
             self.model.decoder.load_adapter(lora_path, adapter_name=effective_name)
+            self._adapter_type = "lora"
 
         self.model.decoder = self.model.decoder.to(self.device).to(self.dtype)
         self.model.decoder.eval()
@@ -250,8 +287,12 @@ def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
 
 
 def load_lora(self, lora_path: str) -> str:
-    """Load a single LoRA adapter (backward-compat). Uses path-derived adapter name."""
-    return self.add_lora(lora_path, adapter_name=None)
+    """Load a single adapter (backward-compat), including LyCORIS LoKr paths."""
+    lokr_weights_path = _resolve_lokr_weights_path(lora_path.strip()) if isinstance(lora_path, str) else None
+    message = self.add_lora(lora_path, adapter_name=None)
+    if lokr_weights_path is not None and message.startswith("✅"):
+        return f"✅ LoKr loaded from {lokr_weights_path}"
+    return message
 
 
 def add_voice_lora(self, lora_path: str, scale: float = 1.0) -> str:
@@ -283,6 +324,7 @@ def remove_lora(self, adapter_name: str) -> str:
         if not _active_loras:
             self.lora_loaded = False
             self.use_lora = False
+            self._adapter_type = None
         return "⚠️ Adapter removed from registry (decoder was not PEFT)."
 
     if adapter_name not in (getattr(decoder, "peft_config", None) or {}):
@@ -301,6 +343,7 @@ def remove_lora(self, adapter_name: str) -> str:
             if self._base_decoder is None:
                 self.lora_loaded = False
                 self.use_lora = False
+                self._adapter_type = None
                 self._active_loras.clear()
                 self._ensure_lora_registry()
                 self._lora_service.registry = {}
@@ -325,6 +368,7 @@ def remove_lora(self, adapter_name: str) -> str:
             self.model.decoder.eval()
             self.lora_loaded = False
             self.use_lora = False
+            self._adapter_type = None
             self._active_loras = {}
             self._ensure_lora_registry()
             self._lora_service.registry = {}
@@ -411,6 +455,7 @@ def unload_lora(self) -> str:
 
         self.lora_loaded = False
         self.use_lora = False
+        self._adapter_type = None
         self.lora_scale = 1.0
         _active_loras = getattr(self, "_active_loras", None)
         if _active_loras is not None:

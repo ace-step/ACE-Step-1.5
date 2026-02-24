@@ -14,9 +14,7 @@ import torch
 import torch.nn as nn
 from safetensors.torch import load_file
 
-# Restrict checkpoint-related filesystem access to a safe root.
-# This mirrors SAFE_TRAINING_ROOT in training_handlers.py.
-SAFE_CHECKPOINT_ROOT = os.path.abspath(os.getcwd())
+from acestep.training.path_safety import safe_path
 
 try:
     from peft import (
@@ -215,6 +213,7 @@ def save_lora_weights(
     Returns:
         Path to saved weights
     """
+    output_dir = safe_path(output_dir)
     os.makedirs(output_dir, exist_ok=True)
     
     if hasattr(model, 'decoder') and hasattr(model.decoder, 'save_pretrained'):
@@ -261,29 +260,27 @@ def load_lora_weights(
     Returns:
         Model with LoRA weights loaded
     """
-    safe_lora_path = _safe_checkpoint_dir(lora_path)
-    if safe_lora_path is None:
-        raise ValueError(f"Rejected unsafe LoRA path: {lora_path!r}")
-    if not os.path.exists(safe_lora_path):
-        raise FileNotFoundError(f"LoRA weights not found: {safe_lora_path}")
+    validated = safe_path(lora_path)
+    if not os.path.exists(validated):
+        raise FileNotFoundError(f"LoRA weights not found: {validated}")
     
     # Check if it's a PEFT adapter directory
-    if os.path.isdir(safe_lora_path):
+    if os.path.isdir(validated):
         if not PEFT_AVAILABLE:
             raise ImportError("PEFT library is required to load adapter. Install with: pip install peft")
         
         # Load PEFT adapter
-        model.decoder = PeftModel.from_pretrained(model.decoder, safe_lora_path)
-        logger.info(f"LoRA adapter loaded from {safe_lora_path}")
+        model.decoder = PeftModel.from_pretrained(model.decoder, validated)
+        logger.info(f"LoRA adapter loaded from {validated}")
     
-    elif safe_lora_path.endswith('.pt'):
+    elif validated.endswith('.pt'):
         raise ValueError(
             "Loading LoRA weights from .pt files is disabled for security. "
             "Use a PEFT adapter directory instead."
         )
     
     else:
-        raise ValueError(f"Unsupported LoRA weight format: {safe_lora_path}")
+        raise ValueError(f"Unsupported LoRA weight format: {validated}")
     
     return model
 
@@ -309,6 +306,7 @@ def save_training_checkpoint(
     Returns:
         Path to saved checkpoint directory
     """
+    output_dir = safe_path(output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     # Save LoRA adapter weights
@@ -327,27 +325,6 @@ def save_training_checkpoint(
 
     logger.info(f"Training checkpoint saved to {output_dir} (epoch {epoch}, step {global_step})")
     return output_dir
-
-
-def _safe_checkpoint_dir(user_dir: str) -> Optional[str]:
-    """Safely resolve a user-provided path within SAFE_CHECKPOINT_ROOT."""
-    if not user_dir:
-        return None
-    candidate = user_dir.strip()
-    if not candidate:
-        return None
-    safe_root = os.path.realpath(os.path.abspath(SAFE_CHECKPOINT_ROOT))
-    if os.path.isabs(candidate):
-        # Reject absolute paths to prevent escaping SAFE_CHECKPOINT_ROOT
-        return None
-    normalized = os.path.realpath(os.path.join(safe_root, candidate))
-    try:
-        common = os.path.commonpath([safe_root, normalized])
-    except ValueError:
-        return None
-    if common != safe_root:
-        return None
-    return normalized
 
 
 def load_training_checkpoint(
@@ -380,9 +357,10 @@ def load_training_checkpoint(
         "loaded_scheduler": False,
     }
 
-    # Normalize and validate checkpoint directory to stay within SAFE_CHECKPOINT_ROOT
-    safe_dir = _safe_checkpoint_dir(checkpoint_dir)
-    if safe_dir is None:
+    # Validate checkpoint directory
+    try:
+        safe_dir = safe_path(checkpoint_dir)
+    except ValueError:
         logger.warning(f"Rejected unsafe checkpoint directory: {checkpoint_dir!r}")
         return result
 
@@ -394,17 +372,12 @@ def load_training_checkpoint(
         result["adapter_path"] = safe_dir
 
     # Load training state (use safetensors; avoid unsafe pickle-based torch.load)
-    # safe_dir is already validated, so we can join directly
     state_path = os.path.join(safe_dir, "training_state.safetensors")
     if os.path.isfile(state_path):
-        # safetensors is a safe, non-executable tensor serialization format
         try:
-            # Convert device to string format expected by load_file
-            # PyTorch device objects have proper __str__ that produces "cpu", "cuda:0", etc.
             device_str = str(device) if device is not None else "cpu"
             training_state_tensors = load_file(state_path, device=device_str)
 
-            # Expect scalar tensors for epoch/global_step if present
             if "epoch" in training_state_tensors:
                 try:
                     result["epoch"] = int(training_state_tensors["epoch"].item())
@@ -416,9 +389,6 @@ def load_training_checkpoint(
                 except (ValueError, TypeError, RuntimeError) as e:
                     logger.warning(f"Failed to parse 'global_step' from training_state.safetensors: {e}, using default 0")
 
-            # For security, do not attempt to deserialize optimizer/scheduler state
-            # from arbitrary objects. If tensor-only states are added in the future,
-            # they can be wired here in a controlled way.
             logger.info(f"Loaded checkpoint metadata from epoch {result['epoch']}, step {result['global_step']}")
         except (OSError, RuntimeError, ValueError) as e:
             logger.warning(f"Failed to load training_state.safetensors: {e}")

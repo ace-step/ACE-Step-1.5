@@ -137,7 +137,7 @@ class LyricScoreMixin(LyricAlignmentCommonMixin):
             pure_matrix_lm = all_layers_matrix_lm[..., start_idx:end_idx, :]
             pure_matrix_dit = all_layers_matrix_dit[..., start_idx:end_idx, :]
 
-            from acestep.dit_alignment_score import MusicLyricScorer
+            from acestep.core.scoring.dit_score import MusicLyricScorer
 
             aligner = MusicLyricScorer(self.text_tokenizer)
             lm_score = self._calculate_single_lyric_score(

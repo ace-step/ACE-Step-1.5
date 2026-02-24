@@ -16,12 +16,16 @@ class ServiceGenerateOutputsMixin:
         encoder_hidden_states: torch.Tensor,
         encoder_attention_mask: torch.Tensor,
         context_latents: torch.Tensor,
+        return_intermediate: bool = True,
     ) -> Dict[str, Any]:
         """Attach intermediate tensors required by downstream consumers."""
+        outputs["spans"] = payload["spans"]
+        if not return_intermediate:
+            return outputs
+
         outputs["src_latents"] = payload["src_latents"]
         outputs["target_latents_input"] = payload["target_latents"]
         outputs["chunk_masks"] = payload["chunk_mask"]
-        outputs["spans"] = payload["spans"]
         outputs["latent_masks"] = batch.get("latent_masks")
         outputs["encoder_hidden_states"] = encoder_hidden_states
         outputs["encoder_attention_mask"] = encoder_attention_mask

@@ -12,6 +12,7 @@ import torch
 from loguru import logger
 
 from acestep.training.configs import LoKRConfig
+from acestep.training.path_safety import safe_path
 
 try:
     from lycoris import LycorisNetwork, create_lycoris
@@ -188,6 +189,7 @@ def save_lokr_weights(
     metadata: Optional[Dict[str, str]] = None,
 ) -> str:
     """Save LoKr weights to safetensors."""
+    output_dir = safe_path(output_dir)
     os.makedirs(output_dir, exist_ok=True)
     weights_path = os.path.join(output_dir, "lokr_weights.safetensors")
 
@@ -208,6 +210,7 @@ def save_lokr_weights(
 
 def load_lokr_weights(lycoris_net: "LycorisNetwork", weights_path: str) -> Dict[str, Any]:
     """Load LoKr weights into an injected LyCORIS network."""
+    weights_path = safe_path(weights_path)
     if not os.path.exists(weights_path):
         raise FileNotFoundError(f"LoKr weights not found: {weights_path}")
     result = lycoris_net.load_weights(weights_path)
@@ -226,6 +229,7 @@ def save_lokr_training_checkpoint(
     run_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Save LoKr weights plus optimizer/scheduler state."""
+    output_dir = safe_path(output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     metadata: Dict[str, Any] = {}

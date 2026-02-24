@@ -11,14 +11,14 @@ echo Checking Python...
 python --version
 
 REM Check if venv exists
-if not exist "..\\.venv" (
+if not exist "..\..\..\.venv" (
     echo Creating virtual environment...
-    python -m venv ..\\.venv
+    python -m venv ..\..\..\.venv
 )
 
 REM Activate venv
 echo Activating virtual environment...
-call ..\\.venv\\Scripts\\activate.bat
+call ..\..\..\.venv\Scripts\activate.bat
 
 REM Install dependencies
 echo Installing Streamlit dependencies...

@@ -13,7 +13,7 @@ import streamlit as st
 from loguru import logger
 
 # Ensure ACE-Step repo is on Python path
-_project_root = Path(__file__).parent.parent.parent
+_project_root = Path(__file__).parent.parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 

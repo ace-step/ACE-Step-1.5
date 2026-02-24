@@ -12,7 +12,7 @@ ACE Studio Streamlit - Installation & Setup Guide
 
 ## Step 1: Install Dependencies
 
-From the `ace_studio_streamlit` directory:
+From the `acestep/ui/ace_studio_streamlit` directory:
 
 ```bash
 pip install -r requirements.txt

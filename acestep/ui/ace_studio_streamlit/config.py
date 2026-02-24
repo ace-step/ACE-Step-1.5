@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent
-ACESTEP_ROOT = PROJECT_ROOT.parent  # Parent ACE-Step-1.5 repo root
+ACESTEP_ROOT = PROJECT_ROOT.parent.parent.parent  # ACE-Step-1.5 repo root
 CHECKPOINTS_DIR = ACESTEP_ROOT / "checkpoints"
 PROJECTS_DIR = PROJECT_ROOT / "projects"
 OUTPUT_DIR = ACESTEP_ROOT / "gradio_outputs"

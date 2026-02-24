@@ -38,7 +38,7 @@ streamlit run main.py
 ## Project Structure
 
 ```
-ace_studio_streamlit/
+acestep/ui/ace_studio_streamlit/
 ├── main.py                    # Main Streamlit app
 ├── config.py                  # Configuration constants
 ├── requirements.txt           # Python dependencies

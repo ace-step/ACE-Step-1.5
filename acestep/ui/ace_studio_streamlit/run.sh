@@ -11,14 +11,14 @@ echo "Checking Python..."
 python --version
 
 # Check if venv exists
-if [ ! -d "../.venv" ]; then
+if [ ! -d "../../../.venv" ]; then
     echo "Creating virtual environment..."
-    python -m venv ../.venv
+    python -m venv ../../../.venv
 fi
 
 # Activate venv
 echo "Activating virtual environment..."
-source ../.venv/bin/activate
+source ../../../.venv/bin/activate
 
 # Install dependencies
 echo "Installing Streamlit dependencies..."

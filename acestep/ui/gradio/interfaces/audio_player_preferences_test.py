@@ -35,6 +35,8 @@ class AudioPlayerPreferencesHeadTests(unittest.TestCase):
         self.assertIn("wasReadyBeforeLoad", script)
         self.assertIn("markReadyForPersistence", script)
         self.assertIn("isTrustedUserEvent", script)
+        self.assertIn("acestep-generate-btn", script)
+        self.assertIn("player.pause()", script)
         self.assertIn("STARTUP_RESYNC_WINDOW_MS", script)
         self.assertIn("setInterval", script)
 

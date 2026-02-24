@@ -12,6 +12,7 @@ def get_audio_player_preferences_head() -> str:
 <script>
 (() => {
     const STORAGE_KEY = "acestep.ui.audio.volume";
+    const GENERATE_BUTTON_ID = "acestep-generate-btn";
     const EPSILON = 0.001;
     const STARTUP_RESYNC_WINDOW_MS = 3000;
     const STARTUP_RESYNC_INTERVAL_MS = 120;
@@ -130,6 +131,53 @@ def get_audio_player_preferences_head() -> str:
             }
             applyPreferredVolumeToSlider(slider);
         });
+    };
+
+    const stopAndRewindAllPlayers = () => {
+        discoverRoots();
+        forEachAudioPlayer((player) => {
+            if (!player) {
+                return;
+            }
+            try {
+                player.pause();
+            } catch (_error) {
+                // Ignore pause failures from detached or blocked media elements.
+            }
+            if (player.currentTime > 0) {
+                player.currentTime = 0;
+            }
+            applyPreferredVolume(player);
+        });
+    };
+
+    const isGenerateButtonClick = (event) => {
+        if (!event) {
+            return false;
+        }
+        const selector = `#${GENERATE_BUTTON_ID}`;
+        const target = event.target;
+        if (target && typeof target.closest === "function" && target.closest(selector)) {
+            return true;
+        }
+        if (typeof event.composedPath !== "function") {
+            return false;
+        }
+        const path = event.composedPath();
+        for (let i = 0; i < path.length; i += 1) {
+            const node = path[i];
+            if (node && node.id === GENERATE_BUTTON_ID) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const handleDocumentClick = (event) => {
+        if (!isGenerateButtonClick(event)) {
+            return;
+        }
+        stopAndRewindAllPlayers();
     };
 
     const stopStartupResync = () => {
@@ -313,9 +361,13 @@ def get_audio_player_preferences_head() -> str:
 
     const start = () => {
         preferredVolume = loadPreferredVolume();
+        document.addEventListener("click", handleDocumentClick, true);
         scanPlayers();
         beginStartupResync();
-        window.addEventListener("beforeunload", stopStartupResync, { once: true });
+        window.addEventListener("beforeunload", () => {
+            stopStartupResync();
+            document.removeEventListener("click", handleDocumentClick, true);
+        }, { once: true });
     };
 
     if (document.readyState === "loading") {

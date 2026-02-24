@@ -64,13 +64,13 @@ class ClearAudioOutputsTests(unittest.TestCase):
         for item in result:
             self.assertIsNone(item)
 
-    def test_gradio_runtime_skips_audio_clear_but_clears_batch_files(self):
-        """With Gradio available, audio outputs should be skip updates."""
-        fake_gradio = types.SimpleNamespace(skip=lambda: "SKIP")
+    def test_gradio_runtime_rewinds_audio_but_clears_batch_files(self):
+        """With Gradio available, audio outputs should rewind without remounting."""
+        fake_gradio = types.SimpleNamespace(update=lambda **kwargs: kwargs)
         with patch.dict("sys.modules", {"gradio": fake_gradio}):
             result = clear_audio_outputs_for_new_generation()
         self.assertEqual(len(result), 9)
-        self.assertEqual(result[:8], ("SKIP",) * 8)
+        self.assertEqual(result[:8], ({"playback_position": 0},) * 8)
         self.assertIsNone(result[8])
 
 

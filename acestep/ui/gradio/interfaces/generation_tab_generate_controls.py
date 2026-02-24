@@ -94,6 +94,7 @@ def build_generate_row_controls(
                 variant="primary",
                 size="lg",
                 interactive=generate_btn_interactive,
+                elem_id="acestep-generate-btn",
             )
         autogen_checkbox, auto_lrc = _build_right_generate_toggles(service_mode=service_mode)
     return {

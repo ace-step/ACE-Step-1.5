@@ -4,7 +4,7 @@
 
 A modern Streamlit UI for ACE-Step music generation, located in:
 ```
-acestep/ui/ace_studio_streamlit/
+acestep/ui/streamlit/
 ```
 
 ## 📦 What's Included
@@ -76,7 +76,7 @@ acestep/ui/ace_studio_streamlit/
 
 ### Quickest (Recommended)
 ```bash
-cd acestep/ui/ace_studio_streamlit
+cd acestep/ui/streamlit
 ./run.sh    # macOS/Linux
 # or
 run.bat     # Windows
@@ -84,7 +84,7 @@ run.bat     # Windows
 
 ### Manual
 ```bash
-cd acestep/ui/ace_studio_streamlit
+cd acestep/ui/streamlit
 pip install -r requirements.txt
 streamlit run main.py
 ```
@@ -229,7 +229,7 @@ Utilities: 4 (Cache, ProjectManager, Audio, __init__)
 
 ```
 ACE-Step Repository
-└── acestep/ui/ace_studio_streamlit/
+└── acestep/ui/streamlit/
     ├── main.py                 # Entry point
     ├── config.py              # Customization
     ├── components/            # UI sections
@@ -255,7 +255,7 @@ ACE-Step Repository
 Everything is ready to go. Start creating music!
 
 ```bash
-cd acestep/ui/ace_studio_streamlit
+cd acestep/ui/streamlit
 ./run.sh
 # 🚀 Opens at http://localhost:8501
 ```

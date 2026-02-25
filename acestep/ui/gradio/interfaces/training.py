@@ -61,7 +61,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                             info=t("training.load_dataset_info"), elem_classes=["has-info-container"],
                             scale=3,
                         )
-                        load_json_btn = gr.Button(t("training.load_btn"), variant="primary", scale=1)
+                        load_json_btn = gr.Button(t("training.load_btn"), variant="secondary", scale=1)
                     load_json_status = gr.Textbox(
                         label=t("training.load_status"),
                         interactive=False,
@@ -487,6 +487,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         t("training.start_training_btn"),
                         variant="primary",
                         size="lg",
+                        elem_classes=["btn-primary-important"]
                     )
                 with gr.Column(scale=1):
                     stop_training_btn = gr.Button(
@@ -522,7 +523,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     value="./lora_output/final_lora",
                     placeholder="./lora_output/my_lora",
                 )
-                export_lora_btn = gr.Button(t("training.export_lora_btn"), variant="secondary")
+                export_lora_btn = gr.Button(t("training.export_lora_btn"), variant="primary")
             
             export_status = gr.Textbox(
                 label=t("training.export_status"),
@@ -674,6 +675,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                         "Start LoKr Training",
                         variant="primary",
                         size="lg",
+                        elem_classes=["btn-primary-important"]
                     )
                 with gr.Column(scale=1):
                     stop_lokr_training_btn = gr.Button(
@@ -709,7 +711,7 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
                     value="./lokr_output/final_lokr",
                     placeholder="./lokr_output/my_lokr",
                 )
-                export_lokr_btn = gr.Button("📦 Export LoKr", variant="secondary")
+                export_lokr_btn = gr.Button("📦 Export LoKr", variant="primary")
 
             with gr.Row():
                 lokr_export_epoch = gr.Dropdown(

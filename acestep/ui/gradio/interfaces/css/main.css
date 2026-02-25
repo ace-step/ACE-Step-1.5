@@ -1,0 +1,277 @@
+.main-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.section-header {
+    background: linear-gradient(90deg, #4CAF50, #45a049);
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+}
+
+.lm-hints-row {
+    align-items: stretch;
+}
+
+.lm-hints-col {
+    display: flex;
+}
+
+.lm-hints-col>div {
+    flex: 1;
+    display: flex;
+}
+
+.lm-hints-btn button {
+    height: 100%;
+    width: 100%;
+}
+
+/* Position Audio time labels lower to avoid scrollbar overlap */
+.component-wrapper>.timestamps {
+    transform: translateY(15px);
+}
+
+/* Ensure buttons in instrumental-row fill height */
+.instrumental-row>div>button {
+    height: 100% !important;
+    min-height: 42px;
+} */
+
+/* Two-line icon buttons: emoji on top, text below */
+.icon-btn-wrap button,
+.icon-btn-wrap>button {
+    word-spacing: 100vw;
+    text-align: center;
+    line-height: 1.4;
+}
+
+/* --- On-hover Tooltips --- */
+/* Safely ensure parents don't clip the tooltips using the container class */
+.has-info-container {
+    overflow: visible !important;
+    contain: none !important;
+}
+
+/* Ensure immediate flex parents (like rows, accordions) also allow overflow if they contain an info container */
+.row:has(.has-info-container),
+.column:has(.has-info-container),
+.form:has(.has-info-container),
+.accordion:has(.has-info-container),
+.tabs:has(.has-info-container),
+.gr-block:has(.has-info-container),
+.gr-box:has(.has-info-container) {
+    overflow: visible !important;
+    contain: none !important;
+}
+
+/* Hide info text by default and format as tooltip.
+    In Gradio 6, info is often a div following the span[data-testid="block-info"]. */
+.has-info-container span[data-testid="block-info"]+div,
+.has-info-container span[data-testid="block-info"]+span,
+.checkbox-container+div {
+    display: none;
+    position: absolute;
+    background: rgba(25, 25, 25, 0.98);
+    color: #ffffff;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    z-index: 999999;
+    max-width: 320px;
+    min-width: 180px;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    line-height: 1.5;
+    margin-top: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    left: 0;
+    font-weight: 400;
+    text-transform: none;
+}
+
+/* Prevent tooltip CSS from hiding content inside .no-tooltip components */
+.no-tooltip span[data-testid="block-info"]+div,
+.no-tooltip span[data-testid="block-info"]+span {
+    display: block !important;
+    position: static !important;
+    background: none !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    z-index: auto !important;
+    pointer-events: auto !important;
+    margin-top: 0 !important;
+    color: inherit !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+    font-weight: inherit !important;
+    text-transform: inherit !important;
+    border-radius: 0 !important;
+}
+
+.no-tooltip span[data-testid="block-info"]::after {
+    display: none !important;
+}
+
+/* Show tooltips on hover of the label area or the icon */
+.has-info-container span[data-testid="block-info"]:hover+div,
+.has-info-container span[data-testid="block-info"]:hover+span,
+.checkbox-container:hover+div {
+    display: block !important;
+}
+
+/* High-res info icon using SVG, appended to the label text */
+.has-info-container span[data-testid="block-info"]::after,
+.checkbox-container:has(+ div) .label-text::after {
+    content: "";
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin-left: 8px;
+    vertical-align: middle;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234a9eff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='16' x2='12' y2='12'/%3E%3Cline x1='12' y1='8' x2='12.01' y2='8'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: contain;
+    opacity: 0.6;
+    transition: opacity 0.2s, transform 0.2s;
+    cursor: help;
+}
+
+/* Hide original Gradio info icon if present */
+.has-info-container span[data-testid="block-info"] svg,
+.has-info-container span[data-testid="block-info"]::before {
+    display: none !important;
+}
+
+.has-info-container span[data-testid="block-info"]:hover::after,
+.checkbox-container:hover .label-text::after {
+    opacity: 1;
+    transform: scale(1.15);
+}
+
+/* --- Auto-toggle checkbox row --- */
+/* Compact row of Auto checkboxes that mirrors the field row above */
+.auto-toggles-row {
+    margin-top: -8px !important;
+    margin-bottom: 0 !important;
+    padding: 0 !important;
+    gap: 16px !important;
+    min-height: 0 !important;
+}
+
+.auto-toggle label {
+    font-size: 0.8rem !important;
+    gap: 4px !important;
+    white-space: nowrap !important;
+    cursor: pointer !important;
+    justify-content: center !important;
+}
+
+.auto-toggle:hover label {
+    opacity: 1;
+}
+
+.auto-toggle {
+    padding: 0;
+    padding-top: 25px;
+}
+
+.auto-toggle input[type="checkbox"] {
+    width: 13px !important;
+    height: 13px !important;
+}
+
+.fillable {
+    padding-inline-start: 16px !important;
+}
+
+.has-info::after {
+    width: 16px;
+    height: 16px;
+    opacity: 0.75;
+}
+
+body:not(.dark) .has-info::after {
+    filter: saturate(0) brightness(0);
+}
+
+body.dark .has-info::after {
+    filter: saturate(0) brightness(2);
+}
+
+body.dark input[type="range"]::-webkit-slider-runnable-track,
+body.dark input[type="range"]::-moz-range-track {
+    background: var(--neutral-600);
+}
+
+.btn-generate {
+    min-width: 500px;
+    padding: var(--size-3);
+    margin-top: var(--size-4) !important;
+    margin-bottom: var(--size-4) !important;
+}
+
+.btn-primary-important:not(:disabled) {
+    background: #5f00a6;
+    color: white;
+}
+
+.btn-primary-important:not(:disabled):hover {
+    background: #6d00bf;
+}
+
+body.dark .btn-primary-important:disabled {
+    background: white;
+}
+
+.main-header-container {
+    justify-content: center;
+    gap: var(--size-4);
+}
+
+.main-header-container .help-inline-btn {
+    width: 30px;
+    height: 30px;
+}
+
+.optional-params-container .form {
+    background: transparent;
+}
+
+.optional-param-setting-row {
+    align-items: center;
+    justify-content: space-between;
+}
+
+.optional-param-setting {
+    overflow: visible !important;
+    contain: none !important;
+    margin: 0;
+    padding: 0;
+}
+
+body:not(.dark) {
+    --color-accent: black;
+}
+
+@media (max-width: 1024px) {
+    .btn-generate {
+        min-width: 100%;
+        padding: var(--size-2);
+        margin-top: var(--size-3) !important;
+        margin-bottom: var(--size-3) !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .main-header-container {
+        gap: 0;
+    }
+}

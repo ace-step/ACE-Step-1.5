@@ -196,12 +196,12 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
             )
 
         # Checkboxes
-        with gr.Row():
+        with gr.Column():
             init_llm_value = init_params.get('init_llm', init_lm_default) if service_pre_initialized else init_lm_default
             lm_info_text = t("service.init_llm_info")
             if not gpu_config.available_lm_models:
                 lm_info_text += " ⚠️ LM not available for this GPU tier (VRAM too low)"
-            init_llm_checkbox = gr.Checkbox(label=t("service.init_llm_label"), value=init_llm_value, info=lm_info_text)
+            init_llm_checkbox = gr.Checkbox(label=t("service.init_llm_label"), value=init_llm_value, info=lm_info_text, elem_classes=["has-info-container"])
 
             flash_attn_available = dit_handler.is_flash_attention_available(device_value)
             use_flash_attention_value = init_params.get('use_flash_attention', flash_attn_available) if service_pre_initialized else flash_attn_available
@@ -248,7 +248,9 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
 
         init_btn = gr.Button(t("service.init_btn"), variant="primary", size="lg")
         init_status_value = init_params.get('init_status', '') if service_pre_initialized else ''
-        init_status = gr.Textbox(label=t("service.status_label"), interactive=False, lines=3, value=init_status_value)
+
+        with gr.Row():
+            init_status = gr.Textbox(label=t("service.status_label"), interactive=False, lines=3, value=init_status_value, elem_classes=["has-info-container"])
 
     return {
         "service_config_accordion": service_config_accordion,
@@ -308,9 +310,8 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
     else:
         _ui_config = get_ui_control_config(True)
 
-    # Auto-expand Settings when service is not yet initialized so users can init
-    settings_open = not service_pre_initialized
-    with gr.Accordion(t("generation.advanced_settings"), open=settings_open) as advanced_settings_accordion:
+    with gr.Column() as advanced_settings_section:
+        gr.HTML(f'<h2 class="text-center">{t("generation.advanced_settings")}</h2>')
 
         # ═══════════════════════════════════════════
         # Service Configuration (sub-accordion)
@@ -324,13 +325,17 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
         # ═══════════════════════════════════════════
         with gr.Accordion("🔧 LoRA Adapter", open=False, elem_classes=["has-info-container"]):
             with gr.Row():
-                lora_path = gr.Textbox(label="LoRA Path", placeholder="./lora_output/final/adapter", info="Path to trained LoRA adapter directory", scale=3)
-                load_lora_btn = gr.Button("📥 Load LoRA", variant="secondary", scale=1)
-                unload_lora_btn = gr.Button("🗑️ Unload", variant="secondary", scale=1)
+                with gr.Column():
+                    lora_path = gr.Textbox(label="LoRA Path", placeholder="./lora_output/final/adapter", info="Path to trained LoRA adapter directory", scale=3, elem_classes=["has-info-container"])
+                    load_lora_btn = gr.Button("📥 Load LoRA", variant="secondary", scale=1)
+                    unload_lora_btn = gr.Button("🗑️ Unload", variant="secondary", scale=1)
             with gr.Row():
-                use_lora_checkbox = gr.Checkbox(label="Use LoRA", value=False, info="Enable LoRA adapter for inference", scale=1)
-                lora_scale_slider = gr.Slider(minimum=0.0, maximum=1.0, value=1.0, step=0.05, label="LoRA Scale", info="LoRA influence strength (0=disabled, 1=full)", scale=2)
-            lora_status = gr.Textbox(label="LoRA Status", value="No LoRA loaded", interactive=False, lines=1, elem_classes=["no-tooltip"])
+                with gr.Column():
+                    use_lora_checkbox = gr.Checkbox(label="Use LoRA", value=False, info="Enable LoRA adapter for inference", scale=1, elem_classes=["has-info-container"])
+                    lora_scale_slider = gr.Slider(minimum=0.0, maximum=1.0, value=1.0, step=0.05, label="LoRA Scale", info="LoRA influence strength (0=disabled, 1=full)", scale=2, elem_classes=["has-info-container"])
+
+            with gr.Row():
+                lora_status = gr.Textbox(label="LoRA Status", value="No LoRA loaded", interactive=False, lines=1, elem_classes=["no-tooltip"])
 
         # ═══════════════════════════════════════════
         # DiT Diffusion Parameters (with help button)
@@ -411,16 +416,19 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
                     lines=2,
                 )
             with gr.Row():
-                use_cot_metas = gr.Checkbox(label=t("generation.cot_metas_label"), value=True, info=t("generation.cot_metas_info"), scale=1, elem_classes=["has-info-container"])
-                use_cot_language = gr.Checkbox(label=t("generation.cot_language_label"), value=True, info=t("generation.cot_language_info"), scale=1, elem_classes=["has-info-container"])
-                constrained_decoding_debug = gr.Checkbox(
-                    label=t("generation.constrained_debug_label"), value=False,
-                    info=t("generation.constrained_debug_info"), scale=1,
-                    interactive=not service_mode,
-                )
+                with gr.Column():
+                    use_cot_metas = gr.Checkbox(label=t("generation.cot_metas_label"), value=True, info=t("generation.cot_metas_info"), scale=1, elem_classes=["has-info-container"])
+                    use_cot_language = gr.Checkbox(label=t("generation.cot_language_label"), value=True, info=t("generation.cot_language_info"), scale=1, elem_classes=["has-info-container"])
+                    constrained_decoding_debug = gr.Checkbox(
+                        label=t("generation.constrained_debug_label"), value=False,
+                        info=t("generation.constrained_debug_info"), scale=1,
+                        interactive=not service_mode,
+                        elem_classes=["has-info-container"]
+                    )
             with gr.Row():
-                allow_lm_batch = gr.Checkbox(label=t("generation.parallel_thinking_label"), value=True, info=t("generation.parallel_thinking_info"), scale=1, elem_classes=["has-info-container"])
-                use_cot_caption = gr.Checkbox(label=t("generation.caption_rewrite_label"), value=False, info=t("generation.caption_rewrite_info"), scale=1, elem_classes=["has-info-container"])
+                with gr.Column():
+                    allow_lm_batch = gr.Checkbox(label=t("generation.parallel_thinking_label"), value=True, info=t("generation.parallel_thinking_info"), scale=1, elem_classes=["has-info-container"])
+                    use_cot_caption = gr.Checkbox(label=t("generation.caption_rewrite_label"), value=False, info=t("generation.caption_rewrite_info"), scale=1, elem_classes=["has-info-container"])
 
         # ═══════════════════════════════════════════
         # Audio Output & Post-processing
@@ -441,10 +449,11 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
                     scale=1, visible=not service_mode,
                 )
             with gr.Row():
-                enable_norm_val = init_params.get("enable_normalization", True) if service_pre_initialized else True
-                norm_db_val = init_params.get("normalization_db", -1.0) if service_pre_initialized else -1.0
-                enable_normalization = gr.Checkbox(label=t("gen.enable_normalization"), value=enable_norm_val, info=t("gen.enable_normalization_info"), elem_classes=["has-info-container"])
-                normalization_db = gr.Slider(label=t("gen.normalization_db"), minimum=-10.0, maximum=0.0, step=0.1, value=norm_db_val, info=t("gen.normalization_db_info"), elem_classes=["has-info-container"])
+                with gr.Column():
+                    enable_norm_val = init_params.get("enable_normalization", True) if service_pre_initialized else True
+                    norm_db_val = init_params.get("normalization_db", -1.0) if service_pre_initialized else -1.0
+                    enable_normalization = gr.Checkbox(label=t("gen.enable_normalization"), value=enable_norm_val, info=t("gen.enable_normalization_info"), elem_classes=["has-info-container"])
+                    normalization_db = gr.Slider(label=t("gen.normalization_db"), minimum=-10.0, maximum=0.0, step=0.1, value=norm_db_val, info=t("gen.normalization_db_info"), elem_classes=["has-info-container"])
             with gr.Row():
                 latent_shift_val = init_params.get("latent_shift", 0.0) if service_pre_initialized else 0.0
                 latent_rescale_val = init_params.get("latent_rescale", 1.0) if service_pre_initialized else 1.0
@@ -460,7 +469,7 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
 
     # Merge service components into the return dict
     result = {
-        "advanced_settings_accordion": advanced_settings_accordion,
+        "advanced_settings_section": advanced_settings_section,
         "inference_steps": inference_steps,
         "guidance_scale": guidance_scale,
         "infer_method": infer_method,
@@ -598,7 +607,10 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
 
             with gr.Row(equal_height=True):
                 create_sample_btn = gr.Button(
-                    t("generation.create_sample_btn"), variant="primary", size="lg",
+                    t("generation.create_sample_btn"),
+                    variant="primary",
+                    elem_classes=["btn-primary-important", "btn-generate", "no-grow", "margin-auto"],
+                    size="lg",
                 )
 
         simple_sample_created = gr.State(value=False)
@@ -677,7 +689,8 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         audio_cover_strength = gr.Slider(
             minimum=0.0, maximum=1.0, value=1.0, step=0.01,
             label=t("generation.codes_strength_label"),
-            info=t("generation.codes_strength_info"), elem_classes=["has-info-container"],
+            info=t("generation.codes_strength_info"),
+            elem_classes=["has-info-container"],
             visible=True,
         )
 
@@ -693,46 +706,135 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
 
         # --- Custom Mode: Reference Audio | (Caption + Enhance) | (Lyrics + Instrumental + Enhance) | 🎲 ---
         with gr.Group(visible=True, elem_classes=["has-info-container"]) as custom_mode_group:
-            create_help_button("generation_custom")
-            with gr.Row(equal_height=True):
-                # Left: Reference Audio
-                with gr.Column(scale=2, min_width=200):
-                    reference_audio = gr.Audio(
-                        label=t("generation.reference_audio"),
-                        type="filepath",
-                        show_label=True,
-                    )
+            with gr.Row(elem_classes=["bg-fill", "p-3", "gap-3", "align-items-center", "mt-xl", "mb-2"]):
+                gr.HTML(
+                    f'<h4>{t("generation.tab_title")}</h4>',
+                    elem_classes=["no-grow"]
+                )
+                create_help_button("generation_custom")
 
-                # Middle: Caption column + Lyrics column
-                with gr.Column(scale=8):
-                    with gr.Row(equal_height=True):
-                        # Caption sub-column
+                with gr.Row(elem_classes=["justify-content-end"]):
+                    sample_btn = gr.Button(t("generation.sample_btn"), variant="secondary", size="sm", elem_classes=["no-grow"]) # random example button
+
+            with gr.Column():
+                with gr.Row(elem_classes=["gap-3", "ps-4", "pe-4"]):
+                    # Left: Reference Audio
+                    with gr.Column(scale=1, min_width=200, elem_classes=["align-self-center"]):
+                        reference_audio = gr.Audio(
+                            label=t("generation.reference_audio"),
+                            type="filepath",
+                            show_label=True,
+                        )
+
+                    with gr.Column(scale=2, elem_classes=["gap-2"]):
+                        # Caption
                         with gr.Column(scale=1):
+                            with gr.Row(elem_classes=["ps-3", "pe-3", "gap-4", "bg-fill", "align-items-center", "justify-content-between"]):
+                                gr.HTML(f'<h5>{t("generation.caption_label")}</h5>', elem_classes="no-grow")
+                                format_caption_btn = gr.Button(t("generation.format_caption_btn"), variant="secondary", size="sm", elem_classes="no-grow")
+
                             captions = gr.Textbox(
+                                show_label=False,
                                 label=t("generation.caption_label"),
                                 placeholder=t("generation.caption_placeholder"),
                                 lines=12,
                                 max_lines=12,
                             )
-                            with gr.Row(elem_classes="instrumental-row"):
-                                format_caption_btn = gr.Button(t("generation.format_caption_btn"), variant="secondary", size="sm")
-                        # Lyrics sub-column
+
+                        # Lyrics
                         with gr.Column(scale=1):
+                            with gr.Row(elem_classes=["bg-fill", "ps-3", "pe-3", "justify-content-between", "align-items-center"]):
+                                with gr.Row(elem_classes=["gap-4", "align-items-center"]):
+                                    gr.HTML(
+                                        f'<h5>{t("generation.lyrics_label")}</h5>',
+                                        elem_classes="no-grow"
+                                    )
+
+                                    instrumental_checkbox = gr.Checkbox(
+                                        label=t("generation.instrumental_label"),
+                                        value=False,
+                                        scale=0,
+                                        elem_classes="p-0"
+                                    )
+
+                                format_lyrics_btn = gr.Button(t("generation.format_lyrics_btn"), variant="secondary", size="sm", elem_classes="no-grow")
+
                             lyrics = gr.Textbox(
+                                show_label=False,
                                 label=t("generation.lyrics_label"),
                                 placeholder=t("generation.lyrics_placeholder"),
                                 lines=12,
                                 max_lines=12,
                             )
-                            with gr.Row(elem_classes="instrumental-row"):
-                                instrumental_checkbox = gr.Checkbox(
-                                    label=t("generation.instrumental_label"), value=False, scale=1,
-                                )
-                                format_lyrics_btn = gr.Button(t("generation.format_lyrics_btn"), variant="secondary", size="sm", scale=2)
 
-                # Right column: 🎲 Random
-                with gr.Column(scale=1, min_width=80, elem_classes="icon-btn-wrap"):
-                    sample_btn = gr.Button(t("generation.sample_btn"), variant="primary", size="lg")
+                    with gr.Column(elem_classes=["has-info-container", "optional-params-container"], scale=1) as optional_params_section:
+                        with gr.Row():
+                            gr.HTML(f'<h3>{t("generation.optional_params")}</h3>')
+                            reset_all_auto_btn = gr.Button(t("generation.reset_all_auto"), variant="secondary", size="sm", elem_classes=["no-grow"])
+
+                        with gr.Column(elem_classes=["gap-2"]):
+                            with gr.Row(elem_classes=["optional-param-setting-row"]):
+                                bpm_auto = gr.Checkbox(label=t("generation.bpm_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                                bpm = gr.Number(
+                                    label=t("generation.bpm_label"),
+                                    value=None,
+                                    step=1,
+                                    info=t("generation.bpm_info"),
+                                    elem_classes=["optional-param-setting", "has-info-container"],
+                                    interactive=False
+                                )
+
+                            with gr.Row(elem_classes=["optional-param-setting-row"]):
+                                key_auto = gr.Checkbox(label=t("generation.key_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                                key_scale = gr.Textbox(
+                                    label=t("generation.keyscale_label"),
+                                    placeholder=t("generation.keyscale_placeholder"),
+                                    value="",
+                                    info=t("generation.keyscale_info"),
+                                    elem_classes=["optional-param-setting", "has-info-container"],
+                                    interactive=False
+                                )
+
+                            with gr.Row(elem_classes=["optional-param-setting-row"]):
+                                timesig_auto = gr.Checkbox(label=t("generation.timesig_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                                time_signature = gr.Dropdown(
+                                    choices=["", "2", "3", "4", "6", "N/A"],
+                                    value="",
+                                    label=t("generation.timesig_label"),
+                                    allow_custom_value=True,
+                                    info=t("generation.timesig_info"),
+                                    elem_classes=["optional-param-setting", "has-info-container"],
+                                    interactive=False
+                                )
+
+                            with gr.Row(elem_classes=["optional-param-setting-row"]):
+                                vocal_lang_auto = gr.Checkbox(label=t("generation.vocal_lang_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                                vocal_language = gr.Dropdown(
+                                    choices=[(lang if lang != "unknown" else "Instrumental / auto", lang) for lang in VALID_LANGUAGES], value="unknown",
+                                    label=t("generation.vocal_language_label"),
+                                    info=t("generation.vocal_language_info"),
+                                    allow_custom_value=True,
+                                    elem_classes=["optional-param-setting", "has-info-container"],
+                                    interactive=False,
+                                )
+
+                            with gr.Row(elem_classes=["optional-param-setting-row"]):
+                                duration_auto = gr.Checkbox(label=t("generation.duration_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
+                                audio_duration = gr.Number(
+                                    label=t("generation.duration_label"), value=-1, minimum=-1,
+                                    maximum=float(max_duration), step=0.1,
+                                    info=t("generation.duration_info") + f" (Max: {max_duration}s / {max_duration // 60} min)",
+                                    elem_classes=["optional-param-setting", "has-info-container"],
+                                    interactive=False,
+                                )
+
+                            batch_size_input = gr.Number(
+                                label=t("generation.batch_size_label"), value=default_batch_size,
+                                minimum=1, maximum=max_batch_size, step=1,
+                                info=t("generation.batch_size_info") + f" (Max: {max_batch_size})",
+                                elem_classes=["has-info-container", "no-grow", "p-0", "align-self-end", "m-0"],
+                                interactive=not service_mode,
+                            )
 
         # --- Repainting controls (also used for Lego stem area) ---
         with gr.Group(visible=False) as repainting_group:
@@ -742,58 +844,28 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
                 repainting_start = gr.Number(label=t("generation.repainting_start"), value=0.0, step=0.1)
                 repainting_end = gr.Number(label=t("generation.repainting_end"), value=-1, minimum=-1, step=0.1)
 
-        # --- Optional Parameters (collapsed by default) ---
-        with gr.Accordion(t("generation.optional_params"), open=False, visible=True, elem_classes=["has-info-container"]) as optional_params_accordion:
-            with gr.Row():
-                bpm = gr.Number(label=t("generation.bpm_label"), value=None, step=1, info=t("generation.bpm_info"), elem_classes=["has-info-container"], interactive=False)
-                key_scale = gr.Textbox(label=t("generation.keyscale_label"), placeholder=t("generation.keyscale_placeholder"), value="", info=t("generation.keyscale_info"), elem_classes=["has-info-container"], interactive=False)
-                time_signature = gr.Dropdown(choices=["", "2", "3", "4", "6", "N/A"], value="", label=t("generation.timesig_label"), allow_custom_value=True, info=t("generation.timesig_info"), elem_classes=["has-info-container"], interactive=False)
-                vocal_language = gr.Dropdown(
-                    choices=[(lang if lang != "unknown" else "Instrumental / auto", lang) for lang in VALID_LANGUAGES], value="unknown",
-                    label=t("generation.vocal_language_label"),
-                    info=t("generation.vocal_language_info"),
-                    allow_custom_value=True,
-                    elem_classes=["has-info-container"],
-                    interactive=False,
-                )
-            with gr.Row(elem_classes=["auto-toggles-row"]):
-                bpm_auto = gr.Checkbox(label=t("generation.bpm_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
-                key_auto = gr.Checkbox(label=t("generation.key_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
-                timesig_auto = gr.Checkbox(label=t("generation.timesig_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
-                vocal_lang_auto = gr.Checkbox(label=t("generation.vocal_lang_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
-            with gr.Row():
-                audio_duration = gr.Number(
-                    label=t("generation.duration_label"), value=-1, minimum=-1,
-                    maximum=float(max_duration), step=0.1,
-                    info=t("generation.duration_info") + f" (Max: {max_duration}s / {max_duration // 60} min)", elem_classes=["has-info-container"],
-                    interactive=False,
-                )
-                batch_size_input = gr.Number(
-                    label=t("generation.batch_size_label"), value=default_batch_size,
-                    minimum=1, maximum=max_batch_size, step=1,
-                    info=t("generation.batch_size_info") + f" (Max: {max_batch_size})", elem_classes=["has-info-container"],
-                    interactive=not service_mode,
-                )
-            with gr.Row(elem_classes=["auto-toggles-row"]):
-                duration_auto = gr.Checkbox(label=t("generation.duration_auto_label"), value=True, container=False, elem_classes=["auto-toggle"])
-                gr.HTML("<span></span>")  # spacer to align with batch_size column
-            reset_all_auto_btn = gr.Button(t("generation.reset_all_auto"), variant="secondary", size="sm")
-
         # --- Generate Button Row (hidden in Simple mode) ---
         generate_btn_interactive = init_params.get('enable_generate', False) if service_pre_initialized else False
-        with gr.Row(equal_height=True, visible=True) as generate_btn_row:
-            with gr.Column(scale=1, variant="compact"):
-                think_checkbox = gr.Checkbox(label=t("generation.think_label"), value=lm_initialized, scale=1, interactive=lm_initialized)
-                auto_score = gr.Checkbox(label=t("generation.auto_score_label"), value=False, scale=1, interactive=not service_mode)
-            with gr.Column(scale=18):
-                generate_btn = gr.Button(t("generation.generate_btn"), variant="primary", size="lg", interactive=generate_btn_interactive)
-            with gr.Column(scale=1, variant="compact"):
+
+        with gr.Column(visible=True) as generate_btn_row:
+            with gr.Row(elem_classes=["bg-fill", "justify-content-center"]):
+                think_checkbox = gr.Checkbox(label=t("generation.think_label"), value=lm_initialized, scale=0, interactive=lm_initialized)
+                auto_score = gr.Checkbox(label=t("generation.auto_score_label"), value=False, scale=0, interactive=not service_mode)
                 autogen_checkbox = gr.Checkbox(
-                    label=t("generation.autogen_label"), value=False, scale=1,
+                    label=t("generation.autogen_label"), value=False, scale=0,
                     interactive=not service_mode,
                 )
-                auto_lrc = gr.Checkbox(label=t("generation.auto_lrc_label"), value=False, scale=1, interactive=not service_mode)
-    
+                auto_lrc = gr.Checkbox(label=t("generation.auto_lrc_label"), value=False, scale=0, interactive=not service_mode)
+
+            with gr.Row(elem_classes=["justify-content-center"]):
+                generate_btn = gr.Button(
+                    t("generation.generate_btn"),
+                    variant="primary",
+                    elem_classes=["btn-primary-important", "btn-generate", "no-grow"],
+                    size="lg",
+                    interactive=generate_btn_interactive
+                )
+
     return {
         "generation_mode": generation_mode,
         "task_type": task_type,
@@ -834,7 +906,7 @@ def create_generation_tab_section(dit_handler, llm_handler, init_params=None, la
         "vocal_language": vocal_language,
         "format_caption_btn": format_caption_btn,
         "format_lyrics_btn": format_lyrics_btn,
-        "optional_params_accordion": optional_params_accordion,
+        "optional_params_section": optional_params_section,
         "bpm": bpm,
         "key_scale": key_scale,
         "time_signature": time_signature,

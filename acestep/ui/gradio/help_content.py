@@ -8,6 +8,7 @@ The button is rendered as a pure-HTML ``<span>`` so it takes zero layout
 space and can be placed inside any existing row or header without
 creating extra blank rows.
 """
+from pathlib import Path
 import gradio as gr
 from acestep.ui.gradio.i18n import t
 
@@ -181,7 +182,7 @@ def create_help_button(section_key: str) -> gr.HTML:
           </div>
         </div>
         """,
-        elem_classes=["help-inline-container"],
+        elem_classes=["help-inline-container", "no-grow"],
     )
 
     return html
@@ -190,108 +191,5 @@ def create_help_button(section_key: str) -> gr.HTML:
 # ---------------------------------------------------------------------------
 # CSS to be injected into the main Blocks CSS string.
 # ---------------------------------------------------------------------------
-HELP_MODAL_CSS = """
-/* ---- Inline help button container ---- */
-.help-inline-container {
-    min-height: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    flex-shrink: 0 !important;
-    max-width: 32px !important;
-    min-width: 32px !important;
-    overflow: visible !important;
-}
-
-.help-inline-wrapper {
-    display: inline-flex;
-    align-items: center;
-    line-height: 1;
-}
-
-/* ---- Inline help button ---- */
-.help-inline-btn {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    border: 1.5px solid var(--border-color-primary, #555);
-    background: transparent;
-    color: var(--body-text-color-subdued, #888);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 20px;
-    text-align: center;
-    cursor: pointer;
-    padding: 0;
-    transition: all 0.15s ease;
-    flex-shrink: 0;
-}
-.help-inline-btn:hover {
-    background: var(--color-accent, #4a9eff);
-    color: #fff;
-    border-color: var(--color-accent, #4a9eff);
-    transform: scale(1.1);
-}
-
-/* ---- Modal overlay ---- */
-.help-modal-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 100000;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.help-modal-content {
-    background: var(--background-fill-primary, #fff);
-    color: var(--body-text-color, #222);
-    border-radius: 12px;
-    max-width: 640px;
-    width: 90%;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    position: relative;
-}
-
-.help-modal-close {
-    position: absolute;
-    top: 12px; right: 16px;
-    background: none;
-    border: none;
-    font-size: 20px;
-    cursor: pointer;
-    color: var(--body-text-color, #222);
-    z-index: 1;
-    opacity: 0.6;
-}
-.help-modal-close:hover { opacity: 1; }
-
-.help-modal-body {
-    padding: 28px 32px;
-    overflow-y: auto;
-    line-height: 1.7;
-    font-size: 0.92rem;
-}
-.help-modal-body h3 { margin: 16px 0 8px; font-size: 1.15rem; }
-.help-modal-body h4 { margin: 12px 0 6px; font-size: 1.0rem; }
-.help-modal-body pre {
-    background: var(--background-fill-secondary, #f5f5f5);
-    padding: 10px;
-    border-radius: 6px;
-    overflow-x: auto;
-    font-size: 0.85rem;
-}
-.help-modal-body code {
-    background: var(--background-fill-secondary, #f5f5f5);
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-size: 0.88em;
-}
-.help-modal-body ul { margin: 6px 0; }
-.help-modal-body li { margin: 3px 0; }
-"""
+css_file = Path(__file__).parent / "interfaces" / "css" / "help_modal.css"
+HELP_MODAL_CSS = css_file.read_text()

@@ -36,7 +36,7 @@ def _create_audio_column(n, visible=True):
             )
             save_btn = gr.Button(
                 t("results.save_btn"),
-                variant="primary", size="sm", scale=1
+                variant="secondary", size="sm", scale=1
             )
         with gr.Accordion(t("results.details_accordion"), open=False, visible=True) as details_accordion:
             codes_display = gr.Textbox(
@@ -144,7 +144,7 @@ def create_results_section(dit_handler) -> dict:
             )
             next_batch_btn = gr.Button(
                 t("results.next_btn"),
-                variant="primary", interactive=False, scale=1, size="sm"
+                variant="secondary", interactive=False, scale=1, size="sm"
             )
         
         # One-click restore parameters button

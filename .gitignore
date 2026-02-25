@@ -243,3 +243,6 @@ gradio_outputs/
 acestep/third_parts/vllm/
 test_lora_scale_fix.py
 lokr_output/
+
+# macOS
+.DS_Store

@@ -2602,7 +2602,7 @@ class LLMHandler:
                     if current_key == 'bpm':
                         try:
                             metadata['bpm'] = int(value.strip())
-                        except:
+                        except (ValueError, TypeError):
                             metadata['bpm'] = value.strip()
                     elif current_key == 'caption':
                         # Post-process caption to remove YAML multi-line formatting
@@ -2610,7 +2610,7 @@ class LLMHandler:
                     elif current_key == 'duration':
                         try:
                             metadata['duration'] = int(value.strip())
-                        except:
+                        except (ValueError, TypeError):
                             metadata['duration'] = value.strip()
                     elif current_key == 'genres':
                         metadata['genres'] = value.strip()

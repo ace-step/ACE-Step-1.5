@@ -45,18 +45,18 @@ class AceStepTheme(gr.themes.Base):
         super().set(
             # Custom values
             button_primary_background_fill="*neutral_950",
-            button_primary_background_fill_dark='*primary_100',
-            button_primary_text_color_dark='*neutral_950',
+            button_primary_background_fill_dark="*primary_100",
+            button_primary_text_color_dark="*neutral_950",
             button_secondary_background_fill="*primary_200",
             button_secondary_text_color="*neutral_950",
-            body_background_fill='#f3f4f5',
-            block_background_fill_dark='#0f1624',
-            input_background_fill_dark='*neutral_800',
-            block_border_color='white',
-            block_border_color_dark='#0f1624',
-            slider_color='*neutral_800',
-            slider_color_dark='*primary_200',
-            color_accent='white',
+            body_background_fill="#f3f4f5",
+            block_background_fill_dark="#0f1624",
+            input_background_fill_dark="*neutral_800",
+            block_border_color="white",
+            block_border_color_dark="#0f1624",
+            slider_color="*neutral_800",
+            slider_color_dark="*primary_200",
+            color_accent="white",
 
             # The rest of the values were taken from Gradio's Soft theme
             # Colors

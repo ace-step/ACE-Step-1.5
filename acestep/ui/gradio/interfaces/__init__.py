@@ -49,7 +49,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
     Returns:
         Gradio Blocks instance
     """
-    # Initialize i18n with selected language
+    # Update i18n with selected language
     i18n = get_i18n(language)
     
     # Check if running in service mode (hide training tab)

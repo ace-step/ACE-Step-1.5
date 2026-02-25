@@ -78,9 +78,9 @@ API キーが未設定の場合、認証は不要です。
 | `time_signature` | string | `null` | 拍子（例: `"4/4"`） |
 
 > **messages テキストの意味はモードにより異なります：**
-> - `lyrics` を設定 → messages テキスト = prompt（音楽の説明）
+> - `lyrics` を設定 → messages テキスト = caption
 > - `sample_mode: true` を設定 → messages テキスト = sample_query（LLM にすべて生成させる）
-> - どちらも未設定 → 自動検出：タグがあればタグモード、歌詞らしければ歌詞モード、それ以外は sample モード
+> - どちらも未設定 → 自動検出：タグがあればタグモード、歌詞らしければ歌詞モード、それ以外は caption としてそのまま生成に使用
 
 #### messages フォーマット
 

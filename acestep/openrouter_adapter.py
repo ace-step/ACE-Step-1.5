@@ -310,11 +310,6 @@ def _parse_messages(messages: List[Any]) -> Tuple[str, str, List[str], Optional[
 
     prompt = " ".join(prompt_parts).strip()
 
-    # Use sample mode when: no tags, no lyrics detected, and we have text input
-    if not has_tags and not lyrics and prompt:
-        sample_query = prompt
-        prompt = ""
-
     return prompt, lyrics, audio_paths, system_instruction, sample_query
 
 

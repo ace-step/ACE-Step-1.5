@@ -374,7 +374,7 @@ def _extract_prompt_and_lyrics(messages: List[ChatMessage]) -> tuple[str, str, s
                 if _looks_like_lyrics(content):
                     lyrics = content
                 else:
-                    sample_query = content
+                    prompt = content
             break
 
     return prompt, lyrics, sample_query, audio_paths

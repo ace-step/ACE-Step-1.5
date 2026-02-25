@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal enabledelayedexpansion
 REM ACE-Step Gradio Web UI Launcher
 REM This script launches the Gradio web interface for ACE-Step
@@ -444,6 +445,7 @@ echo -------------------- Update Settings --------------------
     echo Invalid input. Please enter Y or N.
     goto update_choice_ask
 :update_choice_done
+echo Selected Update Check: %CHECK_UPDATE%
 
 echo.
 echo -------------------- Select DiT Model --------------------
@@ -473,6 +475,7 @@ echo.
     echo Invalid input. Please enter a number between 1 and 4.
     goto dit_choice_ask
 :dit_choice_done
+echo Selected DiT Model: %CONFIG_PATH:--config_path =%
 
 echo.
 echo -------------------- Select LM Model --------------------
@@ -506,6 +509,36 @@ echo.
     echo Invalid input. Please enter a number between 1 and 4.
     goto lm_choice_ask
 :lm_choice_done
+if "%LM_CHOICE%"=="4" (
+    echo Selected LM Model: None
+    echo Selected Init LLM: false
+) else (
+    echo Selected LM Model: %LM_MODEL_PATH:--lm_model_path =%
+    echo Selected Init LLM: %INIT_LLM:--init_llm =%
+)
+
+echo.
+echo -------------------- Select UI Language --------------------
+echo 1^) English (Default)
+echo 2^) Hebrew (תירבע)
+echo 3^) Chinese (中文)
+echo 4^) Japanese (日本語)
+echo.
+
+:lang_choice_ask
+    set "LANG_PICK=1"
+    set /p LANG_PICK="Select language [1-4] (Default: 1): "
+    
+    if "%LANG_PICK%"=="1" (set LANGUAGE=en & goto lang_choice_done)
+    if "%LANG_PICK%"=="2" (set LANGUAGE=he & goto lang_choice_done)
+    if "%LANG_PICK%"=="3" (set LANGUAGE=zh & goto lang_choice_done)
+    if "%LANG_PICK%"=="4" (set LANGUAGE=ja & goto lang_choice_done)
+    
+    echo Invalid selection. Please enter 1, 2, 3 or 4.
+    goto lang_choice_ask
+
+:lang_choice_done
+echo Selected language: %LANGUAGE%
 
 echo.
 echo -------------------- CPU Offload Option --------------------
@@ -522,6 +555,7 @@ echo -------------------- CPU Offload Option --------------------
     echo Invalid input. Please enter Y or N.
     goto offload_choice_ask
 :offload_choice_done
+echo Selected Offload: %OFFLOAD_TO_CPU:--offload_to_cpu =%
 
 color 07
 echo.

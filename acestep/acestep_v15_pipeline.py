@@ -36,6 +36,7 @@ try:
     from .llm_inference import LLMHandler
     from .dataset_handler import DatasetHandler
     from .ui.gradio import create_gradio_interface
+    from acestep.ui.gradio.i18n import get_i18n, available_languages_info
     from .gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB, VRAM_AUTO_OFFLOAD_THRESHOLD_GB, is_mps_platform
     from .model_downloader import ensure_lm_model
 except ImportError:
@@ -47,6 +48,7 @@ except ImportError:
     from acestep.llm_inference import LLMHandler
     from acestep.dataset_handler import DatasetHandler
     from acestep.ui.gradio import create_gradio_interface
+    from acestep.ui.gradio.i18n import get_i18n, available_languages_info
     from acestep.gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB, VRAM_AUTO_OFFLOAD_THRESHOLD_GB, is_mps_platform
     from acestep.model_downloader import ensure_lm_model
 
@@ -133,26 +135,28 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output directory: {output_dir}")
 
-    parser = argparse.ArgumentParser(description="Gradio Demo for ACE-Step V1.5")
+    # Initialize i18n with default language (en)
+    get_i18n()
+
+    parser = argparse.ArgumentParser(
+        description="Gradio Demo for ACE-Step V1.5",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
     parser.add_argument("--port", type=int, default=7860, help="Port to run the gradio server on")
     parser.add_argument("--share", action="store_true", help="Create a public link")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)")
         
-    # UI language argument
-    available_ui_language_codes = []
-    i18n_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "gradio", "i18n")
-    if os.path.exists(i18n_dir):
-        for filename in os.listdir(i18n_dir):
-            if filename.endswith(".json"):
-                available_ui_language_codes.append(filename[:-5]) # Remove .json extension and append language code to list
+    # language argument
+    available_languages = available_languages_info()
     parser.add_argument(
         "--language", 
         type=str, 
         default="en", 
-        choices=available_ui_language_codes, 
-        help="UI language: " + ", ".join(available_ui_language_codes)
+        choices=[language[0] for language in available_languages],
+        help="UI language:\n  " + "\n  ".join((code + f" ({native_name}" + (f"/{name})" if name != native_name else ")") for code, name, native_name in available_languages))
     )
+    del available_languages
     
     parser.add_argument(
         "--allowed-path",

@@ -554,6 +554,12 @@ class ToggleLoRARequest(BaseModel):
     use_lora: bool = Field(..., description="Enable or disable LoRA")
 
 
+class InitModelRequest(BaseModel):
+    model: Optional[str] = Field(default=None, description="DiT model name to initialize (e.g., 'acestep-v15-base')")
+    init_llm: bool = Field(default=False, description="Whether to initialize LLM as part of this request")
+    lm_model_path: Optional[str] = Field(default=None, description="LLM model path/name (e.g., 'acestep-5Hz-lm-1.7B')")
+
+
 def _stop_tensorboard(app: FastAPI) -> None:
     """Stop TensorBoard process if running."""
     try:
@@ -1521,6 +1527,17 @@ def create_app() -> FastAPI:
                                 "(use_cot_caption, use_cot_language) will be auto-disabled."
                             )
                             print("[API Server] LLM lazy load blocked: LLM was not initialized at startup")
+                            return
+
+                        # Respect ACESTEP_INIT_LLM=false even in lazy-load / --no-init mode
+                        init_llm_env = os.getenv("ACESTEP_INIT_LLM", "").strip().lower()
+                        if init_llm_env in {"0", "false", "no", "n", "off"}:
+                            app.state._llm_lazy_load_disabled = True
+                            app.state._llm_init_error = (
+                                "LLM disabled via ACESTEP_INIT_LLM=false. "
+                                "Optional LLM features (use_cot_caption, use_cot_language) will be auto-disabled."
+                            )
+                            print("[API Server] LLM lazy load blocked: ACESTEP_INIT_LLM=false")
                             return
 
                         project_root = _get_project_root()
@@ -2791,13 +2808,86 @@ def create_app() -> FastAPI:
 
         return _wrap_response(data_list)
 
+    def _collect_model_inventory() -> Dict[str, Any]:
+        """Collect loaded and available DiT/LM model inventory."""
+        project_root = _get_project_root()
+        checkpoint_dir = os.path.join(project_root, "checkpoints")
+
+        loaded_dit_models: Dict[str, bool] = {}
+        primary_model = _get_model_name(getattr(app.state, "_config_path", ""))
+        secondary_model = _get_model_name(getattr(app.state, "_config_path2", ""))
+        third_model = _get_model_name(getattr(app.state, "_config_path3", ""))
+
+        if getattr(app.state, "_initialized", False) and primary_model:
+            loaded_dit_models[primary_model] = True
+        if getattr(app.state, "_initialized2", False) and secondary_model:
+            loaded_dit_models[secondary_model] = True
+        if getattr(app.state, "_initialized3", False) and third_model:
+            loaded_dit_models[third_model] = True
+
+        available_dit_models = set(loaded_dit_models.keys())
+        available_lm_models = set()
+
+        if os.path.isdir(checkpoint_dir):
+            for name in os.listdir(checkpoint_dir):
+                full_path = os.path.join(checkpoint_dir, name)
+                if not os.path.isdir(full_path):
+                    continue
+                if name.startswith("acestep-5Hz-lm-"):
+                    available_lm_models.add(name)
+                elif name.startswith("acestep-"):
+                    available_dit_models.add(name)
+
+        llm_initialized = bool(getattr(app.state, "_llm_initialized", False))
+        loaded_lm_model: Optional[str] = None
+        if llm_initialized:
+            llm = getattr(app.state, "llm_handler", None)
+            llm_params = getattr(llm, "last_init_params", None) if llm else None
+            lm_model_path = ""
+            if isinstance(llm_params, dict):
+                lm_model_path = str(llm_params.get("lm_model_path", "") or "")
+            if not lm_model_path:
+                lm_model_path = os.getenv("ACESTEP_LM_MODEL_PATH", "").strip()
+            loaded_lm_model = _get_model_name(lm_model_path) or None
+            if loaded_lm_model:
+                available_lm_models.add(loaded_lm_model)
+
+        models = [
+            {
+                "name": name,
+                "is_default": bool(name == primary_model and primary_model),
+                "is_loaded": name in loaded_dit_models,
+            }
+            for name in sorted(available_dit_models)
+        ]
+        lm_models = [
+            {
+                "name": name,
+                "is_loaded": bool(loaded_lm_model and name == loaded_lm_model),
+            }
+            for name in sorted(available_lm_models)
+        ]
+
+        return {
+            "models": models,
+            "default_model": primary_model or None,
+            "lm_models": lm_models,
+            "loaded_lm_model": loaded_lm_model,
+            "llm_initialized": llm_initialized,
+        }
+
     @app.get("/health")
     async def health_check():
         """Health check endpoint for service status."""
+        inventory = _collect_model_inventory()
         return _wrap_response({
             "status": "ok",
             "service": "ACE-Step API",
             "version": "1.0",
+            "models_initialized": bool(getattr(app.state, "_initialized", False)),
+            "llm_initialized": inventory["llm_initialized"],
+            "loaded_model": inventory["default_model"],
+            "loaded_lm_model": inventory["loaded_lm_model"],
         })
 
     @app.get("/v1/stats")
@@ -2815,40 +2905,122 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/models")
     async def list_models(_: None = Depends(verify_api_key)):
-        """List available DiT models."""
-        models = []
+        """List available DiT/LM models and their load status."""
+        return _wrap_response(_collect_model_inventory())
 
-        # Primary model (always available if initialized)
-        if getattr(app.state, "_initialized", False):
-            primary_model = _get_model_name(app.state._config_path)
-            if primary_model:
-                models.append({
-                    "name": primary_model,
-                    "is_default": True,
+    @app.get("/v1/model_inventory")
+    async def model_inventory(_: None = Depends(verify_api_key)):
+        """List available DiT/LM models (non-OpenRouter internal endpoint)."""
+        return _wrap_response(_collect_model_inventory())
+
+    @app.post("/v1/init")
+    async def init_model(request: InitModelRequest, _: None = Depends(verify_api_key)):
+        """Initialize or switch DiT/LM models on demand."""
+        async with app.state._init_lock:
+            loop = asyncio.get_running_loop()
+
+            def _blocking_init() -> Dict[str, Optional[str]]:
+                handler: AceStepHandler = app.state.handler
+                llm: LLMHandler = app.state.llm_handler
+                project_root = _get_project_root()
+                checkpoint_dir = os.path.join(project_root, "checkpoints")
+                os.makedirs(checkpoint_dir, exist_ok=True)
+
+                target_model = (request.model or _get_model_name(getattr(app.state, "_config_path", ""))).strip()
+                if not target_model:
+                    raise RuntimeError("No DiT model specified")
+
+                gpu_config = get_gpu_config()
+                auto_offload = gpu_config.gpu_memory_gb > 0 and gpu_config.gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB
+                offload_to_cpu_env = os.getenv("ACESTEP_OFFLOAD_TO_CPU")
+                if offload_to_cpu_env is not None:
+                    offload_to_cpu = _env_bool("ACESTEP_OFFLOAD_TO_CPU", False)
+                else:
+                    offload_to_cpu = auto_offload
+
+                use_flash_attention = _env_bool("ACESTEP_USE_FLASH_ATTENTION", True)
+                offload_dit_to_cpu = _env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
+                compile_model = _env_bool("ACESTEP_COMPILE_MODEL", False)
+                device = os.getenv("ACESTEP_DEVICE", "auto")
+
+                _ensure_model_downloaded(target_model, checkpoint_dir)
+                _ensure_model_downloaded("vae", checkpoint_dir)
+
+                status_msg, ok = handler.initialize_service(
+                    project_root=project_root,
+                    config_path=target_model,
+                    device=device,
+                    use_flash_attention=use_flash_attention,
+                    compile_model=compile_model,
+                    offload_to_cpu=offload_to_cpu,
+                    offload_dit_to_cpu=offload_dit_to_cpu,
+                )
+                if not ok:
+                    raise RuntimeError(f"DiT init failed: {status_msg}")
+
+                app.state._config_path = target_model
+                app.state._initialized = True
+                app.state._init_error = None
+
+                loaded_lm_model: Optional[str] = None
+                if request.init_llm:
+                    lm_model_path = (request.lm_model_path or os.getenv("ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-0.6B")).strip()
+                    if not lm_model_path:
+                        lm_model_path = "acestep-5Hz-lm-0.6B"
+
+                    os.environ["ACESTEP_INIT_LLM"] = "true"
+                    os.environ["ACESTEP_LM_MODEL_PATH"] = lm_model_path
+
+                    lm_backend = os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower()
+                    if lm_backend not in {"vllm", "pt", "mlx"}:
+                        lm_backend = "vllm"
+                    lm_device = os.getenv("ACESTEP_LM_DEVICE", device)
+                    lm_offload_env = os.getenv("ACESTEP_LM_OFFLOAD_TO_CPU")
+                    if lm_offload_env is not None:
+                        lm_offload = _env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False)
+                    else:
+                        lm_offload = offload_to_cpu
+
+                    lm_model_name = _get_model_name(lm_model_path)
+                    if lm_model_name:
+                        _ensure_model_downloaded(lm_model_name, checkpoint_dir)
+
+                    with app.state._llm_init_lock:
+                        llm_status, llm_ok = llm.initialize(
+                            checkpoint_dir=checkpoint_dir,
+                            lm_model_path=lm_model_path,
+                            backend=lm_backend,
+                            device=lm_device,
+                            offload_to_cpu=lm_offload,
+                            dtype=None,
+                        )
+                        if not llm_ok:
+                            app.state._llm_initialized = False
+                            app.state._llm_init_error = llm_status
+                            raise RuntimeError(f"LLM init failed: {llm_status}")
+                        app.state._llm_initialized = True
+                        app.state._llm_init_error = None
+                        app.state._llm_lazy_load_disabled = False
+                    loaded_lm_model = lm_model_name or lm_model_path
+
+                return {
+                    "loaded_model": target_model,
+                    "loaded_lm_model": loaded_lm_model,
+                }
+
+            try:
+                result = await loop.run_in_executor(app.state.executor, _blocking_init)
+                inventory = _collect_model_inventory()
+                return _wrap_response({
+                    "message": "Model initialization completed",
+                    "loaded_model": result.get("loaded_model"),
+                    "loaded_lm_model": result.get("loaded_lm_model"),
+                    "models": inventory["models"],
+                    "lm_models": inventory["lm_models"],
+                    "llm_initialized": inventory["llm_initialized"],
                 })
-
-        # Secondary model
-        if getattr(app.state, "_initialized2", False) and app.state._config_path2:
-            secondary_model = _get_model_name(app.state._config_path2)
-            if secondary_model:
-                models.append({
-                    "name": secondary_model,
-                    "is_default": False,
-                })
-
-        # Third model
-        if getattr(app.state, "_initialized3", False) and app.state._config_path3:
-            third_model = _get_model_name(app.state._config_path3)
-            if third_model:
-                models.append({
-                    "name": third_model,
-                    "is_default": False,
-                })
-
-        return _wrap_response({
-            "models": models,
-            "default_model": models[0]["name"] if models else None,
-        })
+            except Exception as e:
+                return _wrap_response(None, code=500, error=f"Model initialization failed: {str(e)}")
 
     @app.post("/create_random_sample")
     async def create_random_sample_endpoint(request: Request, authorization: Optional[str] = Header(None)):

@@ -74,7 +74,9 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     elif not lm_initialized:
         think_update = gr.update(interactive=False, value=False, visible=True)
     else:
-        think_update = gr.update(interactive=True, visible=True)
+        # Restore thinking to True when entering a mode where it is supported
+        # (e.g. Custom after returning from Remix/Repaint where it was forced off).
+        think_update = gr.update(interactive=True, visible=True, value=True)
 
     mode_descriptions = {
         "Simple": t("generation.mode_info_simple"),
@@ -126,10 +128,18 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         auto_vocal_lang_update = gr.update()
         auto_duration_update = gr.update()
 
-    # Clear stale audio codes when leaving Custom mode to prevent
-    # them from leaking into Remix/other modes (state-leakage bug fix).
+    # Clear stale audio codes:
+    # - Leaving Custom mode: clear to prevent codes leaking into other modes.
+    # - Entering Custom from a mode that uses analyze_btn (Remix, Repaint,
+    #   Extract, Lego, Complete): analyze_btn writes codes to this same field;
+    #   those codes must be cleared so they are not passed to the DiT when
+    #   thinking is disabled in Custom mode (the root cause of garbled audio).
+    _prev_has_src_audio = previous_mode in ("Remix", "Repaint", "Extract", "Lego", "Complete")
     if is_custom:
-        audio_codes_update = gr.update(visible=True)
+        if _prev_has_src_audio:
+            audio_codes_update = gr.update(value="", visible=True)
+        else:
+            audio_codes_update = gr.update(visible=True)
     else:
         audio_codes_update = gr.update(value="", visible=False)
 

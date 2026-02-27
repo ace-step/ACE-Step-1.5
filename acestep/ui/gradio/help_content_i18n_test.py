@@ -14,7 +14,7 @@ from acestep.ui.gradio.i18n import I18n  # noqa: E402
 class I18nHelpKeysTests(unittest.TestCase):
     """Verify that all language files contain the required help.* keys."""
 
-    REQUIRED_HELP_KEYS = {
+    REQUIRED_HELP_KEYS = frozenset({
         "btn_label",
         "close_label",
         "getting_started",
@@ -26,7 +26,7 @@ class I18nHelpKeysTests(unittest.TestCase):
         "generation_extract",
         "generation_lego",
         "generation_complete",
-    }
+    })
 
     @classmethod
     def setUpClass(cls):

@@ -42,6 +42,9 @@ def analyze_src_audio(
 
     try:
         codes_string = dit_handler.convert_src_audio_to_codes(src_audio)
+    except (OSError, ValueError, TypeError) as exc:
+        gr.Warning(t("messages.audio_conversion_failed", error=str(exc)))
+        return error_tuple
     except Exception as exc:
         gr.Warning(t("messages.audio_conversion_failed", error=str(exc)))
         return error_tuple

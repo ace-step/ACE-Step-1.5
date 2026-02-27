@@ -1,4 +1,5 @@
 """LLM formatting action handlers for generation UI text fields."""
+from typing import Optional
 
 import gradio as gr
 
@@ -7,6 +8,16 @@ from acestep.ui.gradio.i18n import t
 
 from .llm_action_params import build_user_metadata, convert_lm_params
 from .validation import clamp_duration_to_gpu_limit
+
+
+def _format_failure_response(update_count: int, status_message: str):
+    """Build a standardized failure response with update placeholders."""
+    return (*([gr.update()] * update_count), status_message)
+
+
+def _clean_optional_wrapped_quotes(text: Optional[str]) -> Optional[str]:
+    """Strip a single layer of leading/trailing quote characters when present."""
+    return text.strip("'\"") if text else text
 
 
 def _execute_format_sample(
@@ -87,17 +98,7 @@ def handle_format_sample(
     )
 
     if result is None:
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            status_message,
-        )
+        return _format_failure_response(update_count=8, status_message=status_message)
 
     return (
         result.caption,
@@ -145,20 +146,10 @@ def handle_format_caption(
     )
 
     if result is None:
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            status_message,
-        )
+        return _format_failure_response(update_count=7, status_message=status_message)
 
-    cleaned_caption = result.caption.strip("'\"") if result.caption else result.caption
     return (
-        cleaned_caption,
+        _clean_optional_wrapped_quotes(result.caption),
         result.bpm,
         duration_value,
         result.keyscale,
@@ -202,20 +193,10 @@ def handle_format_lyrics(
     )
 
     if result is None:
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            status_message,
-        )
+        return _format_failure_response(update_count=7, status_message=status_message)
 
-    cleaned_lyrics = result.lyrics.strip("'\"") if result.lyrics else result.lyrics
     return (
-        cleaned_lyrics,
+        _clean_optional_wrapped_quotes(result.lyrics),
         result.bpm,
         duration_value,
         result.keyscale,

@@ -196,6 +196,7 @@ def handle_extract_src_audio_change(src_audio_path, mode: str):
     if mode not in ("Extract", "Lego") or not src_audio_path:
         return gr.update()
     try:
+        # Late import avoids loading training audio helpers unless this path is used.
         from acestep.training.dataset_builder_modules.audio_io import get_audio_duration
         duration = get_audio_duration(src_audio_path)
         if duration and duration > 0:

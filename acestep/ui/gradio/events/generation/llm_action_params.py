@@ -40,6 +40,6 @@ def convert_lm_params(
     lm_top_p: Optional[float],
 ) -> Tuple[Optional[int], Optional[float]]:
     """Convert UI LM controls to inference-compatible top-k/top-p values."""
-    top_k_value = None if not lm_top_k or lm_top_k == 0 else int(lm_top_k)
-    top_p_value = None if not lm_top_p or lm_top_p >= 1.0 else float(lm_top_p)
+    top_k_value = None if lm_top_k is None or lm_top_k == 0 else int(lm_top_k)
+    top_p_value = None if lm_top_p is None or lm_top_p >= 1.0 else float(lm_top_p)
     return top_k_value, top_p_value

@@ -17,7 +17,14 @@ def _format_failure_response(update_count: int, status_message: str):
 
 def _clean_optional_wrapped_quotes(text: Optional[str]) -> Optional[str]:
     """Strip a single layer of leading/trailing quote characters when present."""
-    return text.strip("'\"") if text else text
+    if text is None:
+        return None
+    if len(text) >= 2 and (
+        (text.startswith("'") and text.endswith("'"))
+        or (text.startswith('"') and text.endswith('"'))
+    ):
+        return text[1:-1]
+    return text
 
 
 def _execute_format_sample(

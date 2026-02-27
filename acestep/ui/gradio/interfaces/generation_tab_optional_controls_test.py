@@ -16,10 +16,10 @@ _EXPECTED_NAMES = {
 
 
 class GenerationTabOptionalControlsTests(unittest.TestCase):
-    """Verify optional controls stay editable outside service mode."""
+    """Verify optional controls start locked when Auto toggles are enabled."""
 
-    def test_optional_fields_use_service_mode_gated_interactivity(self):
-        """Optional controls should use ``interactive=not service_mode`` consistently."""
+    def test_optional_fields_default_to_non_interactive(self):
+        """Optional controls should initialize with ``interactive=False``."""
 
         module = ast.parse(_OPTIONAL_PATH.read_text(encoding="utf-8"))
         func = next(
@@ -45,10 +45,8 @@ class GenerationTabOptionalControlsTests(unittest.TestCase):
 
         self.assertEqual(_EXPECTED_NAMES, set(found.keys()))
         for field_name, expr in found.items():
-            self.assertIsInstance(expr, ast.UnaryOp, f"{field_name} should use 'not service_mode'")
-            self.assertIsInstance(expr.op, ast.Not, f"{field_name} should negate service_mode")
-            self.assertIsInstance(expr.operand, ast.Name, f"{field_name} should reference service_mode")
-            self.assertEqual("service_mode", expr.operand.id, f"{field_name} should use service_mode")
+            self.assertIsInstance(expr, ast.Constant, f"{field_name} should use constant False")
+            self.assertFalse(expr.value, f"{field_name} should default to non-interactive")
 
 
 if __name__ == "__main__":

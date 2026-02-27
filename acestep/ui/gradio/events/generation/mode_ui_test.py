@@ -23,6 +23,11 @@ _IDX_AUDIO_CODES = 42
 _IDX_SRC_AUDIO = 43
 _IDX_THINK_CHECKBOX = 14
 _EXPECTED_TUPLE_LENGTH = 44
+_IDX_BPM = 21
+_IDX_KEY = 22
+_IDX_TIMESIG = 23
+_IDX_VOCAL_LANG = 24
+_IDX_DURATION = 25
 
 
 @unittest.skipIf(compute_mode_ui_updates is None,
@@ -174,6 +179,18 @@ class ModeUiStateClearingTests(unittest.TestCase):
         think_update = result[_IDX_THINK_CHECKBOX]
         self.assertFalse(think_update.get("value"))
         self.assertFalse(think_update.get("interactive"))
+
+    def test_non_extract_modes_do_not_force_auto_fields_interactive(self):
+        """Mode switches should not re-enable auto-managed metadata fields."""
+        result = compute_mode_ui_updates("Remix", previous_mode="Custom")
+        for idx in (_IDX_BPM, _IDX_KEY, _IDX_TIMESIG, _IDX_VOCAL_LANG, _IDX_DURATION):
+            self.assertNotIn("interactive", result[idx])
+
+    def test_leaving_extract_sets_auto_fields_non_interactive(self):
+        """Leaving Extract should reset optional fields in locked auto state."""
+        result = compute_mode_ui_updates("Custom", previous_mode="Extract")
+        for idx in (_IDX_BPM, _IDX_KEY, _IDX_TIMESIG, _IDX_VOCAL_LANG, _IDX_DURATION):
+            self.assertFalse(result[idx].get("interactive"))
 
 
 if __name__ == "__main__":

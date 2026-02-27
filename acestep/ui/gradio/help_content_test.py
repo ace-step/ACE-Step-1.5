@@ -17,7 +17,7 @@ import json
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Pre-mock gradio so the acestep.ui.gradio package __init__.py
@@ -137,9 +137,11 @@ class NextIdTests(unittest.TestCase):
     """Tests for the unique id counter."""
 
     def test_ids_are_unique(self):
+        """Each call should produce a distinct DOM id suffix."""
         self.assertNotEqual(_next_id(), _next_id())
 
     def test_ids_are_strings(self):
+        """Generated id suffixes should be strings for safe HTML formatting."""
         self.assertIsInstance(_next_id(), str)
 
 
@@ -150,21 +152,27 @@ class HelpModalCssTests(unittest.TestCase):
     """Tests for the exported CSS constant."""
 
     def test_css_not_empty(self):
+        """Help modal CSS should not be empty."""
         self.assertTrue(len(HELP_MODAL_CSS) > 0)
 
     def test_css_contains_overlay_selector(self):
+        """CSS should include modal overlay selector."""
         self.assertIn(".help-modal-overlay", HELP_MODAL_CSS)
 
     def test_css_contains_content_selector(self):
+        """CSS should include modal content selector."""
         self.assertIn(".help-modal-content", HELP_MODAL_CSS)
 
     def test_css_contains_close_selector(self):
+        """CSS should include close-button selector."""
         self.assertIn(".help-modal-close", HELP_MODAL_CSS)
 
     def test_css_contains_inline_btn_selector(self):
+        """CSS should include inline help button selector."""
         self.assertIn(".help-inline-btn", HELP_MODAL_CSS)
 
     def test_css_contains_inline_container_selector(self):
+        """CSS should include inline help container selector."""
         self.assertIn(".help-inline-container", HELP_MODAL_CSS)
 
 
@@ -190,6 +198,7 @@ class I18nHelpKeysTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """Load all i18n language JSON files for help-key assertions."""
         i18n_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "i18n"
         )
@@ -245,29 +254,25 @@ class CreateHelpButtonTests(unittest.TestCase):
 
     def test_create_help_button_calls_gr_html(self):
         """create_help_button should call gr.HTML and return the result."""
-        import gradio as gr  # This is the mock
-
         mock_html = MagicMock()
-        gr.HTML.return_value = mock_html
+        with patch("acestep.ui.gradio.help_content.gr.HTML", return_value=mock_html) as mock_gr_html:
+            result = create_help_button("getting_started")
 
-        result = create_help_button("getting_started")
-
-        gr.HTML.assert_called()
+        mock_gr_html.assert_called()
         self.assertEqual(result, mock_html)
 
     def test_create_help_button_html_contains_modal(self):
         """The generated HTML should contain modal markup."""
-        import gradio as gr
-
         # Capture the value= kwarg passed to gr.HTML
         captured = {}
 
         def capture_html(**kwargs):
+            """Capture HTML kwargs passed to gr.HTML for markup assertions."""
             captured.update(kwargs)
             return MagicMock()
 
-        gr.HTML.side_effect = capture_html
-        create_help_button("getting_started")
+        with patch("acestep.ui.gradio.help_content.gr.HTML", side_effect=capture_html):
+            create_help_button("getting_started")
 
         html_value = captured.get("value", "")
         self.assertIn("help-modal-overlay", html_value)

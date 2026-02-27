@@ -219,15 +219,15 @@ def _compute_field_updates_for_mode(is_extract, is_lego, not_simple, leaving_ext
             return (
                 gr.update(value="", visible=True, interactive=True),
                 gr.update(value="", visible=True, interactive=True),
-                gr.update(value=None, visible=True, interactive=True),
-                gr.update(value="", visible=True, interactive=True),
+                gr.update(value=None, visible=True, interactive=False),
+                gr.update(value="", visible=True, interactive=False),
             )
         else:
             return (
                 gr.update(visible=True, interactive=True),
                 gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
+                gr.update(visible=True),
+                gr.update(visible=True),
             )
     else:
         if leaving_extract_or_lego:
@@ -258,15 +258,15 @@ def _compute_meta_updates_for_mode(is_extract, is_lego, not_simple, leaving_extr
     elif not_simple:
         if leaving_extract_or_lego:
             return (
-                gr.update(value="", visible=True, interactive=True),
-                gr.update(value="en", visible=True, interactive=True),
-                gr.update(value=-1, visible=True, interactive=True),
+                gr.update(value="", visible=True, interactive=False),
+                gr.update(value="en", visible=True, interactive=False),
+                gr.update(value=-1, visible=True, interactive=False),
             )
         else:
             return (
-                gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
+                gr.update(visible=True),
+                gr.update(visible=True),
+                gr.update(visible=True),
             )
     else:
         if leaving_extract_or_lego:

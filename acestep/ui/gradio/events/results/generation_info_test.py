@@ -14,12 +14,12 @@ def _load_module():
     """Load target module directly by file path for isolated testing."""
     # Stub i18n package path so importing generation_info.py does not require
     # importing the full Gradio UI package in headless test environments.
-    acestep_pkg = sys.modules.setdefault("acestep", types.ModuleType("acestep"))
-    ui_pkg = sys.modules.setdefault("acestep.ui", types.ModuleType("acestep.ui"))
-    gradio_pkg = sys.modules.setdefault("acestep.ui.gradio", types.ModuleType("acestep.ui.gradio"))
+    # Keep these stubs scoped to module loading to avoid leaking into other tests.
+    acestep_pkg = types.ModuleType("acestep")
+    ui_pkg = types.ModuleType("acestep.ui")
+    gradio_pkg = types.ModuleType("acestep.ui.gradio")
     i18n_mod = types.ModuleType("acestep.ui.gradio.i18n")
     i18n_mod.t = lambda key, **_kwargs: key
-    sys.modules["acestep.ui.gradio.i18n"] = i18n_mod
     acestep_pkg.ui = ui_pkg
     ui_pkg.gradio = gradio_pkg
     gradio_pkg.i18n = i18n_mod
@@ -27,7 +27,16 @@ def _load_module():
     module_path = Path(__file__).with_name("generation_info.py")
     spec = importlib.util.spec_from_file_location("generation_info", module_path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    with patch.dict(
+        "sys.modules",
+        {
+            "acestep": acestep_pkg,
+            "acestep.ui": ui_pkg,
+            "acestep.ui.gradio": gradio_pkg,
+            "acestep.ui.gradio.i18n": i18n_mod,
+        },
+    ):
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
     return module
 
 
@@ -62,6 +71,7 @@ class ClearAudioOutputsTests(unittest.TestCase):
         real_import = builtins.__import__
 
         def _mocked_import(name, *args, **kwargs):
+            """Raise ImportError for gradio while delegating all other imports."""
             if name == "gradio":
                 raise ImportError("simulated missing gradio")
             return real_import(name, *args, **kwargs)

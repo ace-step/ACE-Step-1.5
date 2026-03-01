@@ -26,7 +26,6 @@ import urllib.parse
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from functools import partial
 from threading import Lock
 from typing import Any, Dict, List, Optional
 import torch
@@ -38,14 +37,12 @@ except ImportError:  # Optional dependency
     load_dotenv = None  # type: ignore
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.datastructures import UploadFile as StarletteUploadFile
 from acestep.api.train_api_service import (
     initialize_training_state,
-    register_training_api_routes,
 )
 from acestep.api.jobs.store import _JobStore
 from acestep.api.log_capture import install_log_capture
+from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.server_utils import (
     env_bool as _env_bool,
@@ -60,11 +57,6 @@ from acestep.api.http.auth import (
     verify_api_key,
     verify_token_from_request,
 )
-from acestep.api.http.lora_routes import register_lora_routes
-from acestep.api.http.model_service_routes import register_model_service_routes
-from acestep.api.http.reinitialize_route import register_reinitialize_route
-from acestep.api.http.sample_format_routes import register_sample_format_routes
-from acestep.api.http.audio_route import register_audio_route
 from acestep.api.http.release_task_audio_paths import (
     save_upload_to_temp as _save_upload_to_temp,
     validate_audio_path as _validate_audio_path,
@@ -75,8 +67,6 @@ from acestep.api.http.release_task_param_parser import (
     _to_float as _request_to_float,
     _to_int as _request_to_int,
 )
-from acestep.api.http.query_result_route import register_query_result_route
-from acestep.api.http.release_task_route import register_release_task_route
 from acestep.api.jobs.local_cache_updates import (
     update_local_cache,
     update_local_cache_progress,
@@ -1325,127 +1315,40 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="ACE-Step API", version="1.0", lifespan=lifespan)
 
-    # Enable CORS for browser-based frontends (e.g. studio.html opened via file://)
-    # Restricted to localhost origins and the "null" origin (file:// protocol)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["null", "http://localhost", "http://127.0.0.1"],
-        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization"],
-    )
-
-    # Mount OpenRouter-compatible endpoints (/v1/chat/completions, /v1/models)
-    from acestep.openrouter_adapter import create_openrouter_router
-    openrouter_router = create_openrouter_router(lambda: app.state)
-    app.include_router(openrouter_router)
-
-    async def _queue_position(job_id: str) -> int:
-        async with app.state.pending_lock:
-            try:
-                return list(app.state.pending_ids).index(job_id) + 1
-            except ValueError:
-                return 0
-
-    async def _eta_seconds_for_position(pos: int) -> Optional[float]:
-        if pos <= 0:
-            return None
-        async with app.state.stats_lock:
-            avg = float(getattr(app.state, "avg_job_seconds", INITIAL_AVG_JOB_SECONDS))
-        return pos * avg
-
-    register_model_service_routes(
+    configure_api_routes(
         app=app,
-        verify_api_key=verify_api_key,
-        wrap_response=_wrap_response,
         store=store,
         queue_maxsize=QUEUE_MAXSIZE,
         initial_avg_job_seconds=INITIAL_AVG_JOB_SECONDS,
+        verify_api_key=verify_api_key,
+        verify_token_from_request=verify_token_from_request,
+        wrap_response=_wrap_response,
         get_project_root=_get_project_root,
         get_model_name=_get_model_name,
         ensure_model_downloaded=_ensure_model_downloaded,
         env_bool=_env_bool,
-    )
-
-    register_sample_format_routes(
-        app=app,
-        verify_token_from_request=verify_token_from_request,
-        wrap_response=_wrap_response,
         simple_example_data=SIMPLE_EXAMPLE_DATA,
         custom_example_data=CUSTOM_EXAMPLE_DATA,
         format_sample=format_sample,
-        get_project_root=_get_project_root,
-        get_model_name=_get_model_name,
-        ensure_model_downloaded=_ensure_model_downloaded,
-        env_bool=_env_bool,
         to_int=_request_to_int,
         to_float=_request_to_float,
-    )
-
-    register_lora_routes(
-        app=app,
-        verify_api_key=verify_api_key,
-        wrap_response=_wrap_response,
-    )
-
-    register_reinitialize_route(
-        app=app,
-        verify_api_key=verify_api_key,
-        wrap_response=_wrap_response,
-        env_bool=_env_bool,
-        get_project_root=_get_project_root,
-    )
-
-    register_training_api_routes(
-        app=app,
-        verify_api_key=verify_api_key,
-        wrap_response=_wrap_response,
-        start_tensorboard=partial(
-            _runtime_start_tensorboard,
-            stop_tensorboard_fn=_runtime_stop_tensorboard,
-        ),
-        stop_tensorboard=_runtime_stop_tensorboard,
-        temporary_llm_model=partial(
-            _runtime_temporary_llm_model,
-            get_project_root=_get_project_root,
-            get_model_name=_get_model_name,
-            ensure_model_downloaded=_ensure_model_downloaded,
-            env_bool=_env_bool,
-        ),
-        atomic_write_json=_runtime_atomic_write_json,
-        append_jsonl=_runtime_append_jsonl,
-    )
-
-    register_audio_route(
-        app=app,
-        verify_api_key=verify_api_key,
-    )
-
-    register_release_task_route(
-        app=app,
-        verify_token_from_request=verify_token_from_request,
-        wrap_response=_wrap_response,
-        store=store,
         request_parser_cls=RequestParser,
         request_model_cls=GenerateMusicRequest,
         validate_audio_path=_validate_audio_path,
         save_upload_to_temp=_save_upload_to_temp,
-        upload_file_type=StarletteUploadFile,
         default_dit_instruction=DEFAULT_DIT_INSTRUCTION,
         lm_default_temperature=LM_DEFAULT_TEMPERATURE,
         lm_default_cfg_scale=LM_DEFAULT_CFG_SCALE,
         lm_default_top_p=LM_DEFAULT_TOP_P,
-    )
-
-    register_query_result_route(
-        app=app,
-        verify_token_from_request=verify_token_from_request,
-        wrap_response=_wrap_response,
-        store=store,
         map_status=_map_status,
         result_key_prefix=RESULT_KEY_PREFIX,
         task_timeout_seconds=TASK_TIMEOUT_SECONDS,
         log_buffer=log_buffer,
+        runtime_start_tensorboard=_runtime_start_tensorboard,
+        runtime_stop_tensorboard=_runtime_stop_tensorboard,
+        runtime_temporary_llm_model=_runtime_temporary_llm_model,
+        runtime_atomic_write_json=_runtime_atomic_write_json,
+        runtime_append_jsonl=_runtime_append_jsonl,
     )
 
     return app

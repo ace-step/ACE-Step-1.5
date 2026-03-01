@@ -1,4 +1,4 @@
-﻿"""Shared helper utilities used by API server request and runtime flows."""
+"""Shared helper utilities used by API server request and runtime flows."""
 
 from __future__ import annotations
 

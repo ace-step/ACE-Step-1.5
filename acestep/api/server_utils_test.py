@@ -33,6 +33,13 @@ class ServerUtilsTests(unittest.TestCase):
         self.assertIsNone(language)
         self.assertFalse(instrumental)
 
+    def test_parse_description_hints_detects_unicode_language_aliases(self) -> None:
+        """Description parser should support non-ASCII language aliases."""
+
+        language, instrumental = parse_description_hints("抒情流行 中文")
+        self.assertEqual("zh", language)
+        self.assertFalse(instrumental)
+
     def test_env_bool_uses_truthy_values_and_default(self) -> None:
         """Boolean env parser should support legacy truthy values and default fallback."""
 

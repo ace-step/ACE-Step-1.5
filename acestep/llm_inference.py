@@ -571,8 +571,18 @@ class LLMHandler:
             logger.info(f"Constrained processor initialized in {time.time() - processor_start:.2f} seconds")
 
             # Disable CUDA/HIP graph capture on ROCm (unverified on RDNA3 Windows)
+            # and on Jetson (SDPA paged-cache decode calls .item() during capture).
             is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
-            enforce_eager_for_vllm = bool(is_rocm)
+            is_jetson = False
+            if device == "cuda" and torch.cuda.is_available():
+                try:
+                    dev_name = torch.cuda.get_device_name(0).lower()
+                    is_jetson = any(k in dev_name for k in ("orin", "xavier", "tegra"))
+                    if is_jetson:
+                        logger.info(f"Jetson GPU detected ({dev_name}): disabling CUDA graph capture for nano-vllm")
+                except Exception:
+                    pass
+            enforce_eager_for_vllm = bool(is_rocm or is_jetson)
 
             # Auto-detect best backend on Apple Silicon
             if backend == "mlx" or (backend == "vllm" and device == "mps"):

@@ -1,0 +1,102 @@
+# =============================================================================
+# ACE-Step 1.5 — Docker Compose for NVIDIA Jetson
+# =============================================================================
+#
+# Prerequisites:
+#   - JetPack 6.x (L4T R36.x) with NVIDIA Container Runtime
+#   - Docker Compose v2 (docker compose) or v1 (docker-compose)
+#
+# Usage:
+#   # Start Gradio UI (default):
+#   docker compose -f docker-compose.jetson.yml up
+#
+#   # Start REST API server instead:
+#   ACESTEP_MODE=api docker compose -f docker-compose.jetson.yml up
+#
+#   # Build and start:
+#   docker compose -f docker-compose.jetson.yml up --build
+#
+#   # Run in background:
+#   docker compose -f docker-compose.jetson.yml up -d
+#
+#   # Stop:
+#   docker compose -f docker-compose.jetson.yml down
+#
+#   # View logs:
+#   docker compose -f docker-compose.jetson.yml logs -f
+#
+#   # Override JetPack version at build time:
+#   L4T_VERSION=r36.3.0 docker compose -f docker-compose.jetson.yml up --build
+#
+# =============================================================================
+
+services:
+  acestep:
+    build:
+      context: .
+      dockerfile: Dockerfile.jetson
+      args:
+        L4T_VERSION: ${L4T_VERSION:-r36.4.0}
+    image: acestep-jetson:latest
+    container_name: acestep-jetson
+
+    # ---- GPU access ----
+    runtime: nvidia
+
+    # ---- Mode: "gradio" (web UI) or "api" (REST API) ----
+    # Override from shell:  ACESTEP_MODE=api docker compose ... up
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - ACESTEP_MODE=${ACESTEP_MODE:-gradio}
+      # vllm with 4B LM = best quality (README recommendation for ≥24GB).
+      # CUDA graph capture is auto-disabled on Jetson (enforce_eager).
+      - ACESTEP_LLM_BACKEND=${ACESTEP_LLM_BACKEND:-vllm}
+      - ACESTEP_INIT_SERVICE=${ACESTEP_INIT_SERVICE:-true}
+      - ACESTEP_CONFIG_PATH=${ACESTEP_CONFIG_PATH:-acestep-v15-turbo}
+      - ACESTEP_LM_MODEL_PATH=${ACESTEP_LM_MODEL_PATH:-acestep-5Hz-lm-4B}
+      - ACESTEP_EXTRA_ARGS=${ACESTEP_EXTRA_ARGS:-}
+      - TOKENIZERS_PARALLELISM=false
+
+    # ---- Ports ----
+    # Gradio UI on 7860, REST API on 8001
+    ports:
+      - "${GRADIO_PORT:-7860}:7860"
+      - "${API_PORT:-8001}:8001"
+
+    # ---- Persistent volumes ----
+    volumes:
+      # Model checkpoints — bind mount so models are visible on the host,
+      # can be shared across containers, and survive image rebuilds.
+      - ./checkpoints:/app/checkpoints
+      # HuggingFace cache — avoids re-downloading models if the checkpoint
+      # directory is empty and the downloader fetches from HF Hub.
+      - hf_cache:/root/.cache/huggingface
+      # Generated audio output
+      - ./gradio_outputs:/app/gradio_outputs
+
+    # ---- Resource management ----
+    # Shared memory — needed for PyTorch DataLoader workers
+    shm_size: "2gb"
+
+    # ---- Restart policy ----
+    restart: unless-stopped
+
+    # ---- Health check ----
+    # Inherited from Dockerfile; compose-level override for faster feedback
+    healthcheck:
+      test: >-
+        curl -sf http://localhost:7860/ > /dev/null 2>&1 ||
+        curl -sf http://localhost:8001/health > /dev/null 2>&1 ||
+        exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 300s
+      retries: 3
+
+volumes:
+  # HuggingFace download cache — persists across container rebuilds so models
+  # don't need to be re-downloaded from the Hub.
+  hf_cache:

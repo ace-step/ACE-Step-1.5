@@ -1,0 +1,286 @@
+# =============================================================================
+# ACE-Step 1.5 — NVIDIA Jetson Dockerfile
+# =============================================================================
+#
+# Builds ACE-Step 1.5 with GPU acceleration for NVIDIA Jetson platforms.
+#
+# Supported hardware:
+#   - Jetson Orin Nano  (4/8 GB unified memory)
+#   - Jetson Orin NX    (8/16 GB)
+#   - Jetson AGX Orin   (32/64 GB)
+#   - Jetson Xavier NX / AGX Xavier (JetPack 5.x — see JetPack 5 note below)
+#
+# Requirements:
+#   - JetPack 6.x installed on the Jetson (L4T R36.x)
+#   - NVIDIA Container Runtime (`nvidia-docker2` or `nvidia-container-toolkit`)
+#   - Docker with BuildKit (Docker >= 20.10)
+#
+# Build:
+#   docker build -f Dockerfile.jetson -t acestep-jetson .
+#
+# Run (Gradio UI — default, models pre-loaded at startup):
+#   docker run --runtime nvidia -it --rm \
+#     -p 7860:7860 \
+#     -v $(pwd)/checkpoints:/app/checkpoints \
+#     -v $(pwd)/gradio_outputs:/app/gradio_outputs \
+#     acestep-jetson
+#
+# Run (REST API server):
+#   docker run --runtime nvidia -it --rm \
+#     -p 8001:8001 \
+#     -v $(pwd)/checkpoints:/app/checkpoints \
+#     -e ACESTEP_MODE=api \
+#     acestep-jetson
+#
+# Run without pre-initialization (deferred to UI "Initialize" button):
+#   docker run --runtime nvidia -it --rm \
+#     -p 7860:7860 \
+#     -v $(pwd)/checkpoints:/app/checkpoints \
+#     -e ACESTEP_INIT_SERVICE=false \
+#     acestep-jetson
+#
+# ---- JetPack 5.x (Xavier) ----
+# Override build args for JetPack 5:
+#   docker build -f Dockerfile.jetson \
+#     --build-arg L4T_VERSION=r35.5.0 \
+#     -t acestep-jetson-jp5 .
+#
+# =============================================================================
+
+# ==================== Build arguments ====================
+
+# L4T JetPack image tag — must match your Jetson's JetPack installation.
+# JetPack 6.2 → r36.4.0 | JetPack 6.1 → r36.3.0 | JetPack 6.0 → r36.2.0
+# The l4t-jetpack image includes CUDA toolkit, cuDNN and TensorRT.
+ARG L4T_VERSION=r36.4.0
+
+# ==================== Base image ====================
+FROM nvcr.io/nvidia/l4t-jetpack:${L4T_VERSION}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# ==================== System packages ====================
+# NOTE: We use the system Python 3.10 (shipped with Ubuntu 22.04 / L4T) because
+# NVIDIA's Jetson AI Lab only publishes PyTorch wheels for cp310.
+# The ACE-Step codebase is compatible with Python 3.10.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common \
+        build-essential \
+        cmake \
+        git \
+        curl \
+        wget \
+        pkg-config \
+        python3-dev \
+        python3-venv \
+        # Audio processing libraries
+        libsndfile1 \
+        libsndfile1-dev \
+        ffmpeg \
+        # BLAS / LAPACK for scipy & numpy on aarch64
+        libopenblas-dev \
+        liblapack-dev \
+        gfortran \
+    && rm -rf /var/lib/apt/lists/*
+
+# Ensure 'python' -> python3 symlink exists.
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Bootstrap pip and install a modern numpy (base image ships 1.21 for 3.10).
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3 \
+    && pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir "numpy>=1.24"
+
+# ==================== PyTorch — Jetson-optimised wheels ====================
+# Installed from NVIDIA's Jetson AI Lab pip index which provides aarch64
+# wheels compiled specifically for Jetson GPUs (SM 8.7 / Orin architecture).
+# Standard PyPI cu126 wheels do NOT include SM 8.7 kernels and will fail
+# with "no kernel image is available for execution on the device".
+ARG JETSON_PIP_INDEX=https://pypi.jetson-ai-lab.io/jp6/cu126/+simple/
+
+# nvidia-cudss-cu12 provides libcudss.so.0 which torch 2.9+ requires at import.
+# IMPORTANT: nvidia-cudss-cu12 from PyPI pulls in nvidia-cublas-cu12 and
+# nvidia-cuda-runtime-cu12 for a *newer* CUDA (12.9).  These conflict with the
+# CUDA 12.6 system libs shipped in l4t-jetpack and cause CUBLAS_STATUS errors.
+# We keep ONLY the cudss .so and remove the conflicting cublas/cuda-runtime pkgs
+# so that torch uses the system CUDA 12.6 libraries at runtime.
+ENV NVIDIA_PYTHON_LIBS=/usr/local/lib/python3.10/dist-packages/nvidia
+ENV LD_LIBRARY_PATH="${NVIDIA_PYTHON_LIBS}/cu12/lib:${LD_LIBRARY_PATH}"
+
+RUN pip install --no-cache-dir nvidia-cudss-cu12 \
+    && pip uninstall -y nvidia-cublas-cu12 nvidia-cuda-runtime-cu12 \
+        nvidia-cusparse-cu12 nvidia-nvjitlink-cu12 2>/dev/null || true \
+    && echo "${NVIDIA_PYTHON_LIBS}/cu12/lib" > /etc/ld.so.conf.d/nvidia-cudss.conf \
+    && ldconfig \
+    && pip install --no-cache-dir \
+        "torch==2.9.1" "torchvision==0.24.1" "torchaudio==2.9.1" \
+        --index-url ${JETSON_PIP_INDEX} \
+    && python -c "import torch; print(f'PyTorch {torch.__version__}  CUDA avail: {torch.cuda.is_available()}  Archs: {torch.cuda.get_arch_list()}')" \
+    || echo "WARNING: torch import check failed (expected during build without GPU — will work at runtime with --runtime nvidia)"
+
+# ==================== Project source ====================
+WORKDIR /app
+COPY . /app/
+
+# ==================== Python dependencies ====================
+# We install dependencies explicitly rather than via `pip install .` because
+# pyproject.toml's aarch64 markers point to cu130 wheels (DGX Spark), which
+# are incompatible with Jetson's CUDA 12.x.
+#
+# Excluded packages (Jetson-incompatible):
+#   - torch/torchvision/torchaudio  → already installed from Jetson wheels
+#   - mlx / mlx-lm                  → Apple Silicon only
+#   - torchcodec                    → excluded for aarch64 in upstream pyproject.toml
+
+# Core + training + API dependencies
+RUN pip install --no-cache-dir \
+        "transformers>=4.51.0,<4.58.0" \
+        "diffusers" \
+        "gradio==6.2.0" \
+        "matplotlib>=3.7.5" \
+        "scipy>=1.10.1" \
+        "soundfile>=0.13.1" \
+        "loguru>=0.7.3" \
+        "einops>=0.8.1" \
+        "accelerate>=1.12.0" \
+        "fastapi>=0.110.0" \
+        "diskcache" \
+        "uvicorn[standard]>=0.27.0" \
+        "numba>=0.63.1" \
+        "vector-quantize-pytorch>=1.27.15" \
+        "toml" \
+        "safetensors" \
+        "modelscope" \
+        "peft>=0.18.0" \
+        "lycoris-lora" \
+        "lightning>=2.0.0" \
+        "tensorboard>=2.20.0" \
+        "typer-slim>=0.21.1" \
+        "xxhash" \
+        "pyyaml"
+
+# torchao — DISABLED on Jetson.
+# diffusers 0.36.0 has a bug in its torchao quantizer integration: when torchao
+# is present but the UInt4Tensor module layout doesn't match, the error handler
+# references an undefined `logger` variable, crashing VAE model loading entirely.
+# Quantization features are not critical for Jetson inference.
+# RUN pip install --no-cache-dir torchao 2>/dev/null \
+#     || echo "WARNING: torchao install failed (non-fatal)"
+
+# ==================== Triton + nano-vllm ====================
+# Triton aarch64 wheels are available on the Jetson AI Lab index.
+# flash-attn is NOT installed: the Jetson AI Lab wheels are compiled against an
+# older PyTorch ABI and crash on import with torch 2.9.x (undefined SymInt
+# symbols). nano-vllm gracefully falls back to SDPA attention without flash-attn.
+# nano-vllm is installed from the bundled source with --no-deps to avoid pulling
+# x86-only flash-attn wheels from its pyproject.toml.
+#
+# Triton requires ptxas and cuda.h from the CUDA toolkit — we set the env var
+# and create a symlink so triton's nvidia backend can find them.
+ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
+RUN pip install --no-cache-dir \
+        "triton>=3.4.0" \
+        --index-url ${JETSON_PIP_INDEX} \
+    && mkdir -p /usr/local/lib/python3.10/dist-packages/triton/backends/nvidia/include \
+    && ln -sf /usr/local/cuda/include/cuda.h \
+              /usr/local/lib/python3.10/dist-packages/triton/backends/nvidia/include/cuda.h \
+    && pip install --no-cache-dir --no-deps /app/acestep/third_parts/nano-vllm \
+    && python -c "import nanovllm; print('nano-vllm OK')" \
+    || echo "WARNING: nano-vllm install failed (non-fatal — will fall back to pt backend)"
+
+# ==================== Runtime directories ====================
+RUN mkdir -p /app/checkpoints /app/gradio_outputs
+
+# ==================== Jetson environment defaults ====================
+
+# LLM backend: "vllm" uses nano-vllm with paged KV cache (recommended for
+# ≥24GB VRAM with the 4B LM model).  CUDA graph capture is automatically
+# disabled on Jetson (enforce_eager) since SDPA paged-cache decode is
+# incompatible with graph capture.
+ENV ACESTEP_LLM_BACKEND=vllm
+
+# Bind to all interfaces so Docker port-mapping works.
+ENV ACESTEP_API_HOST=0.0.0.0
+ENV GRADIO_SERVER_NAME=0.0.0.0
+
+# Default startup mode: "gradio" for the web UI, "api" for the REST server.
+ENV ACESTEP_MODE=gradio
+
+# Auto-initialize models on startup so users can generate immediately.
+# Set to "false" to defer initialization to the UI "Initialize" button.
+ENV ACESTEP_INIT_SERVICE=true
+
+# Default DiT model to load at startup (must exist in /app/checkpoints).
+ENV ACESTEP_CONFIG_PATH=acestep-v15-turbo
+
+# Default LM model — 4B gives best quality on ≥24GB GPUs (see README).
+# Use "acestep-5Hz-lm-0.6B" or "acestep-5Hz-lm-1.7B" for lower VRAM.
+ENV ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-4B
+
+# Disable tokenizers parallelism (avoids fork warnings in containers).
+ENV TOKENIZERS_PARALLELISM=false
+
+# ==================== Ports ====================
+# 7860 = Gradio web UI | 8001 = REST API server
+EXPOSE 7860 8001
+
+# ==================== Health check ====================
+# Lightweight probe: the Gradio or API server must be listening.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -sf http://localhost:${GRADIO_PORT:-7860}/ > /dev/null 2>&1 \
+     || curl -sf http://localhost:${ACESTEP_API_PORT:-8001}/health > /dev/null 2>&1 \
+     || exit 1
+
+# ==================== Entrypoint ====================
+COPY <<'EOF' /app/docker-entrypoint.sh
+#!/usr/bin/env bash
+set -e
+
+echo "==========================================="
+echo "  ACE-Step 1.5 — NVIDIA Jetson Container"
+echo "==========================================="
+echo "Mode      : ${ACESTEP_MODE}"
+echo "Python    : $(python --version 2>&1)"
+echo "PyTorch   : $(python -c 'import torch; print(torch.__version__)' 2>/dev/null || echo 'N/A')"
+
+if python -c 'import torch; assert torch.cuda.is_available()' 2>/dev/null; then
+    echo "CUDA      : $(python -c 'import torch; print(torch.version.cuda)')"
+    echo "GPU       : $(python -c 'import torch; print(torch.cuda.get_device_name(0))')"
+    echo "Memory    : $(python -c 'import torch; p=torch.cuda.get_device_properties(0); print(f"{p.total_memory/1024**3:.1f} GB")')"
+else
+    echo "CUDA      : NOT AVAILABLE — running on CPU"
+    echo "           (make sure you launched with --runtime nvidia)"
+fi
+echo "==========================================="
+
+# Build --init_service flags when ACESTEP_INIT_SERVICE=true
+INIT_ARGS=""
+if [ "${ACESTEP_INIT_SERVICE:-true}" = "true" ]; then
+    INIT_ARGS="--init_service true"
+    [ -n "${ACESTEP_CONFIG_PATH:-}" ]   && INIT_ARGS="${INIT_ARGS} --config_path ${ACESTEP_CONFIG_PATH}"
+    [ -n "${ACESTEP_LM_MODEL_PATH:-}" ] && INIT_ARGS="${INIT_ARGS} --init_llm true --lm_model_path ${ACESTEP_LM_MODEL_PATH}"
+    echo "Auto-init    : DiT=${ACESTEP_CONFIG_PATH:-auto}  LM=${ACESTEP_LM_MODEL_PATH:-none}"
+fi
+
+if [ "${ACESTEP_MODE}" = "api" ]; then
+    echo "Starting REST API server on 0.0.0.0:${ACESTEP_API_PORT:-8001} ..."
+    exec python -m acestep.api_server \
+        --host "${ACESTEP_API_HOST:-0.0.0.0}" \
+        --port "${ACESTEP_API_PORT:-8001}" \
+        ${ACESTEP_EXTRA_ARGS:-}
+else
+    echo "Starting Gradio UI on 0.0.0.0:${GRADIO_PORT:-7860} ..."
+    exec python -m acestep.acestep_v15_pipeline \
+        --server-name "${GRADIO_SERVER_NAME:-0.0.0.0}" \
+        --port "${GRADIO_PORT:-7860}" \
+        --backend "${ACESTEP_LLM_BACKEND:-pt}" \
+        ${INIT_ARGS} \
+        ${ACESTEP_EXTRA_ARGS:-}
+fi
+EOF
+
+RUN chmod +x /app/docker-entrypoint.sh
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

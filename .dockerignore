@@ -1,0 +1,63 @@
+# =============================================================================
+# .dockerignore — ACE-Step 1.5
+# Keep Docker build context small by excluding large / unnecessary files.
+# =============================================================================
+
+# Version control
+.git
+.gitignore
+
+# Model checkpoints (mount as volumes at runtime instead)
+checkpoints/
+*.safetensors
+*.bin
+*.ckpt
+*.pt
+
+# Generated outputs
+gradio_outputs/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker files (don't include Dockerfiles in the build context copy)
+Dockerfile*
+docker-compose*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github/
+
+# Large docs / assets not needed at runtime
+docs/pics/
+
+# UV lock file (deps are installed explicitly in Dockerfile)
+uv.lock
+
+# Windows scripts (not needed on Jetson ARM64)
+*.bat
+*.ps1
+
+# nano-vllm build artifacts (not used on Jetson)
+acestep/third_parts/nano-vllm/build/
+acestep/third_parts/nano-vllm/nano_vllm.egg-info/

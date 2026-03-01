@@ -2,6 +2,7 @@
 ACE-Step V1.5 Pipeline
 Handler wrapper connecting model and UI
 """
+
 import os
 import sys
 
@@ -10,11 +11,12 @@ import sys
 _env_loaded = False  # module-level so we never reload .env in the same process
 try:
     from dotenv import load_dotenv
+
     if not _env_loaded:
         _current_file = os.path.abspath(__file__)
         _project_root = os.path.dirname(os.path.dirname(_current_file))
-        _env_path = os.path.join(_project_root, '.env')
-        _env_example_path = os.path.join(_project_root, '.env.example')
+        _env_path = os.path.join(_project_root, ".env")
+        _env_example_path = os.path.join(_project_root, ".env.example")
         if os.path.exists(_env_path):
             load_dotenv(_env_path)
             print(f"Loaded configuration from {_env_path}")
@@ -27,8 +29,17 @@ except ImportError:
     pass
 
 # Clear proxy settings that may affect Gradio
-for proxy_var in ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']:
+for proxy_var in [
+    "http_proxy",
+    "https_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+]:
     os.environ.pop(proxy_var, None)
+
+# Force torchaudio to use ffmpeg backend (torchcodec not available on XPU/Windows)
+os.environ["TORCHAUDIO_USE_BACKEND"] = "ffmpeg"
 
 try:
     # When executed as a module: `python -m acestep.acestep_v15_pipeline`
@@ -37,7 +48,15 @@ try:
     from .dataset_handler import DatasetHandler
     from .ui.gradio import create_gradio_interface
     from acestep.ui.gradio.i18n import get_i18n, available_languages_info
-    from .gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB, VRAM_AUTO_OFFLOAD_THRESHOLD_GB, is_mps_platform
+    from .gpu_config import (
+        get_gpu_config,
+        get_gpu_memory_gb,
+        print_gpu_config_info,
+        set_global_gpu_config,
+        VRAM_16GB_MIN_GB,
+        VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
+        is_mps_platform,
+    )
     from .model_downloader import ensure_lm_model
 except ImportError:
     # When executed as a script: `python acestep/acestep_v15_pipeline.py`
@@ -49,14 +68,22 @@ except ImportError:
     from acestep.dataset_handler import DatasetHandler
     from acestep.ui.gradio import create_gradio_interface
     from acestep.ui.gradio.i18n import get_i18n, available_languages_info
-    from acestep.gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB, VRAM_AUTO_OFFLOAD_THRESHOLD_GB, is_mps_platform
+    from acestep.gpu_config import (
+        get_gpu_config,
+        get_gpu_memory_gb,
+        print_gpu_config_info,
+        set_global_gpu_config,
+        VRAM_16GB_MIN_GB,
+        VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
+        is_mps_platform,
+    )
     from acestep.model_downloader import ensure_lm_model
 
 
-def create_demo(init_params=None, language='en'):
+def create_demo(init_params=None, language="en"):
     """
     Create Gradio demo interface
-    
+
     Args:
         init_params: Dictionary containing initialization parameters and state.
                     If None, service will not be pre-initialized.
@@ -66,34 +93,44 @@ def create_demo(init_params=None, language='en'):
                           'dit_handler', 'llm_handler' (initialized handlers if pre-initialized),
                           'language' (UI language code)
         language: UI language code ('en', 'zh', 'ja', default: 'en')
-    
+
     Returns:
         Gradio Blocks instance
     """
     # Use pre-initialized handlers if available, otherwise create new ones
-    if init_params and init_params.get('pre_initialized') and 'dit_handler' in init_params:
-        dit_handler = init_params['dit_handler']
-        llm_handler = init_params['llm_handler']
+    if (
+        init_params
+        and init_params.get("pre_initialized")
+        and "dit_handler" in init_params
+    ):
+        dit_handler = init_params["dit_handler"]
+        llm_handler = init_params["llm_handler"]
     else:
         dit_handler = AceStepHandler()  # DiT handler
-        llm_handler = LLMHandler()      # LM handler
-    
+        llm_handler = LLMHandler()  # LM handler
+
     dataset_handler = DatasetHandler()  # Dataset handler
-    
+
     # Create Gradio interface with all handlers and initialization parameters
-    demo = create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_params=init_params, language=language)
-    
+    demo = create_gradio_interface(
+        dit_handler,
+        llm_handler,
+        dataset_handler,
+        init_params=init_params,
+        language=language,
+    )
+
     return demo
 
 
 def main():
     """Main entry function"""
     import argparse
-    
+
     # Detect GPU memory and get configuration
     gpu_config = get_gpu_config()
     set_global_gpu_config(gpu_config)  # Set global config for use across modules
-    
+
     gpu_memory_gb = gpu_config.gpu_memory_gb
     _is_mac = is_mps_platform()
     # Enable auto-offload for GPUs below 20 GB.  16 GB GPUs cannot hold all
@@ -101,29 +138,43 @@ def main():
     # activations) so they *must* offload.  The old threshold of 16 GB caused
     # 16 GB GPUs to never offload, leading to OOM.
     # Mac (Apple Silicon) uses unified memory — offloading provides no benefit.
-    auto_offload = (not _is_mac) and gpu_memory_gb > 0 and gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB
+    auto_offload = (
+        (not _is_mac)
+        and gpu_memory_gb > 0
+        and gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB
+    )
     _default_backend = "mlx" if _is_mac else "vllm"
-    
+
     # Print GPU configuration info
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("GPU Configuration Detected:")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  GPU Memory: {gpu_memory_gb:.2f} GB")
     print(f"  Configuration Tier: {gpu_config.tier}")
-    print(f"  Max Duration (with LM): {gpu_config.max_duration_with_lm}s ({gpu_config.max_duration_with_lm // 60} min)")
-    print(f"  Max Duration (without LM): {gpu_config.max_duration_without_lm}s ({gpu_config.max_duration_without_lm // 60} min)")
+    print(
+        f"  Max Duration (with LM): {gpu_config.max_duration_with_lm}s ({gpu_config.max_duration_with_lm // 60} min)"
+    )
+    print(
+        f"  Max Duration (without LM): {gpu_config.max_duration_without_lm}s ({gpu_config.max_duration_without_lm // 60} min)"
+    )
     print(f"  Max Batch Size (with LM): {gpu_config.max_batch_size_with_lm}")
     print(f"  Max Batch Size (without LM): {gpu_config.max_batch_size_without_lm}")
     print(f"  Default LM Init: {gpu_config.init_lm_default}")
     print(f"  Available LM Models: {gpu_config.available_lm_models or 'None'}")
-    print(f"{'='*60}\n")
-    
+    print(f"{'=' * 60}\n")
+
     if _is_mac:
-        print(f"Apple Silicon (MPS) detected — unified memory {gpu_memory_gb:.1f}GB, no CPU offload needed, backend={_default_backend}")
+        print(
+            f"Apple Silicon (MPS) detected — unified memory {gpu_memory_gb:.1f}GB, no CPU offload needed, backend={_default_backend}"
+        )
     elif auto_offload:
-        print(f"Auto-enabling CPU offload (GPU {gpu_memory_gb:.1f}GB < {VRAM_AUTO_OFFLOAD_THRESHOLD_GB}GB threshold)")
+        print(
+            f"Auto-enabling CPU offload (GPU {gpu_memory_gb:.1f}GB < {VRAM_AUTO_OFFLOAD_THRESHOLD_GB}GB threshold)"
+        )
     elif gpu_memory_gb > 0:
-        print(f"CPU offload disabled by default (GPU {gpu_memory_gb:.1f}GB >= {VRAM_AUTO_OFFLOAD_THRESHOLD_GB}GB threshold)")
+        print(
+            f"CPU offload disabled by default (GPU {gpu_memory_gb:.1f}GB >= {VRAM_AUTO_OFFLOAD_THRESHOLD_GB}GB threshold)"
+        )
     else:
         print("No GPU detected, running on CPU")
 
@@ -140,59 +191,172 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="Gradio Demo for ACE-Step V1.5",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--port", type=int, default=7860, help="Port to run the gradio server on")
+    parser.add_argument(
+        "--port", type=int, default=7860, help="Port to run the gradio server on"
+    )
     parser.add_argument("--share", action="store_true", help="Create a public link")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)")
-        
+    parser.add_argument(
+        "--server-name",
+        type=str,
+        default="127.0.0.1",
+        help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)",
+    )
+
     # language argument
     available_languages = available_languages_info()
     parser.add_argument(
-        "--language", 
-        type=str, 
-        default="en", 
+        "--language",
+        type=str,
+        default="en",
         choices=[language[0] for language in available_languages],
-        help="UI language:\n  " + "\n  ".join((code + f" ({native_name}" + (f"/{name})" if name != native_name else ")") for code, name, native_name in available_languages))
+        help="UI language:\n  "
+        + "\n  ".join(
+            (
+                code
+                + f" ({native_name}"
+                + (f"/{name})" if name != native_name else ")")
+                for code, name, native_name in available_languages
+            )
+        ),
     )
     del available_languages
-    
+
     parser.add_argument(
         "--allowed-path",
         action="append",
         default=[],
         help="Additional allowed file paths for Gradio (repeatable).",
     )
-    
+
     # Service mode argument
-    parser.add_argument("--service_mode", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, 
-                       help="Enable service mode (default: False). When enabled, uses preset models and restricts UI options.")
-    
+    parser.add_argument(
+        "--service_mode",
+        type=lambda x: x.lower() in ["true", "1", "yes"],
+        default=False,
+        help="Enable service mode (default: False). When enabled, uses preset models and restricts UI options.",
+    )
+
     # Service initialization arguments
-    parser.add_argument("--init_service", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Initialize service on startup (default: False)")
-    parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint file path (optional, for display purposes)")
-    parser.add_argument("--config_path", type=str, default=None, help="Main model path (e.g., 'acestep-v15-turbo')")
-    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "xpu", "cpu"], help="Processing device (default: auto)")
-    parser.add_argument("--init_llm", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Initialize 5Hz LM (default: auto based on GPU memory)")
-    parser.add_argument("--lm_model_path", type=str, default=None, help="5Hz LM model path (e.g., 'acestep-5Hz-lm-0.6B')")
-    parser.add_argument("--backend", type=str, default=_default_backend, choices=["vllm", "pt", "mlx"], help=f"5Hz LM backend (default: {_default_backend}, use 'mlx' for native Apple Silicon acceleration)")
-    parser.add_argument("--use_flash_attention", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Use flash attention (default: auto-detect)")
-    parser.add_argument("--offload_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=auto_offload, help=f"Offload models to CPU (default: {'True' if auto_offload else 'False'}, auto-detected based on GPU VRAM)")
-    _default_offload_dit = gpu_config.offload_dit_to_cpu_default if not _is_mac else False
-    parser.add_argument("--offload_dit_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=_default_offload_dit, help=f"Offload DiT to CPU after diffusion (default: {_default_offload_dit}, auto-detected based on GPU tier)")
-    _default_quantization = "int8_weight_only" if (gpu_config.quantization_default and not _is_mac) else None
-    parser.add_argument("--quantization", type=str, default=_default_quantization, choices=["int8_weight_only", "int4_weight_only", None], help=f"DiT quantization method (default: {_default_quantization}, auto-detected based on GPU tier)")
-    parser.add_argument("--download-source", type=str, default=None, choices=["huggingface", "modelscope", "auto"], help="Preferred model download source (default: auto-detect based on network)")
-    parser.add_argument("--batch_size", type=int, default=None, help="Default batch size for generation (1-8). Defaults to min(2, GPU_max) if not specified")
+    parser.add_argument(
+        "--init_service",
+        type=lambda x: x.lower() in ["true", "1", "yes"],
+        default=False,
+        help="Initialize service on startup (default: False)",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint file path (optional, for display purposes)",
+    )
+    parser.add_argument(
+        "--config_path",
+        type=str,
+        default=None,
+        help="Main model path (e.g., 'acestep-v15-turbo')",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        choices=["auto", "cuda", "mps", "xpu", "cpu"],
+        help="Processing device (default: auto)",
+    )
+    parser.add_argument(
+        "--init_llm",
+        type=lambda x: x.lower() in ["true", "1", "yes"],
+        default=None,
+        help="Initialize 5Hz LM (default: auto based on GPU memory)",
+    )
+    parser.add_argument(
+        "--lm_model_path",
+        type=str,
+        default=None,
+        help="5Hz LM model path (e.g., 'acestep-5Hz-lm-0.6B')",
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default=_default_backend,
+        choices=["vllm", "pt", "mlx"],
+        help=f"5Hz LM backend (default: {_default_backend}, use 'mlx' for native Apple Silicon acceleration)",
+    )
+    parser.add_argument(
+        "--use_flash_attention",
+        type=lambda x: x.lower() in ["true", "1", "yes"],
+        default=None,
+        help="Use flash attention (default: auto-detect)",
+    )
+    parser.add_argument(
+        "--offload_to_cpu",
+        type=lambda x: x.lower() in ["true", "1", "yes"],
+        default=auto_offload,
+        help=f"Offload models to CPU (default: {'True' if auto_offload else 'False'}, auto-detected based on GPU VRAM)",
+    )
+    _default_offload_dit = (
+        gpu_config.offload_dit_to_cpu_default if not _is_mac else False
+    )
+    parser.add_argument(
+        "--offload_dit_to_cpu",
+        type=lambda x: x.lower() in ["true", "1", "yes"],
+        default=_default_offload_dit,
+        help=f"Offload DiT to CPU after diffusion (default: {_default_offload_dit}, auto-detected based on GPU tier)",
+    )
+    _default_quantization = (
+        "int8_weight_only"
+        if (gpu_config.quantization_default and not _is_mac)
+        else None
+    )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        default=_default_quantization,
+        choices=["int8_weight_only", "int4_weight_only", None],
+        help=f"DiT quantization method (default: {_default_quantization}, auto-detected based on GPU tier)",
+    )
+    parser.add_argument(
+        "--download-source",
+        type=str,
+        default=None,
+        choices=["huggingface", "modelscope", "auto"],
+        help="Preferred model download source (default: auto-detect based on network)",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=None,
+        help="Default batch size for generation (1-8). Defaults to min(2, GPU_max) if not specified",
+    )
 
     # API mode argument
-    parser.add_argument("--enable-api", action="store_true", help="Enable API endpoints (default: False)")
+    parser.add_argument(
+        "--enable-api",
+        action="store_true",
+        help="Enable API endpoints (default: False)",
+    )
 
     # Authentication arguments
-    parser.add_argument("--auth-username", type=str, default=None, help="Username for Gradio authentication")
-    parser.add_argument("--auth-password", type=str, default=None, help="Password for Gradio authentication")
-    parser.add_argument("--api-key", type=str, default=None, help="API key for API endpoints authentication")
+    parser.add_argument(
+        "--auth-username",
+        type=str,
+        default=None,
+        help="Username for Gradio authentication",
+    )
+    parser.add_argument(
+        "--auth-password",
+        type=str,
+        default=None,
+        help="Password for Gradio authentication",
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="API key for API endpoints authentication",
+    )
 
     args = parser.parse_args()
 
@@ -215,27 +379,27 @@ def main():
         # Default DiT model for service mode (from env or fallback)
         if args.config_path is None:
             args.config_path = os.environ.get(
-                "SERVICE_MODE_DIT_MODEL",
-                "acestep-v15-turbo-fix-inst-shift-dynamic"
+                "SERVICE_MODE_DIT_MODEL", "acestep-v15-turbo-fix-inst-shift-dynamic"
             )
         # Default LM model for service mode (from env or fallback)
         if args.lm_model_path is None:
             args.lm_model_path = os.environ.get(
-                "SERVICE_MODE_LM_MODEL",
-                "acestep-5Hz-lm-1.7B-v4-fix"
+                "SERVICE_MODE_LM_MODEL", "acestep-5Hz-lm-1.7B-v4-fix"
             )
         # Backend for service mode (from env or fallback to vllm)
         args.backend = os.environ.get("SERVICE_MODE_BACKEND", "vllm")
         print(f"  DiT model: {args.config_path}")
         print(f"  LM model: {args.lm_model_path}")
         print(f"  Backend: {args.backend}")
-    
+
     # Auto-enable CPU offload for tier6 GPUs (16-24GB) when using the 4B LM model
     # The 4B LM (~8GB) + DiT (~4.7GB) + VAE + text encoder exceeds 16-20GB with activations
     if not args.offload_to_cpu and args.lm_model_path and "4B" in args.lm_model_path:
         if 0 < gpu_memory_gb <= 24:
             args.offload_to_cpu = True
-            print(f"Auto-enabling CPU offload (4B LM model requires offloading on {gpu_memory_gb:.0f}GB GPU)")
+            print(
+                f"Auto-enabling CPU offload (4B LM model requires offloading on {gpu_memory_gb:.0f}GB GPU)"
+            )
 
     # Safety: on 16GB GPUs, prevent selecting LM models that are too large.
     # Even with offloading, a 4B LM (8 GB weights + KV cache) leaves almost no
@@ -258,29 +422,38 @@ def main():
         # If init_service is True, perform initialization before creating UI
         if args.init_service:
             print("Initializing service from command line...")
-            
+
             # Create handler instances for initialization
             dit_handler = AceStepHandler()
             llm_handler = LLMHandler()
-            
+
             # Auto-select config_path if not provided
             if args.config_path is None:
                 available_models = dit_handler.get_available_acestep_v15_models()
                 if available_models:
-                    args.config_path = "acestep-v15-turbo" if "acestep-v15-turbo" in available_models else available_models[0]
+                    args.config_path = (
+                        "acestep-v15-turbo"
+                        if "acestep-v15-turbo" in available_models
+                        else available_models[0]
+                    )
                     print(f"Auto-selected config_path: {args.config_path}")
                 else:
-                    print("Error: No available models found. Please specify --config_path", file=sys.stderr)
+                    print(
+                        "Error: No available models found. Please specify --config_path",
+                        file=sys.stderr,
+                    )
                     sys.exit(1)
-            
+
             # Get project root (same logic as in handler)
             current_file = os.path.abspath(__file__)
             project_root = os.path.dirname(os.path.dirname(current_file))
-            
+
             # Determine flash attention setting
             use_flash_attention = args.use_flash_attention
             if use_flash_attention is None:
-                use_flash_attention = dit_handler.is_flash_attention_available(args.device)
+                use_flash_attention = dit_handler.is_flash_attention_available(
+                    args.device
+                )
 
             # Determine download source preference
             prefer_source = None
@@ -306,21 +479,23 @@ def main():
                 offload_to_cpu=args.offload_to_cpu,
                 offload_dit_to_cpu=args.offload_dit_to_cpu,
                 quantization=args.quantization,
-                prefer_source=prefer_source
+                prefer_source=prefer_source,
             )
-            
+
             if not enable_generate:
                 print(f"Error initializing DiT model: {init_status}", file=sys.stderr)
                 sys.exit(1)
-            
+
             print(f"DiT model initialized successfully")
-            
+
             # Initialize LM handler if requested
             # Auto-determine init_llm based on GPU config if not explicitly set
             if args.init_llm is None:
                 args.init_llm = gpu_config.init_lm_default
-                print(f"Auto-setting init_llm to {args.init_llm} based on GPU configuration")
-            
+                print(
+                    f"Auto-setting init_llm to {args.init_llm} based on GPU configuration"
+                )
+
             lm_status = ""
             if args.init_llm:
                 if args.lm_model_path is None:
@@ -330,9 +505,12 @@ def main():
                         args.lm_model_path = available_lm_models[0]
                         print(f"Using default LM model: {args.lm_model_path}")
                     else:
-                        print("Warning: No LM models available, skipping LM initialization", file=sys.stderr)
+                        print(
+                            "Warning: No LM models available, skipping LM initialization",
+                            file=sys.stderr,
+                        )
                         args.init_llm = False
-                
+
                 if args.init_llm and args.lm_model_path:
                     checkpoint_dir = os.path.join(project_root, "checkpoints")
 
@@ -347,11 +525,19 @@ def main():
                             prefer_source=prefer_source,
                         )
                         if not dl_ok:
-                            print(f"Warning: LM model download failed: {dl_msg}", file=sys.stderr)
+                            print(
+                                f"Warning: LM model download failed: {dl_msg}",
+                                file=sys.stderr,
+                            )
                     except Exception as e:
-                        print(f"Warning: Failed to download LM model: {e}", file=sys.stderr)
+                        print(
+                            f"Warning: Failed to download LM model: {e}",
+                            file=sys.stderr,
+                        )
 
-                    print(f"Initializing 5Hz LM: {args.lm_model_path} on {args.device}...")
+                    print(
+                        f"Initializing 5Hz LM: {args.lm_model_path} on {args.device}..."
+                    )
                     lm_status, lm_success = llm_handler.initialize(
                         checkpoint_dir=checkpoint_dir,
                         lm_model_path=args.lm_model_path,
@@ -360,54 +546,57 @@ def main():
                         offload_to_cpu=args.offload_to_cpu,
                         dtype=None,
                     )
-                    
+
                     if lm_success:
                         print(f"5Hz LM initialized successfully")
                         init_status += f"\n{lm_status}"
                     else:
-                        print(f"Warning: 5Hz LM initialization failed: {lm_status}", file=sys.stderr)
+                        print(
+                            f"Warning: 5Hz LM initialization failed: {lm_status}",
+                            file=sys.stderr,
+                        )
                         init_status += f"\n{lm_status}"
-            
+
             # Prepare initialization parameters for UI
             init_params = {
-                'pre_initialized': True,
-                'service_mode': args.service_mode,
-                'checkpoint': args.checkpoint,
-                'config_path': args.config_path,
-                'device': args.device,
-                'init_llm': args.init_llm,
-                'lm_model_path': args.lm_model_path,
-                'backend': args.backend,
-                'use_flash_attention': use_flash_attention,
-                'offload_to_cpu': args.offload_to_cpu,
-                'offload_dit_to_cpu': args.offload_dit_to_cpu,
-                'quantization': args.quantization,
-                'init_status': init_status,
-                'enable_generate': enable_generate,
-                'dit_handler': dit_handler,
-                'llm_handler': llm_handler,
-                'language': args.language,
-                'gpu_config': gpu_config,  # Pass GPU config to UI
-                'output_dir': output_dir,  # Pass output dir to UI
-                'default_batch_size': args.batch_size,  # Pass user-specified default batch size
+                "pre_initialized": True,
+                "service_mode": args.service_mode,
+                "checkpoint": args.checkpoint,
+                "config_path": args.config_path,
+                "device": args.device,
+                "init_llm": args.init_llm,
+                "lm_model_path": args.lm_model_path,
+                "backend": args.backend,
+                "use_flash_attention": use_flash_attention,
+                "offload_to_cpu": args.offload_to_cpu,
+                "offload_dit_to_cpu": args.offload_dit_to_cpu,
+                "quantization": args.quantization,
+                "init_status": init_status,
+                "enable_generate": enable_generate,
+                "dit_handler": dit_handler,
+                "llm_handler": llm_handler,
+                "language": args.language,
+                "gpu_config": gpu_config,  # Pass GPU config to UI
+                "output_dir": output_dir,  # Pass output dir to UI
+                "default_batch_size": args.batch_size,  # Pass user-specified default batch size
             }
-            
+
             print("Service initialization completed successfully!")
-        
+
         # Create and launch demo
         print(f"Creating Gradio interface with language: {args.language}...")
-        
+
         # If not using init_service, still pass gpu_config to init_params
         if init_params is None:
             init_params = {
-                'gpu_config': gpu_config,
-                'language': args.language,
-                'output_dir': output_dir,  # Pass output dir to UI
-                'default_batch_size': args.batch_size,  # Pass user-specified default batch size
+                "gpu_config": gpu_config,
+                "language": args.language,
+                "output_dir": output_dir,  # Pass output dir to UI
+                "default_batch_size": args.batch_size,  # Pass user-specified default batch size
             }
-        
+
         demo = create_demo(init_params=init_params, language=args.language)
-        
+
         # Enable queue for multi-user support
         # This ensures proper request queuing and prevents concurrent generation conflicts
         print("Enabling queue for multi-user support...")
@@ -453,12 +642,15 @@ def main():
 
             if args.api_key:
                 print("API authentication enabled")
-            print("API endpoints enabled: /health, /v1/models, /release_task, /query_result, /create_random_sample, /format_lyrics")
+            print(
+                "API endpoints enabled: /health, /v1/models, /release_task, /query_result, /create_random_sample, /format_lyrics"
+            )
 
             # Keep the main thread alive
             try:
                 while True:
                     import time
+
                     time.sleep(1)
             except KeyboardInterrupt:
                 print("\nShutting down...")
@@ -477,6 +669,7 @@ def main():
     except Exception as e:
         print(f"Error launching Gradio: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

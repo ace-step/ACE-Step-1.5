@@ -22,14 +22,13 @@ import os
 import sys
 import time
 import traceback
-import tempfile
 import urllib.parse
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager, contextmanager
-from pathlib import Path
+from contextlib import asynccontextmanager
+from functools import partial
 from threading import Lock
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Optional
 from loguru import logger
 import torch
 
@@ -38,26 +37,34 @@ try:
 except ImportError:  # Optional dependency
     load_dotenv = None  # type: ignore
 
-from fastapi import FastAPI, HTTPException, Request, Depends, Header
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from acestep.api.train_api_service import (
     initialize_training_state,
     register_training_api_routes,
 )
-from acestep.api.jobs.models import (
-    CreateJobResponse,
-    JobResponse,
-    JobResult,
-    JobStatus,
-)
 from acestep.api.jobs.store import _JobStore
+from acestep.api.http.auth import (
+    set_api_key,
+    verify_api_key,
+    verify_token_from_request,
+)
 from acestep.api.http.lora_routes import register_lora_routes
 from acestep.api.http.model_service_routes import register_model_service_routes
 from acestep.api.http.reinitialize_route import register_reinitialize_route
 from acestep.api.http.sample_format_routes import register_sample_format_routes
 from acestep.api.http.audio_route import register_audio_route
+from acestep.api.http.release_task_audio_paths import (
+    save_upload_to_temp as _save_upload_to_temp,
+    validate_audio_path as _validate_audio_path,
+)
+from acestep.api.http.release_task_models import GenerateMusicRequest
+from acestep.api.http.release_task_param_parser import (
+    RequestParser,
+    _to_float as _request_to_float,
+    _to_int as _request_to_int,
+)
 from acestep.api.http.query_result_route import register_query_result_route
 from acestep.api.http.release_task_route import register_release_task_route
 from acestep.api.jobs.local_cache_updates import (
@@ -76,10 +83,7 @@ from acestep.api.runtime_helpers import (
     temporary_llm_model as _runtime_temporary_llm_model,
 )
 from acestep.api.model_download import (
-    can_access_google as _download_can_access_google,
-    download_from_huggingface as _download_from_hf,
-    download_from_modelscope as _download_from_ms,
-    ensure_model_downloaded as _download_ensure_model_downloaded,
+    ensure_model_downloaded as _ensure_model_downloaded,
 )
 
 from acestep.handler import AceStepHandler
@@ -103,36 +107,6 @@ from acestep.gpu_config import (
     is_lm_model_supported,
     VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
 )
-
-
-def _can_access_google(timeout: float = 3.0) -> bool:
-    """Check if Google is accessible (to determine HuggingFace vs ModelScope)."""
-    return _download_can_access_google(timeout)
-
-
-def _download_from_huggingface(repo_id: str, local_dir: str, model_name: str) -> str:
-    """Download model from HuggingFace Hub."""
-    return _download_from_hf(repo_id, local_dir, model_name)
-
-
-def _download_from_modelscope(repo_id: str, local_dir: str, model_name: str) -> str:
-    """Download model from ModelScope."""
-    return _download_from_ms(repo_id, local_dir, model_name)
-
-
-def _ensure_model_downloaded(model_name: str, checkpoint_dir: str) -> str:
-    """
-    Ensure model is downloaded. Auto-detect source based on network.
-
-    Args:
-        model_name: Model directory name (e.g., "acestep-v15-turbo")
-        checkpoint_dir: Target checkpoint directory
-
-    Returns:
-        Path to the model directory
-    """
-    return _download_ensure_model_downloaded(model_name, checkpoint_dir)
-
 
 def _get_project_root() -> str:
     current_file = os.path.abspath(__file__)
@@ -194,102 +168,6 @@ def _load_all_examples(sample_mode: str = "simple_mode") -> List[Dict[str, Any]]
 # Pre-load example data at module load time
 SIMPLE_EXAMPLE_DATA: List[Dict[str, Any]] = _load_all_examples(sample_mode="simple_mode")
 CUSTOM_EXAMPLE_DATA: List[Dict[str, Any]] = _load_all_examples(sample_mode="custom_mode")
-
-# =============================================================================
-# API Key Authentication
-# =============================================================================
-
-_api_key: Optional[str] = None
-
-
-def set_api_key(key: Optional[str]):
-    """Set the API key for authentication"""
-    global _api_key
-    _api_key = key
-
-
-def verify_token_from_request(body: dict, authorization: Optional[str] = None) -> Optional[str]:
-    """
-    Verify API key from request body (ai_token) or Authorization header.
-    Returns the token if valid, None if no auth required.
-    """
-    if _api_key is None:
-        return None  # No auth required
-
-    # Try ai_token from body first
-    ai_token = body.get("ai_token") if body else None
-    if ai_token:
-        if ai_token == _api_key:
-            return ai_token
-        raise HTTPException(status_code=401, detail="Invalid ai_token")
-
-    # Fallback to Authorization header
-    if authorization:
-        if authorization.startswith("Bearer "):
-            token = authorization[7:]
-        else:
-            token = authorization
-        if token == _api_key:
-            return token
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-    # No token provided but auth is required
-    raise HTTPException(status_code=401, detail="Missing ai_token or Authorization header")
-
-
-async def verify_api_key(authorization: Optional[str] = Header(None)):
-    """Verify API key from Authorization header (legacy, for non-body endpoints)"""
-    if _api_key is None:
-        return  # No auth required
-
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-
-    # Support "Bearer <key>" format
-    if authorization.startswith("Bearer "):
-        token = authorization[7:]
-    else:
-        token = authorization
-
-    if token != _api_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-# Parameter aliases for request parsing
-PARAM_ALIASES = {
-    "prompt": ["prompt", "caption"],
-    "lyrics": ["lyrics"],
-    "thinking": ["thinking"],
-    "analysis_only": ["analysis_only", "analysisOnly"],
-    "full_analysis_only": ["full_analysis_only", "fullAnalysisOnly"],
-    "sample_mode": ["sample_mode", "sampleMode"],
-    "sample_query": ["sample_query", "sampleQuery", "description", "desc"],
-    "use_format": ["use_format", "useFormat", "format"],
-    "model": ["model", "model_name", "modelName", "dit_model", "ditModel"],
-    "key_scale": ["key_scale", "keyscale", "keyScale", "key"],
-    "time_signature": ["time_signature", "timesignature", "timeSignature"],
-    "audio_duration": ["audio_duration", "duration", "audioDuration", "target_duration", "targetDuration"],
-    "vocal_language": ["vocal_language", "vocalLanguage", "language"],
-    "bpm": ["bpm"],
-    "inference_steps": ["inference_steps", "inferenceSteps"],
-    "guidance_scale": ["guidance_scale", "guidanceScale"],
-    "use_random_seed": ["use_random_seed", "useRandomSeed"],
-    "seed": ["seed"],
-
-    "audio_cover_strength": ["audio_cover_strength", "audioCoverStrength"],
-    "reference_audio_path": ["reference_audio_path", "ref_audio_path", "referenceAudioPath", "refAudioPath"],
-    "src_audio_path": ["src_audio_path", "ctx_audio_path", "sourceAudioPath", "srcAudioPath", "ctxAudioPath"],
-    "task_type": ["task_type", "taskType"],
-    "infer_method": ["infer_method", "inferMethod"],
-    "use_tiled_decode": ["use_tiled_decode", "useTiledDecode"],
-    "constrained_decoding": ["constrained_decoding", "constrainedDecoding", "constrained"],
-    "constrained_decoding_debug": ["constrained_decoding_debug", "constrainedDecodingDebug"],
-    "use_cot_caption": ["use_cot_caption", "cot_caption", "cot-caption"],
-    "use_cot_language": ["use_cot_language", "cot_language", "cot-language"],
-    "is_format_caption": ["is_format_caption", "isFormatCaption"],
-    "allow_lm_batch": ["allow_lm_batch", "allowLmBatch", "parallel_thinking"],
-    "track_name": ["track_name", "trackName"],
-    "track_classes": ["track_classes", "trackClasses", "instruments"],
-}
 
 
 def _parse_description_hints(description: str) -> tuple[Optional[str], bool]:
@@ -362,131 +240,6 @@ def _parse_description_hints(description: str) -> tuple[Optional[str], bool]:
 
     return detected_language, is_instrumental
 
-
-class GenerateMusicRequest(BaseModel):
-    prompt: str = Field(default="", description="Text prompt describing the music")
-    lyrics: str = Field(default="", description="Lyric text")
-
-    # New API semantics:
-    # - thinking=True: use 5Hz LM to generate audio codes (lm-dit behavior)
-    # - thinking=False: do not use LM to generate codes (dit behavior)
-    # Regardless of thinking, if some metas are missing, server may use LM to fill them.
-    thinking: bool = False
-    # Sample-mode requests auto-generate caption/lyrics/metas via LM (no user prompt).
-    sample_mode: bool = False
-    # Description for sample mode: auto-generate caption/lyrics from description query
-    sample_query: str = Field(default="", description="Query/description for sample mode (use create_sample)")
-    # Whether to use format_sample() to enhance input caption/lyrics
-    use_format: bool = Field(default=False, description="Use format_sample() to enhance input (default: False)")
-    # Model name for multi-model support (select which DiT model to use)
-    model: Optional[str] = Field(default=None, description="Model name to use (e.g., 'acestep-v15-turbo')")
-
-    bpm: Optional[int] = None
-    # Accept common client keys via manual parsing (see RequestParser).
-    key_scale: str = ""
-    time_signature: str = ""
-    vocal_language: str = "en"
-    inference_steps: int = 8
-    guidance_scale: float = 7.0
-    use_random_seed: bool = True
-    seed: Union[int, str] = -1
-
-    reference_audio_path: Optional[str] = None
-    src_audio_path: Optional[str] = None
-    audio_duration: Optional[float] = None
-    batch_size: Optional[int] = None
-
-    repainting_start: float = 0.0
-    repainting_end: Optional[float] = None
-
-    instruction: str = DEFAULT_DIT_INSTRUCTION
-    audio_cover_strength: float = 1.0
-    task_type: str = "text2music"
-    analysis_only: bool = False
-    full_analysis_only: bool = False
-
-    use_adg: bool = False
-    cfg_interval_start: float = 0.0
-    cfg_interval_end: float = 1.0
-    infer_method: str = "ode"  # "ode" or "sde" - diffusion inference method
-    shift: float = Field(
-        default=3.0,
-        description="Timestep shift factor (range 1.0~5.0, default 3.0). Only effective for base models, not turbo models."
-    )
-    timesteps: Optional[str] = Field(
-        default=None,
-        description="Custom timesteps (comma-separated, e.g., '0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0'). Overrides inference_steps and shift."
-    )
-
-    audio_format: str = Field(
-        default="mp3",
-        description="Output audio format. Supported formats: 'flac', 'mp3', 'opus', 'aac', 'wav', 'wav32'. Default: 'mp3'"
-    )
-    use_tiled_decode: bool = True
-
-    # 5Hz LM (server-side): used for metadata completion and (when thinking=True) codes generation.
-    lm_model_path: Optional[str] = None  # e.g. "acestep-5Hz-lm-0.6B"
-    lm_backend: Literal["vllm", "pt", "mlx"] = "vllm"
-
-    constrained_decoding: bool = True
-    constrained_decoding_debug: bool = False
-    use_cot_caption: bool = True
-    use_cot_language: bool = True
-    is_format_caption: bool = False
-    allow_lm_batch: bool = True
-    track_name: Optional[str] = None
-    track_classes: Optional[List[str]] = None
-
-    lm_temperature: float = 0.85
-    lm_cfg_scale: float = 2.5
-    lm_top_k: Optional[int] = None
-    lm_top_p: Optional[float] = 0.9
-    lm_repetition_penalty: float = 1.0
-    lm_negative_prompt: str = "NO USER INPUT"
-
-    class Config:
-        allow_population_by_field_name = True
-        allow_population_by_alias = True
-
-
-def _stop_tensorboard(app: FastAPI) -> None:
-    """Stop TensorBoard process if running."""
-
-    _runtime_stop_tensorboard(app)
-
-
-def _start_tensorboard(app: FastAPI, logdir: str) -> Optional[str]:
-    """(Re)start TensorBoard with the given logdir and return URL if successful."""
-
-    return _runtime_start_tensorboard(app, logdir, stop_tensorboard_fn=_runtime_stop_tensorboard)
-
-
-@contextmanager
-def _temporary_llm_model(app: FastAPI, llm: "LLMHandler", lm_model_path: Optional[str]):
-    """Temporarily switch LLM model for a critical section and restore afterward."""
-
-    with _runtime_temporary_llm_model(
-        app=app,
-        llm=llm,
-        lm_model_path=lm_model_path,
-        get_project_root=_get_project_root,
-        get_model_name=_get_model_name,
-        ensure_model_downloaded=_ensure_model_downloaded,
-        env_bool=_env_bool,
-    ):
-        yield
-
-
-def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
-    """Write JSON atomically to reduce corruption risk during incremental saves."""
-
-    _runtime_atomic_write_json(path, payload)
-
-
-def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
-    """Append a single JSONL record for audit/progress tracing."""
-
-    _runtime_append_jsonl(path, record)
 def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
     if v is None:
@@ -534,45 +287,6 @@ def _load_project_env() -> None:
 _load_project_env()
 
 
-def _to_int(v: Any, default: Optional[int] = None) -> Optional[int]:
-    if v is None:
-        return default
-    if isinstance(v, int):
-        return v
-    s = str(v).strip()
-    if s == "":
-        return default
-    try:
-        return int(s)
-    except Exception:
-        return default
-
-
-def _to_float(v: Any, default: Optional[float] = None) -> Optional[float]:
-    if v is None:
-        return default
-    if isinstance(v, float):
-        return v
-    s = str(v).strip()
-    if s == "":
-        return default
-    try:
-        return float(s)
-    except Exception:
-        return default
-
-
-def _to_bool(v: Any, default: bool = False) -> bool:
-    if v is None:
-        return default
-    if isinstance(v, bool):
-        return v
-    s = str(v).strip().lower()
-    if s == "":
-        return default
-    return s in {"1", "true", "yes", "y", "on"}
-
-
 def _map_status(status: str) -> int:
     """Map job status string to integer code."""
     return STATUS_MAP.get(status, 2)
@@ -602,119 +316,6 @@ def _is_instrumental(lyrics: str) -> bool:
     if not lyrics_clean:
         return True
     return lyrics_clean in ("[inst]", "[instrumental]")
-
-
-class RequestParser:
-    """Parse request parameters from multiple sources with alias support."""
-
-    def __init__(self, raw: dict):
-        self._raw = dict(raw) if raw else {}
-        self._param_obj = self._parse_json(self._raw.get("param_obj"))
-        self._metas = self._find_metas()
-
-    def _parse_json(self, v) -> dict:
-        if isinstance(v, dict):
-            return v
-        if isinstance(v, str) and v.strip():
-            try:
-                return json.loads(v)
-            except Exception:
-                pass
-        return {}
-
-    def _find_metas(self) -> dict:
-        for key in ("metas", "meta", "metadata", "user_metadata", "userMetadata"):
-            v = self._raw.get(key)
-            if v:
-                return self._parse_json(v)
-        return {}
-
-    def get(self, name: str, default=None):
-        """Get parameter by canonical name from all sources."""
-        aliases = PARAM_ALIASES.get(name, [name])
-        for source in (self._raw, self._param_obj, self._metas):
-            for alias in aliases:
-                v = source.get(alias)
-                if v is not None:
-                    return v
-        return default
-
-    def str(self, name: str, default: str = "") -> str:
-        v = self.get(name)
-        return str(v) if v is not None else default
-
-    def int(self, name: str, default: Optional[int] = None) -> Optional[int]:
-        return _to_int(self.get(name), default)
-
-    def float(self, name: str, default: Optional[float] = None) -> Optional[float]:
-        return _to_float(self.get(name), default)
-
-    def bool(self, name: str, default: bool = False) -> bool:
-        return _to_bool(self.get(name), default)
-
-
-def _validate_audio_path(path: Optional[str]) -> Optional[str]:
-    """Validate a user-supplied audio file path to prevent path traversal attacks.
-
-    Accepts absolute paths strictly only if they are within the system temporary directory.
-    Otherwise, rejects absolute paths and paths containing '..' traversal sequences.
-
-    Returns the validated, normalized path or None if the input is None/empty.
-    Raises HTTPException 400 if the path is unsafe.
-    """
-    if not path:
-        return None
-
-    # Resolve requested path and system temp path to normalized absolute forms
-    import tempfile
-    system_temp = os.path.realpath(tempfile.gettempdir())
-    requested_path = os.path.realpath(path)
-
-    # SECURE CHECK: Use os.path.commonpath to verify directory boundary integrity.
-    # This prevents prefix bypasses (e.g., /tmp_evil when /tmp is allowed).
-    try:
-        is_in_temp = os.path.commonpath([system_temp, requested_path]) == system_temp
-    except ValueError:
-        # Occurs on Windows if paths are on different drives
-        is_in_temp = False
-
-    if is_in_temp:
-        # Accept server-generated files in temp
-        return requested_path
-
-    # Reject manual absolute paths outside of temp
-    if os.path.isabs(path):
-        raise HTTPException(status_code=400, detail="absolute audio file paths are not allowed")
-    # Reject path traversal via '..' components
-    normalized = os.path.normpath(path)
-    if ".." in normalized.split(os.sep):
-        raise HTTPException(status_code=400, detail="path traversal in audio file paths is not allowed")
-    return path
-
-
-async def _save_upload_to_temp(upload: StarletteUploadFile, *, prefix: str) -> str:
-    suffix = Path(upload.filename or "").suffix
-    fd, path = tempfile.mkstemp(prefix=f"{prefix}_", suffix=suffix)
-    os.close(fd)
-    try:
-        with open(path, "wb") as f:
-            while True:
-                chunk = await upload.read(1024 * 1024)
-                if not chunk:
-                    break
-                f.write(chunk)
-    except Exception:
-        try:
-            os.remove(path)
-        except Exception:
-            pass
-        raise
-    finally:
-        try:
-            await upload.close()
-        except Exception:
-            pass
-    return path
 
 class LogBuffer:
     def __init__(self):
@@ -1919,8 +1520,8 @@ def create_app() -> FastAPI:
         get_model_name=_get_model_name,
         ensure_model_downloaded=_ensure_model_downloaded,
         env_bool=_env_bool,
-        to_int=_to_int,
-        to_float=_to_float,
+        to_int=_request_to_int,
+        to_float=_request_to_float,
     )
 
     register_lora_routes(
@@ -1941,11 +1542,20 @@ def create_app() -> FastAPI:
         app=app,
         verify_api_key=verify_api_key,
         wrap_response=_wrap_response,
-        start_tensorboard=_start_tensorboard,
-        stop_tensorboard=_stop_tensorboard,
-        temporary_llm_model=_temporary_llm_model,
-        atomic_write_json=_atomic_write_json,
-        append_jsonl=_append_jsonl,
+        start_tensorboard=partial(
+            _runtime_start_tensorboard,
+            stop_tensorboard_fn=_runtime_stop_tensorboard,
+        ),
+        stop_tensorboard=_runtime_stop_tensorboard,
+        temporary_llm_model=partial(
+            _runtime_temporary_llm_model,
+            get_project_root=_get_project_root,
+            get_model_name=_get_model_name,
+            ensure_model_downloaded=_ensure_model_downloaded,
+            env_bool=_env_bool,
+        ),
+        atomic_write_json=_runtime_atomic_write_json,
+        append_jsonl=_runtime_append_jsonl,
     )
 
     register_audio_route(

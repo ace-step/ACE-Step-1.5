@@ -29,8 +29,8 @@ from contextlib import asynccontextmanager
 from functools import partial
 from threading import Lock
 from typing import Any, Dict, List, Optional
-from loguru import logger
 import torch
+from loguru import logger
 
 try:
     from dotenv import load_dotenv
@@ -45,6 +45,15 @@ from acestep.api.train_api_service import (
     register_training_api_routes,
 )
 from acestep.api.jobs.store import _JobStore
+from acestep.api.log_capture import install_log_capture
+from acestep.api.server_utils import (
+    env_bool as _env_bool,
+    get_model_name as _get_model_name,
+    is_instrumental as _is_instrumental,
+    map_status as _map_status,
+    parse_description_hints as _parse_description_hints,
+    parse_timesteps as _parse_timesteps,
+)
 from acestep.api.http.auth import (
     set_api_key,
     verify_api_key,
@@ -122,7 +131,6 @@ RESULT_EXPIRE_SECONDS = 7 * 24 * 60 * 60  # 7 days
 TASK_TIMEOUT_SECONDS = 3600  # 1 hour
 JOB_STORE_CLEANUP_INTERVAL = 300  # 5 minutes - interval for cleaning up old jobs
 JOB_STORE_MAX_AGE_SECONDS = 86400  # 24 hours - completed jobs older than this will be cleaned
-STATUS_MAP = {"queued": 0, "running": 0, "succeeded": 1, "failed": 2}
 
 LM_DEFAULT_TEMPERATURE = 0.85
 LM_DEFAULT_CFG_SCALE = 2.5
@@ -170,101 +178,6 @@ SIMPLE_EXAMPLE_DATA: List[Dict[str, Any]] = _load_all_examples(sample_mode="simp
 CUSTOM_EXAMPLE_DATA: List[Dict[str, Any]] = _load_all_examples(sample_mode="custom_mode")
 
 
-def _parse_description_hints(description: str) -> tuple[Optional[str], bool]:
-    """
-    Parse a description string to extract language code and instrumental flag.
-
-    This function analyzes user descriptions like "Pop rock. English" or "piano solo"
-    to detect:
-    - Language: Maps language names to ISO codes (e.g., "English" -> "en")
-    - Instrumental: Detects patterns indicating instrumental/no-vocal music
-
-    Args:
-        description: User's natural language music description
-
-    Returns:
-        (language_code, is_instrumental) tuple:
-        - language_code: ISO language code (e.g., "en", "zh") or None if not detected
-        - is_instrumental: True if description indicates instrumental music
-    """
-    import re
-
-    if not description:
-        return None, False
-
-    description_lower = description.lower().strip()
-
-    # Language mapping: input patterns -> ISO code
-    language_mapping = {
-        'english': 'en', 'en': 'en',
-        'chinese': 'zh', '中文': 'zh', 'zh': 'zh', 'mandarin': 'zh',
-        'japanese': 'ja', '日本語': 'ja', 'ja': 'ja',
-        'korean': 'ko', '한국어': 'ko', 'ko': 'ko',
-        'spanish': 'es', 'español': 'es', 'es': 'es',
-        'french': 'fr', 'français': 'fr', 'fr': 'fr',
-        'german': 'de', 'deutsch': 'de', 'de': 'de',
-        'italian': 'it', 'italiano': 'it', 'it': 'it',
-        'portuguese': 'pt', 'português': 'pt', 'pt': 'pt',
-        'russian': 'ru', 'русский': 'ru', 'ru': 'ru',
-        'bengali': 'bn', 'bn': 'bn',
-        'hindi': 'hi', 'hi': 'hi',
-        'arabic': 'ar', 'ar': 'ar',
-        'thai': 'th', 'th': 'th',
-        'vietnamese': 'vi', 'vi': 'vi',
-        'indonesian': 'id', 'id': 'id',
-        'turkish': 'tr', 'tr': 'tr',
-        'dutch': 'nl', 'nl': 'nl',
-        'polish': 'pl', 'pl': 'pl',
-    }
-
-    # Detect language
-    detected_language = None
-    for lang_name, lang_code in language_mapping.items():
-        if len(lang_name) <= 2:
-            pattern = r'(?:^|\s|[.,;:!?])' + re.escape(lang_name) + r'(?:$|\s|[.,;:!?])'
-        else:
-            pattern = r'\b' + re.escape(lang_name) + r'\b'
-
-        if re.search(pattern, description_lower):
-            detected_language = lang_code
-            break
-
-    # Detect instrumental
-    is_instrumental = False
-    if 'instrumental' in description_lower:
-        is_instrumental = True
-    elif 'pure music' in description_lower or 'pure instrument' in description_lower:
-        is_instrumental = True
-    elif description_lower.endswith(' solo') or description_lower == 'solo':
-        is_instrumental = True
-
-    return detected_language, is_instrumental
-
-def _env_bool(name: str, default: bool) -> bool:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    return v.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-
-
-def _get_model_name(config_path: str) -> str:
-    """
-    Extract model name from config_path.
-
-    Args:
-        config_path: Path like "acestep-v15-turbo" or "/path/to/acestep-v15-turbo"
-
-    Returns:
-        Model name (last directory name from config_path)
-    """
-    if not config_path:
-        return ""
-    normalized = config_path.rstrip("/\\")
-    return os.path.basename(normalized)
-
-
 _project_env_loaded = False
 
 
@@ -287,64 +200,8 @@ def _load_project_env() -> None:
 _load_project_env()
 
 
-def _map_status(status: str) -> int:
-    """Map job status string to integer code."""
-    return STATUS_MAP.get(status, 2)
-
-
-def _parse_timesteps(s: Optional[str]) -> Optional[List[float]]:
-    """Parse comma-separated timesteps string to list of floats."""
-    if not s or not s.strip():
-        return None
-    try:
-        return [float(t.strip()) for t in s.split(",") if t.strip()]
-    except (ValueError, Exception):
-        return None
-
-
-def _is_instrumental(lyrics: str) -> bool:
-    """
-    Determine if the music should be instrumental based on lyrics.
-
-    Returns True if:
-    - lyrics is empty or whitespace only
-    - lyrics (lowercased and trimmed) is "[inst]" or "[instrumental]"
-    """
-    if not lyrics:
-        return True
-    lyrics_clean = lyrics.strip().lower()
-    if not lyrics_clean:
-        return True
-    return lyrics_clean in ("[inst]", "[instrumental]")
-
-class LogBuffer:
-    def __init__(self):
-        self.last_message = "Waiting"
-
-    def write(self, message):
-        msg = message.strip()
-        if msg:
-            self.last_message = msg
-
-    def flush(self):
-        pass
-
-log_buffer = LogBuffer()
-logger.add(lambda msg: log_buffer.write(msg), format="{time:HH:mm:ss} | {level} | {message}")
-
-class StderrLogger:
-    def __init__(self, original_stderr, buffer):
-        self.original_stderr = original_stderr
-        self.buffer = buffer
-
-    def write(self, message):
-        self.original_stderr.write(message) # Print to terminal
-        self.buffer.write(message)          # Send to API buffer
-
-    def flush(self):
-        self.original_stderr.flush()
-
-sys.stderr = StderrLogger(sys.stderr, log_buffer)
+log_buffer, _stderr_proxy = install_log_capture(logger, sys.stderr)
+sys.stderr = _stderr_proxy
 
 
 def create_app() -> FastAPI:
@@ -1682,6 +1539,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 

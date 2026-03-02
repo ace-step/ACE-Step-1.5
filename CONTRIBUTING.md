@@ -1,5 +1,5 @@
 Hopefully this will provide a simple, easy to understand guide to making safe contributions to the project, happy coding!
----
+
 
 ## Why This Matters
 

@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ACE-Step DJ — Technical Documentation</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #1DB954;
+    --accent-dim: #1DB95440;
+    --blue: #58a6ff;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+    --red: #f85149;
+    --gold: #e3b341;
+    --code-bg: #0d1117;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Noto Sans, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  h1 { font-size: 2.2rem; margin-bottom: 8px; letter-spacing: -0.03em; }
+  h1 span { color: var(--accent); }
+  .subtitle { color: var(--muted); font-size: 1rem; margin-bottom: 40px; }
+  h2 {
+    font-size: 1.5rem;
+    margin: 48px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--blue);
+  }
+  h3 { font-size: 1.15rem; margin: 32px 0 12px; color: var(--purple); }
+  h4 { font-size: 1rem; margin: 24px 0 8px; color: var(--orange); }
+  p { margin-bottom: 16px; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.88em;
+    font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    margin: 16px 0 24px;
+    font-size: 0.85rem;
+    line-height: 1.55;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  ul, ol { margin: 0 0 16px 24px; }
+  li { margin-bottom: 6px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 0.9rem;
+  }
+  th, td {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  th {
+    background: var(--surface);
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+  }
+  td code { font-size: 0.82em; }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-dim);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 20px 0;
+  }
+  .callout.warn { border-color: var(--gold); background: rgba(227, 179, 65, 0.12); }
+  .callout.danger { border-color: var(--red); background: rgba(248, 81, 73, 0.1); }
+  .callout strong { display: block; margin-bottom: 4px; }
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+    margin: 16px 0 24px;
+    color: var(--muted);
+  }
+  .diagram em { color: var(--accent); font-style: normal; }
+  .diagram strong { color: var(--blue); font-weight: normal; }
+  .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+  .tag-new { background: var(--accent); color: #000; }
+  .tag-perf { background: var(--purple); color: #000; }
+  .tag-issue { background: var(--red); color: #fff; }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin: 24px 0 40px; }
+  .toc h3 { margin: 0 0 12px; color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc li { margin-bottom: 4px; }
+  .toc a { color: var(--text); }
+  .badge-live { background: var(--red); color: #fff; font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; font-weight: 800; letter-spacing: 0.05em; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+</style>
+</head>
+<body>
+
+<h1>ACE-Step <span>DJ</span></h1>
+<p class="subtitle">Technical documentation for the continuous music generation dashboard &mdash; architecture, implementation details, and known issues.</p>
+
+<div class="toc">
+  <h3>Contents</h3>
+  <ol>
+    <li><a href="#overview">Overview &amp; Architecture</a></li>
+    <li><a href="#generation">Generation Pipeline</a></li>
+    <li><a href="#repaint">Repaint-Based Continuity</a></li>
+    <li><a href="#scheduling">Audio Scheduling &amp; Gapless Playback</a></li>
+    <li><a href="#waveform">Scrolling Waveform Timeline</a></li>
+    <li><a href="#seeking">Click-to-Seek &amp; LIVE Badge</a></li>
+    <li><a href="#lora">LoRA Adapter Controls</a></li>
+    <li><a href="#perf">Performance Optimizations</a></li>
+    <li><a href="#memory">Memory Management</a></li>
+    <li><a href="#api">API Integration</a></li>
+    <li><a href="#issues">Known Issues &amp; Limitations</a></li>
+    <li><a href="#improvements">Potential Improvements</a></li>
+    <li><a href="#files">File Reference</a></li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="overview">1. Overview &amp; Architecture</h2>
+
+<p>ACE-Step DJ is a single-file HTML/CSS/JS application (<code>ui/dj.html</code>, ~2300 lines) that provides continuous, infinite music generation using the ACE-Step V1.5 API. It acts as a "DJ" that continuously generates new segments of music, seamlessly stitching them together in real time using the Web Audio API.</p>
+
+<h3>Design Philosophy</h3>
+<ul>
+  <li><strong>Zero-dependency</strong> &mdash; no build tools, frameworks, or external JS libraries. Pure vanilla HTML/CSS/JS.</li>
+  <li><strong>Single-file</strong> &mdash; everything in one HTML file for easy deployment (just serve it from any HTTP server).</li>
+  <li><strong>Model-level continuity</strong> &mdash; uses ACE-Step's <em>repaint</em> task type for seamless audio continuation at the diffusion model level, not crossfade hacks.</li>
+  <li><strong>Infinite playback</strong> &mdash; segments are generated in a pipeline, one ahead of playback, with automatic buffer underrun recovery.</li>
+</ul>
+
+<h3>High-Level Architecture</h3>
+
+<div class="diagram">
+┌─────────────────────────────────────────────────────────┐
+│                    <strong>Browser (dj.html)</strong>                     │
+│                                                         │
+│  ┌─────────────┐     ┌──────────────┐     ┌──────────┐ │
+│  │  <em>UI Controls</em> │────▶│  <em>DJEngine</em>    │────▶│ <em>Web Audio</em> │ │
+│  │  (sidebar)   │     │  (core logic) │     │  API     │ │
+│  └─────────────┘     └──────┬───────┘     └────┬─────┘ │
+│                             │                   │       │
+│              ┌──────────────┼───────────────────┤       │
+│              ▼              ▼                   ▼       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │  <em>Waveform</em>    │  │  <em>Visualizer</em>  │  │  <em>Speakers</em>    │  │
+│  │  (canvas)    │  │  (canvas)    │  │              │  │
+│  └──────────────┘  └──────────────┘  └──────────────┘  │
+└────────────────────────────┬────────────────────────────┘
+                             │ HTTP
+                             ▼
+┌─────────────────────────────────────────────────────────┐
+│              <strong>ACE-Step API Server</strong> (:8001)                  │
+│                                                         │
+│  /release_task    → queue generation job                │
+│  /query_result    → poll for completion                 │
+│  /v1/audio        → download generated audio            │
+│  /v1/lora/*       → LoRA adapter management             │
+└─────────────────────────────────────────────────────────┘
+</div>
+
+<!-- ============================================================ -->
+<h2 id="generation">2. Generation Pipeline</h2>
+
+<p>The engine maintains a simple pipeline with one segment always being generated ahead of playback:</p>
+
+<div class="diagram">
+ Time ──────────────────────────────────────────────▶
+
+ Seg 0: [█████████████████████] playing
+ Seg 1: [░░░░░░░░░░] generating...
+                     ↑ lookahead scheduler
+                       checks every 200ms
+</div>
+
+<h3>Pipeline Stages</h3>
+
+<table>
+  <tr><th>Stage</th><th>Badge Color</th><th>Description</th></tr>
+  <tr><td><code>idle</code></td><td>Gray</td><td>Engine not running</td></tr>
+  <tr><td><code>generating</code></td><td>Orange</td><td>API task submitted, polling for result</td></tr>
+  <tr><td><code>downloading</code></td><td>Blue</td><td>Fetching generated audio from server</td></tr>
+  <tr><td><code>decoding</code></td><td>Purple</td><td>Decoding audio via Web Audio API</td></tr>
+  <tr><td><code>ready</code></td><td>Gold</td><td>Segment decoded, waiting to be scheduled</td></tr>
+  <tr><td><code>playing</code></td><td>Green</td><td>Audio is playing through speakers</td></tr>
+</table>
+
+<h3>Generation Flow</h3>
+
+<ol>
+  <li><strong>Release task</strong> &mdash; POST to <code>/release_task</code> with prompt, lyrics, duration, and optionally context audio (for repaint mode)</li>
+  <li><strong>Poll</strong> &mdash; POST to <code>/query_result</code> every 2 seconds until <code>status === 1</code> (success) or <code>status === 2</code> (failure)</li>
+  <li><strong>Download</strong> &mdash; Fetch the WAV audio file from the server</li>
+  <li><strong>Decode</strong> &mdash; <code>AudioContext.decodeAudioData()</code> converts WAV bytes to an <code>AudioBuffer</code></li>
+  <li><strong>Trim</strong> &mdash; Remove context prefix (repaint only) and end guard tail</li>
+  <li><strong>Stash</strong> &mdash; Place in <code>this.nextReady</code> for the scheduler to pick up</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="repaint">3. Repaint-Based Continuity</h2>
+
+<p>This is the core innovation. Instead of crossfading between independently-generated segments (which produces audible artifacts), the DJ uses ACE-Step's <strong>repaint</strong> task type for model-level audio continuity.</p>
+
+<h3>How It Works</h3>
+
+<div class="diagram">
+ Previous segment (playable buffer):
+ ├──── context (10s) ────┤──── new audio (30s) ────┤── guard (10s) ──┤
+                         ▲                          ▲
+                    repaint_start              repaint_end
+
+ 1. Extract last <em>10s</em> of previous playable audio as WAV
+ 2. Upload as <em>ctx_audio</em> to /release_task with task_type=repaint
+ 3. Diffusion model uses context as ground truth (masked region)
+ 4. Model generates <em>new audio</em> that naturally continues from context
+ 5. Trim: remove context prefix + end guard tail
+ 6. Result: seamless playback buffer that flows from previous segment
+</div>
+
+<h3>Key Parameters</h3>
+
+<table>
+  <tr><th>Parameter</th><th>UI Control</th><th>Effect</th></tr>
+  <tr><td><code>context_duration</code></td><td>Context Prefill slider</td><td>Seconds of previous audio used as context. More = better continuity, slower generation.</td></tr>
+  <tr><td><code>end_guard</code></td><td>End Guard slider</td><td>Extra seconds generated at the tail then discarded. Prevents the model from writing a "song ending" at the cutoff point.</td></tr>
+  <tr><td><code>weirdness</code></td><td>Weirdness slider</td><td>Maps inversely to <code>audio_cover_strength</code>. 0% = faithful continuation, 100% = creative drift.</td></tr>
+</table>
+
+<div class="callout">
+  <strong>Why end guard?</strong>
+  Music generation models are trained on complete songs. When asked to generate 30 seconds, the model may write a natural ending (fade out, final chord). The end guard adds extra duration beyond what we actually use, so any "ending behavior" falls in the discarded tail instead of the playback region.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="scheduling">4. Audio Scheduling &amp; Gapless Playback</h2>
+
+<p>The Web Audio API's <code>BufferSourceNode.start(when)</code> method enables sample-accurate scheduling. The DJ uses this for perfectly gapless playback.</p>
+
+<h3>Scheduler (<code>_lookahead()</code>)</h3>
+
+<p>A 200ms interval timer checks if the currently playing segment is within 2 seconds of ending. If a next segment is ready (<code>this.nextReady</code>), it schedules it to start at exactly the current segment's <code>endTime</code>:</p>
+
+<pre><code>// Gapless: next starts exactly when current ends
+this._scheduleSegment(nextSeg, lastSeg.endTime);</code></pre>
+
+<h3>Audio Graph</h3>
+
+<div class="diagram">
+ BufferSource (segment N)──▶ GainNode ──┐
+ BufferSource (segment N+1)──▶ GainNode ──┼──▶ <em>MasterGain</em> ──▶ <em>Analyser</em> ──▶ <em>Destination</em>
+ BufferSource (segment N+2)──▶ GainNode ──┘                     │
+                                                                 ▼
+                                                        <strong>Frequency Visualizer</strong>
+</div>
+
+<p>Each segment gets its own <code>BufferSourceNode</code> and <code>GainNode</code>. The gain is constant at 1.0 &mdash; no crossfade needed because repaint provides model-level continuity. All segment gain nodes feed into a shared <code>MasterGain</code> (volume control) → <code>AnalyserNode</code> (for the frequency visualizer) → <code>AudioContext.destination</code> (speakers).</p>
+
+<h3>Buffer Underrun Recovery</h3>
+
+<p>If playback reaches the end of all scheduled segments before the next one is ready, the engine enters a "paused" state. When the next segment finally arrives, it's scheduled immediately at <code>currentTime + 0.1s</code> and generation continues. This causes a brief silence gap but avoids a crash.</p>
+
+<!-- ============================================================ -->
+<h2 id="waveform">5. Scrolling Waveform Timeline</h2>
+
+<p>The waveform bar provides a YouTube Live / Twitch-style scrolling visualization of the audio stream.</p>
+
+<h3>Visual Design</h3>
+
+<div class="diagram">
+┌──────────────────────────────────────────────────────────────┐
+│ <span class="badge-live">LIVE</span>                                                 0:45 │
+│ <em>▄▃▅▇▆▃▄▅▇▆▃▄▅▇▆▃▄▅</em> | <span style="color:#1DB95466">▁▃▅▇▆▃▄▅▇▆</span>   <span style="color:var(--purple)">░░░░░░░</span>           │
+│ <em>████████████████████</em> | <span style="color:#1DB95466">▓▓▓▓▓▓▓▓▓▓▓</span>   <span style="color:var(--purple)">···</span>               │
+│ ──── played ──────── <strong>▲</strong> buffered ahead  generating       │
+│                   playhead (70%)                             │
+│            Seg 1    ┊  Seg 2  ┊  Seg 3                       │
+└──────────────────────────────────────────────────────────────┘
+</div>
+
+<h3>Implementation Details</h3>
+
+<table>
+  <tr><th>Aspect</th><th>Detail</th></tr>
+  <tr><td>Canvas size</td><td>Full width of content area, 80px tall</td></tr>
+  <tr><td>Visible window</td><td>40 seconds of audio</td></tr>
+  <tr><td>Playhead position</td><td>70% from left edge (fixed)</td></tr>
+  <tr><td>Peak resolution</td><td>100 peaks/second (~12KB per 30s segment)</td></tr>
+  <tr><td>Played color</td><td><code>#1DB954</code> (bright Spotify green)</td></tr>
+  <tr><td>Buffered color</td><td><code>rgba(29, 185, 84, 0.35)</code> (dim green)</td></tr>
+  <tr><td>Generating</td><td>Pulsing purple (<code>#b388ff</code> with sinusoidal alpha)</td></tr>
+  <tr><td>Segment boundaries</td><td>Dotted vertical lines with <code>#N</code> labels</td></tr>
+</table>
+
+<h3>Peak Computation</h3>
+
+<p>When each segment's <code>AudioBuffer</code> is decoded, peaks are pre-computed and cached in <code>this.waveformPeaks</code> (a <code>Map&lt;segIndex, Float32Array&gt;</code>). The computation takes <code>max(abs(samples))</code> across all channels for each time bucket of <code>sampleRate / 100</code> samples.</p>
+
+<h3>Coordinate System: Accumulated Duration</h3>
+
+<p>The waveform uses an "accumulated duration" coordinate system rather than AudioContext timestamps. This is critical for correctness after seeking:</p>
+
+<pre><code>// _getAccumulatedPlayPos():
+// 1. Find which segment is currently playing (via AudioContext time)
+// 2. Sum durations of all segments before it
+// 3. Add elapsed time within the current segment
+// Result: position in "total stream time" space</code></pre>
+
+<div class="callout warn">
+  <strong>Why not use AudioContext timestamps directly?</strong>
+  After seeking, segments get rescheduled with new <code>startTime</code>/<code>endTime</code> values. The first segment's <code>startTime</code> becomes stale and can't be used as a reference point. Accumulated duration is always correct because it's computed from the segment array's actual order and durations.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="seeking">6. Click-to-Seek &amp; LIVE Badge</h2>
+
+<h3>Click-to-Seek</h3>
+
+<p>Clicking anywhere on the waveform canvas maps the click position to a segment + offset:</p>
+
+<ol>
+  <li>Click X position → time offset from left edge using <code>pixelsPerSec = canvasWidth / 40</code></li>
+  <li>Add to <code>timeAtLeftEdge</code> to get absolute time in accumulated-duration space</li>
+  <li>Walk through segments summing durations to find which segment contains the click time</li>
+  <li>Call <code>skipToSegment(segIndex, offset)</code></li>
+</ol>
+
+<h3><code>skipToSegment(targetIndex, offset)</code></h3>
+
+<p>This method handles all seeking:</p>
+
+<ol>
+  <li>Stop all currently playing <code>BufferSourceNode</code>s</li>
+  <li>From the target segment onward, create new source nodes</li>
+  <li>For the target segment, use <code>source.start(when, offset)</code> to start partway through</li>
+  <li>Set <code>startTime = t - offset</code> (virtual start) so elapsed calculations remain correct</li>
+  <li>Subsequent segments start at the previous segment's <code>endTime</code></li>
+</ol>
+
+<h3>LIVE Badge</h3>
+
+<table>
+  <tr><th>State</th><th>Appearance</th><th>Condition</th></tr>
+  <tr><td>At live edge</td><td>Red, pulsing animation</td><td>Within 2 seconds of the latest scheduled segment's end</td></tr>
+  <tr><td>Behind</td><td>Gray, static</td><td>User has seeked backward</td></tr>
+</table>
+
+<p>Clicking the LIVE badge when behind snaps playback to the last segment via <code>_snapToLiveEdge()</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="lora">7. LoRA Adapter Controls <span class="tag tag-new">NEW</span></h2>
+
+<p>The sidebar includes a LoRA section for loading, unloading, and configuring LoRA adapters on the ACE-Step API server. LoRA is a <strong>server-side global state</strong> &mdash; once loaded, it applies to all subsequent generations.</p>
+
+<h3>UI Controls</h3>
+
+<table>
+  <tr><th>Control</th><th>API Endpoint</th><th>Description</th></tr>
+  <tr><td>Path input</td><td>&mdash;</td><td>Local filesystem path to adapter directory</td></tr>
+  <tr><td>Load button</td><td><code>POST /v1/lora/load</code></td><td>Load adapter from path</td></tr>
+  <tr><td>Unload button</td><td><code>POST /v1/lora/unload</code></td><td>Unload all adapters</td></tr>
+  <tr><td>Enable/Disable toggle</td><td><code>POST /v1/lora/toggle</code></td><td>Toggle LoRA on/off without unloading</td></tr>
+  <tr><td>Scale slider</td><td><code>POST /v1/lora/scale</code></td><td>Set LoRA influence (0.0 = none, 1.0 = full)</td></tr>
+  <tr><td>Status display</td><td><code>GET /v1/lora/status</code></td><td>Shows adapter name, scale, enabled state</td></tr>
+</table>
+
+<h3>Pre-loaded Adapter</h3>
+
+<p>The <code>worstplayer/acestep15_drumnbass_lora</code> V3 adapter is downloaded from HuggingFace and stored at <code>loras/drumnbass_v3/</code>. It's a rank-64 PEFT LoRA targeting <code>q_proj</code>, <code>k_proj</code>, <code>v_proj</code>, <code>o_proj</code> in the DiT decoder. Designed for the SFT model with up to 100 inference steps.</p>
+
+<!-- ============================================================ -->
+<h2 id="perf">8. Performance Optimizations <span class="tag tag-perf">PERF</span></h2>
+
+<p>Several optimizations prevent the UI from freezing during extended playback sessions:</p>
+
+<h3>Unified Animation Loop</h3>
+<p>Both the waveform and frequency visualizer are drawn from a single <code>requestAnimationFrame</code> loop (<code>_animationLoop()</code>). Previously they had independent rAF loops, which doubled frame overhead and could cause stuttering.</p>
+
+<h3>Per-Frame Position Caching</h3>
+<p><code>_getAccumulatedPlayPos()</code> performs an O(n) scan over all segments. It's now called once per frame and cached in <code>this._cachedPlayPos</code>, shared by <code>_drawWaveform()</code>, <code>_onWaveformHover()</code>, and <code>_tickNowPlaying()</code>.</p>
+
+<h3>Pre-allocated Frequency Buffer</h3>
+<p>The visualizer's <code>Uint8Array</code> for frequency data is allocated once and reused every frame, eliminating per-frame garbage collection pressure.</p>
+
+<h3>No Canvas <code>shadowBlur</code></h3>
+<p>Canvas shadow operations are expensive compositing passes. The playhead glow now uses a wider semi-transparent stroke underneath a thinner white stroke. Visualizer bar highlights use a brighter <code>fillStyle</code> instead of shadow.</p>
+
+<h3>Two-Pass Waveform Drawing</h3>
+<p>Peak bars are drawn in two passes (played green, then buffered dim green) with visible-range clipping. This minimizes <code>fillStyle</code> state changes from ~4000/frame to just 2 per segment.</p>
+
+<!-- ============================================================ -->
+<h2 id="memory">9. Memory Management</h2>
+
+<p>Continuous playback can generate dozens of segments over time. Memory management prevents unbounded growth:</p>
+
+<h3><code>_cleanupOldSegments()</code></h3>
+
+<ul>
+  <li>Keeps the last <strong>20 segments</strong> with their <code>AudioBuffer</code> references intact (for skip-back)</li>
+  <li>Older segments have their <code>audioBuffer</code>, <code>playableBuffer</code>, <code>source</code>, and <code>gainNode</code> set to <code>null</code></li>
+  <li>Waveform peaks (<code>Float32Array</code>) are <strong>always retained</strong> for visual display</li>
+  <li>Cleanup triggers on each segment's <code>source.onended</code> callback</li>
+</ul>
+
+<h3>Memory Budget (approximate)</h3>
+
+<table>
+  <tr><th>Component</th><th>Per Segment</th><th>20 Segments</th></tr>
+  <tr><td>AudioBuffer (30s, stereo, 48kHz)</td><td>~11.5 MB</td><td>~230 MB</td></tr>
+  <tr><td>Waveform peaks (100/s, 30s)</td><td>~12 KB</td><td>~240 KB</td></tr>
+  <tr><td>Segment metadata</td><td>~1 KB</td><td>~20 KB</td></tr>
+</table>
+
+<p>Total memory stabilizes around <strong>~250 MB</strong> after 20 segments, regardless of how long the session runs.</p>
+
+<!-- ============================================================ -->
+<h2 id="api">10. API Integration</h2>
+
+<h3>Endpoints Used</h3>
+
+<table>
+  <tr><th>Endpoint</th><th>Method</th><th>Purpose</th></tr>
+  <tr><td><code>/release_task</code></td><td>POST</td><td>Submit generation job (JSON for text2music, FormData for repaint with ctx_audio)</td></tr>
+  <tr><td><code>/query_result</code></td><td>POST</td><td>Poll job status (body: <code>{"task_id_list": [...]}</code>)</td></tr>
+  <tr><td><code>/v1/audio?path=...</code></td><td>GET</td><td>Download generated audio file</td></tr>
+  <tr><td><code>/v1/lora/load</code></td><td>POST</td><td>Load LoRA adapter</td></tr>
+  <tr><td><code>/v1/lora/unload</code></td><td>POST</td><td>Unload all adapters</td></tr>
+  <tr><td><code>/v1/lora/toggle</code></td><td>POST</td><td>Enable/disable LoRA</td></tr>
+  <tr><td><code>/v1/lora/scale</code></td><td>POST</td><td>Set LoRA scale</td></tr>
+  <tr><td><code>/v1/lora/status</code></td><td>GET</td><td>Get current LoRA state</td></tr>
+  <tr><td><code>/health</code></td><td>GET</td><td>Server health check</td></tr>
+</table>
+
+<h3>Audio Format</h3>
+<p>The DJ requests WAV format (<code>audio_format: 'wav'</code>) for generation to avoid lossy compression artifacts at segment boundaries. WAV files are larger but decode faster and preserve full quality.</p>
+
+<!-- ============================================================ -->
+<h2 id="issues">11. Known Issues &amp; Limitations <span class="tag tag-issue">ISSUES</span></h2>
+
+<h3>Confirmed Issues</h3>
+
+<ol>
+  <li>
+    <strong>Occasional page freeze during extended playback</strong><br>
+    The page has frozen during long sessions (30+ minutes). The tab becomes unresponsive but recovers on navigation/reload. Likely caused by memory pressure from accumulated AudioBuffers or long segment arrays. The unified animation loop and per-frame caching help but may not fully solve it.
+  </li>
+  <li>
+    <strong>Model mismatch: turbo vs SFT</strong><br>
+    The UI defaults to 50 inference steps (optimized for the SFT model), but the server may have the turbo model loaded (which is clamped to 8 steps server-side). The user gets turbo quality regardless of the slider setting. Check <code>/health</code> for <code>loaded_model</code>.
+  </li>
+  <li>
+    <strong>LoRA only accepts local paths</strong><br>
+    The API's LoRA loader validates with <code>os.path.exists()</code>, so HuggingFace repo IDs can't be passed directly. Adapters must be downloaded first. The <code>PeftModel.from_pretrained()</code> call underneath does support HF repos, but the path check blocks it.
+  </li>
+  <li>
+    <strong>Buffer underrun causes audible gap</strong><br>
+    When generation is slower than playback (e.g., 50 inference steps on slow GPU), there's a silence gap between segments. No recovery mechanism blends the transition.
+  </li>
+  <li>
+    <strong>No CORS headers on audio files</strong><br>
+    If the API server and HTML are on different origins, audio downloads may be blocked. Both must be served from the same origin or the API must set appropriate CORS headers.
+  </li>
+</ol>
+
+<h3>Limitations</h3>
+
+<ol>
+  <li><strong>Single prompt only</strong> &mdash; all segments use the same prompt and lyrics. No per-segment variation or playlist/queue system.</li>
+  <li><strong>No persistence</strong> &mdash; refreshing the page loses all segments and playback state. No session save/restore.</li>
+  <li><strong>No waveform export</strong> &mdash; generated audio can't be downloaded or exported from the UI.</li>
+  <li><strong>Polling-only API mode</strong> &mdash; the DJ uses the native polling API (<code>/release_task</code> + <code>/query_result</code>). The completion mode (<code>/v1/chat/completions</code>) is not supported.</li>
+  <li><strong>No mobile support</strong> &mdash; the layout assumes a wide desktop viewport. Sidebar doesn't collapse.</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="improvements">12. Potential Improvements</h2>
+
+<h3>High Priority</h3>
+
+<table>
+  <tr><th>Improvement</th><th>Complexity</th><th>Impact</th></tr>
+  <tr>
+    <td><strong>WebSocket/SSE for generation progress</strong> — Replace 2-second polling with server-sent events for real-time progress updates and faster scheduling</td>
+    <td>Medium</td>
+    <td>High</td>
+  </tr>
+  <tr>
+    <td><strong>Segment download/export</strong> — Add a button to download the currently playing segment or the entire session as a single WAV/MP3</td>
+    <td>Low</td>
+    <td>High</td>
+  </tr>
+  <tr>
+    <td><strong>Dynamic prompt changes</strong> — Allow changing the prompt mid-stream so the next generated segment uses the new prompt (genre transitions, mood shifts)</td>
+    <td>Low</td>
+    <td>High</td>
+  </tr>
+  <tr>
+    <td><strong>Pre-buffer multiple segments</strong> — Generate 2-3 segments ahead instead of 1, so buffer underruns are less likely</td>
+    <td>Medium</td>
+    <td>High</td>
+  </tr>
+</table>
+
+<h3>Medium Priority</h3>
+
+<table>
+  <tr><th>Improvement</th><th>Complexity</th><th>Impact</th></tr>
+  <tr>
+    <td><strong>Prompt queue / playlist</strong> — Queue multiple prompts that cycle through segments, enabling DJ-style transitions between genres</td>
+    <td>Medium</td>
+    <td>Medium</td>
+  </tr>
+  <tr>
+    <td><strong>Session persistence</strong> — Save/restore session state (segments, peaks, settings) to IndexedDB so refreshing doesn't lose progress</td>
+    <td>Medium</td>
+    <td>Medium</td>
+  </tr>
+  <tr>
+    <td><strong>OffscreenCanvas for waveform</strong> — Move waveform rendering to a Web Worker via OffscreenCanvas to avoid main-thread blocking</td>
+    <td>Medium</td>
+    <td>Medium</td>
+  </tr>
+  <tr>
+    <td><strong>Adaptive segment duration</strong> — Automatically adjust segment duration based on generation speed to minimize buffer underruns</td>
+    <td>Medium</td>
+    <td>Medium</td>
+  </tr>
+  <tr>
+    <td><strong>HuggingFace LoRA auto-download</strong> — Accept HF repo IDs (e.g., <code>worstplayer/acestep15_drumnbass_lora</code>) and auto-download via the API server</td>
+    <td>Low (API change)</td>
+    <td>Medium</td>
+  </tr>
+</table>
+
+<h3>Nice to Have</h3>
+
+<table>
+  <tr><th>Improvement</th><th>Complexity</th><th>Impact</th></tr>
+  <tr>
+    <td><strong>Audio effects chain</strong> — Add EQ, reverb, or filter controls between master gain and destination</td>
+    <td>Medium</td>
+    <td>Low</td>
+  </tr>
+  <tr>
+    <td><strong>BPM detection + sync</strong> — Detect BPM of generated segments and display/lock it for consistent tempo</td>
+    <td>High</td>
+    <td>Low</td>
+  </tr>
+  <tr>
+    <td><strong>Mobile-responsive layout</strong> — Collapsible sidebar, touch-friendly waveform gestures</td>
+    <td>Medium</td>
+    <td>Low</td>
+  </tr>
+  <tr>
+    <td><strong>Multi-track mixing</strong> — Run two DJ engines simultaneously with a crossfader for live mixing between two prompts</td>
+    <td>High</td>
+    <td>Medium</td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="files">13. File Reference</h2>
+
+<table>
+  <tr><th>Path</th><th>Purpose</th></tr>
+  <tr><td><code>ui/dj.html</code></td><td>The complete DJ application (~2300 lines, single file)</td></tr>
+  <tr><td><code>loras/drumnbass_v3/</code></td><td>Pre-downloaded drum &amp; bass LoRA adapter (PEFT format, rank 64)</td></tr>
+  <tr><td><code>loras/drumnbass_v3/adapter_config.json</code></td><td>PEFT adapter configuration (target modules, rank, alpha)</td></tr>
+  <tr><td><code>loras/drumnbass_v3/adapter_model.safetensors</code></td><td>LoRA weights (88 MB)</td></tr>
+  <tr><td><code>acestep/api_server.py</code></td><td>ACE-Step API server (FastAPI) with all endpoints</td></tr>
+  <tr><td><code>acestep/core/generation/handler/lora/</code></td><td>LoRA lifecycle, controls, and registry management</td></tr>
+</table>
+
+<hr>
+
+<p style="color: var(--muted); font-size: 0.85rem; text-align: center;">
+  Generated February 2026 &mdash; ACE-Step DJ v1.5 on branch <code>ht</code>
+</p>
+
+</body>
+</html>

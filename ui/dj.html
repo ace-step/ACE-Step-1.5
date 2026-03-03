@@ -1,0 +1,2370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACE-Step DJ</title>
+    <style>
+        /* ============================================================
+           CSS Variables — matches studio.html palette
+           ============================================================ */
+        :root {
+            --bg-color: #080808;
+            --card-bg: #141414;
+            --panel-bg: #1e1e1e;
+            --accent: #1DB954;
+            --accent-hover: #1ed760;
+            --text: #ffffff;
+            --muted: #b3b3b3;
+            --border: #333;
+            --input-bg: #2a2a2a;
+            --danger: #ff4444;
+            --gold: #FFD700;
+            --blue: #4fc3f7;
+            --purple: #b388ff;
+            --orange: #ffab40;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ============================================================
+           Header
+           ============================================================ */
+        header {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            z-index: 10;
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge {
+            font-size: 0.6rem;
+            background: var(--accent);
+            color: black;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 800;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            justify-content: flex-end;
+        }
+
+        .header-controls label {
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+
+        .header-controls input[type="url"] {
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            width: 240px;
+            outline: none;
+        }
+        .header-controls input[type="url"]:focus { border-color: var(--accent); }
+
+        .volume-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .volume-group input[type="range"] {
+            width: 80px;
+            accent-color: var(--accent);
+            height: 18px;
+        }
+        .volume-val {
+            font-size: 0.75rem;
+            color: var(--accent);
+            width: 32px;
+            text-align: right;
+        }
+
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 50px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .btn-play {
+            background: var(--accent);
+            color: black;
+            box-shadow: 0 2px 10px rgba(29, 185, 84, 0.3);
+        }
+        .btn-play:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-play:disabled { background: #333; color: #666; cursor: not-allowed; box-shadow: none; transform: none; }
+
+        .btn-stop {
+            background: var(--danger);
+            color: white;
+            box-shadow: 0 2px 10px rgba(255, 68, 68, 0.2);
+        }
+        .btn-stop:hover { background: #ff6666; }
+        .btn-stop:disabled { background: #333; color: #666; cursor: not-allowed; box-shadow: none; }
+
+        /* ============================================================
+           Main Layout — sidebar + content
+           ============================================================ */
+        .main-container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ============================================================
+           Sidebar
+           ============================================================ */
+        .sidebar {
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border);
+            padding: 16px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .control-group {}
+        .sidebar label {
+            display: block;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--muted);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .sidebar textarea,
+        .sidebar input[type="text"],
+        .sidebar input[type="number"],
+        .sidebar select {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            outline: none;
+        }
+        .sidebar textarea { resize: vertical; font-family: monospace; font-size: 0.8rem; }
+        .sidebar textarea:focus,
+        .sidebar input:focus,
+        .sidebar select:focus { border-color: var(--accent); }
+
+        .range-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .range-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 18px; }
+        .range-val {
+            min-width: 36px;
+            text-align: right;
+            font-size: 0.8rem;
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .row-2 { display: flex; gap: 10px; }
+        .row-2 > div { flex: 1; }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+            margin: 0;
+        }
+        .checkbox-group label { margin: 0; color: var(--text); font-size: 0.85rem; text-transform: none; letter-spacing: 0; }
+
+        /* ============================================================
+           Content Area
+           ============================================================ */
+        .content-area {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 16px;
+            overflow-y: auto;
+            background: linear-gradient(135deg, #101010 0%, #080808 100%);
+        }
+
+        /* --- Now Playing Card --- */
+        .now-playing {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .now-playing .np-icon {
+            font-size: 2rem;
+            color: var(--accent);
+            animation: pulse 1.5s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+        .now-playing.idle .np-icon { animation: none; color: var(--muted); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .np-info { flex: 1; min-width: 0; }
+        .np-info .np-label { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+        .np-info .np-title {
+            font-size: 1rem;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+        }
+        .np-info .np-time {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent);
+            margin-top: 4px;
+        }
+
+        /* --- Pipeline Badges --- */
+        .pipeline-badges {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .pipe-badge {
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: #222;
+            color: #555;
+            border: 1px solid #333;
+            transition: all 0.3s;
+        }
+        .pipe-badge.active-idle      { background: #222; color: var(--muted); border-color: var(--muted); }
+        .pipe-badge.active-generating { background: rgba(255, 171, 64, 0.15); color: var(--orange); border-color: var(--orange); }
+        .pipe-badge.active-downloading { background: rgba(79, 195, 247, 0.15); color: var(--blue); border-color: var(--blue); }
+        .pipe-badge.active-decoding  { background: rgba(179, 136, 255, 0.15); color: var(--purple); border-color: var(--purple); }
+        .pipe-badge.active-ready     { background: rgba(29, 185, 84, 0.15); color: var(--accent); border-color: var(--accent); }
+        .pipe-badge.active-playing   { background: rgba(29, 185, 84, 0.3); color: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 0 8px rgba(29, 185, 84, 0.3); }
+        .pipe-badge.active-error     { background: rgba(255, 68, 68, 0.15); color: var(--danger); border-color: var(--danger); }
+
+        /* --- Visualizer Canvas --- */
+        .visualizer-wrap {
+            background: #0a0a0a;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        #visualizer {
+            width: 100%;
+            height: 300px;
+            display: block;
+        }
+
+        /* --- Waveform Timeline Bar --- */
+        .waveform-section {
+            flex-shrink: 0;
+        }
+        .waveform-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+        .live-badge {
+            font-size: 0.65rem;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            user-select: none;
+        }
+        .live-badge.live {
+            background: var(--danger);
+            color: white;
+            animation: live-pulse 1.5s ease-in-out infinite;
+        }
+        .live-badge.behind {
+            background: #444;
+            color: #999;
+            animation: none;
+        }
+        @keyframes live-pulse {
+            0%, 100% { box-shadow: 0 0 4px rgba(255, 68, 68, 0.4); }
+            50% { box-shadow: 0 0 12px rgba(255, 68, 68, 0.7); }
+        }
+        .waveform-time {
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--accent);
+        }
+        .waveform-container {
+            position: relative;
+            background: #0a0a0a;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        #waveformCanvas {
+            width: 100%;
+            height: 80px;
+            display: block;
+        }
+        .waveform-tooltip {
+            position: absolute;
+            top: -32px;
+            left: 0;
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 0.7rem;
+            color: var(--text);
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            z-index: 5;
+        }
+        .waveform-tooltip.visible { opacity: 1; }
+
+        /* --- LoRA Controls --- */
+        .lora-section {
+            border-top: 1px solid var(--border);
+            padding-top: 12px;
+            margin-top: 8px;
+        }
+        .lora-section h4 {
+            font-size: 0.75rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin: 0 0 8px;
+        }
+        .lora-status {
+            font-size: 0.7rem;
+            color: var(--muted);
+            padding: 4px 0;
+        }
+        .lora-status.active { color: var(--accent); }
+        .lora-btn-row {
+            display: flex;
+            gap: 6px;
+        }
+        .lora-btn-row button {
+            flex: 1;
+            padding: 4px 8px;
+            font-size: 0.7rem;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+        }
+        .lora-btn-row button:hover { border-color: var(--accent); }
+        .lora-btn-row button:disabled { opacity: 0.4; cursor: default; }
+
+        /* --- Log Console --- */
+        .log-console {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            color: #ccc;
+            height: 140px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            flex-shrink: 0;
+        }
+        .log-info    { color: #888; }
+        .log-success { color: var(--accent); }
+        .log-error   { color: var(--danger); }
+        .log-warn    { color: var(--gold); }
+        .log-gen     { color: var(--orange); }
+        .log-play    { color: var(--blue); }
+
+        /* ============================================================
+           Footer
+           ============================================================ */
+        footer {
+            background: var(--card-bg);
+            border-top: 1px solid var(--border);
+            padding: 6px 20px;
+            font-size: 0.7rem;
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-shrink: 0;
+        }
+        footer .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 4px;
+        }
+        .dot-green  { background: var(--accent); }
+        .dot-yellow { background: var(--gold); }
+        .dot-red    { background: var(--danger); }
+        .dot-gray   { background: #555; }
+
+        /* ============================================================
+           Responsive (narrow screens)
+           ============================================================ */
+        @media (max-width: 900px) {
+            .main-container {
+                grid-template-columns: 1fr;
+            }
+            .sidebar {
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+                max-height: 40vh;
+            }
+            header { flex-wrap: wrap; }
+            .header-controls { flex-wrap: wrap; }
+            .header-controls input[type="url"] { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ================================================================
+     HEADER
+     ================================================================ -->
+<header>
+    <h1>ACE-Step DJ <span class="badge">LIVE</span></h1>
+    <div class="header-controls">
+        <label for="apiBase">API</label>
+        <input type="url" id="apiBase" value="http://127.0.0.1:8001" placeholder="http://127.0.0.1:8001">
+
+        <div class="volume-group">
+            <label for="masterVolume">Vol</label>
+            <input type="range" id="masterVolume" min="0" max="100" value="80">
+            <span class="volume-val" id="volumeVal">80%</span>
+        </div>
+
+        <button class="btn btn-play" id="btnPlay">Play</button>
+        <button class="btn btn-stop" id="btnStop" disabled>Stop</button>
+    </div>
+</header>
+
+<!-- ================================================================
+     MAIN LAYOUT
+     ================================================================ -->
+<div class="main-container">
+
+    <!-- ============================================================
+         SIDEBAR — generation parameters
+         ============================================================ -->
+    <aside class="sidebar">
+        <div class="control-group">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt" rows="4" placeholder="e.g. lo-fi chill hop, mellow piano, vinyl crackle, rainy day vibes"></textarea>
+        </div>
+
+        <div class="control-group">
+            <label for="negativePrompt">Negative Prompt</label>
+            <textarea id="negativePrompt" rows="2" placeholder="e.g. poor quality, noise, vocals"></textarea>
+        </div>
+
+        <div class="control-group" id="lyricsGroup">
+            <label for="lyrics">Lyrics</label>
+            <textarea id="lyrics" rows="6" placeholder="[Verse 1]&#10;Walking through the rain...&#10;&#10;[Chorus]&#10;Let it all go..."></textarea>
+        </div>
+
+        <div class="control-group">
+            <label>Segment Duration (s)</label>
+            <div class="range-row">
+                <input type="range" id="segDuration" min="15" max="120" value="30">
+                <span class="range-val" id="segDurationVal">30</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Context Prefill (s)</label>
+            <div class="range-row">
+                <input type="range" id="contextDuration" min="2" max="30" step="1" value="3">
+                <span class="range-val" id="contextDurationVal">3</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>End Guard (s) — extra tail discarded to prevent song endings</label>
+            <div class="range-row">
+                <input type="range" id="endGuard" min="0" max="30" step="1" value="10">
+                <span class="range-val" id="endGuardVal">10</span>
+            </div>
+        </div>
+
+        <div class="row-2">
+            <div class="control-group">
+                <label for="bpm">BPM (optional)</label>
+                <input type="number" id="bpm" placeholder="120" min="40" max="240">
+            </div>
+            <div class="control-group">
+                <label for="keyScale">Key</label>
+                <select id="keyScale">
+                    <option value="">Auto</option>
+                    <option value="C Major">C Major</option>
+                    <option value="C Minor">C Minor</option>
+                    <option value="D Major">D Major</option>
+                    <option value="D Minor">D Minor</option>
+                    <option value="E Major">E Major</option>
+                    <option value="E Minor">E Minor</option>
+                    <option value="F Major">F Major</option>
+                    <option value="F Minor">F Minor</option>
+                    <option value="G Major">G Major</option>
+                    <option value="G Minor">G Minor</option>
+                    <option value="A Major">A Major</option>
+                    <option value="A Minor">A Minor</option>
+                    <option value="B Major">B Major</option>
+                    <option value="B Minor">B Minor</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="row-2">
+            <div class="control-group">
+                <label for="vocalLanguage">Language</label>
+                <select id="vocalLanguage">
+                    <option value="en">English</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="unknown">Unknown</option>
+                </select>
+            </div>
+            <div class="control-group" style="display:flex; align-items:flex-end;">
+                <div class="checkbox-group" style="margin-bottom:8px;">
+                    <input type="checkbox" id="instrumental">
+                    <label for="instrumental">Instrumental</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Inference Steps</label>
+            <div class="range-row">
+                <input type="range" id="infSteps" min="1" max="100" value="8">
+                <span class="range-val" id="infStepsVal">8</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>CFG Scale (Prompt Influence)</label>
+            <div class="range-row">
+                <input type="range" id="cfgScale" min="1" max="15" step="0.5" value="7">
+                <span class="range-val" id="cfgScaleVal">7.0</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Audio Influence (Repaint Context)</label>
+            <div class="range-row">
+                <input type="range" id="audioInfluence" min="0" max="1" step="0.05" value="1">
+                <span class="range-val" id="audioInfluenceVal">1.0</span>
+            </div>
+        </div>
+
+        <div class="checkbox-group">
+            <input type="checkbox" id="thinking">
+            <label for="thinking">Enable Thinking</label>
+        </div>
+
+        <!-- LoRA Controls -->
+        <div class="lora-section">
+            <h4>LoRA Adapter</h4>
+            <div class="ctrl-group">
+                <select id="loraSelect" style="width:100%;box-sizing:border-box;padding:6px 8px;font-size:0.75rem;background:var(--input-bg);border:1px solid var(--border);border-radius:4px;color:var(--text);outline:none;margin-bottom:6px;">
+                    <option value="">-- Select a LoRA --</option>
+                    <option value="loras/acestep15_drumnbass_lora">Drum & Bass (v1.5)</option>
+                    <option value="loras/drumnbass_v3">Drum & Bass (v3)</option>
+                    <option value="custom">Custom Path/URL...</option>
+                </select>
+                <input type="text" id="loraPath" placeholder="/path/to/adapter or HF repo" style="display:none;width:100%;box-sizing:border-box;padding:6px 8px;font-size:0.75rem;background:var(--input-bg);border:1px solid var(--border);border-radius:4px;color:var(--text);outline:none;">
+            </div>
+            <div class="lora-btn-row" style="margin-top:6px;">
+                <button id="loraLoad">Load</button>
+                <button id="loraUnload" disabled>Unload</button>
+                <button id="loraToggle" disabled>Disable</button>
+            </div>
+            <div class="ctrl-group" style="margin-top:8px;">
+                <div class="ctrl-label">LoRA Scale</div>
+                <div class="slider-group">
+                    <input type="range" id="loraScale" min="0" max="1" step="0.05" value="1">
+                    <span id="loraScaleVal">1.0</span>
+                </div>
+            </div>
+            <div class="lora-status" id="loraStatus">No adapter loaded</div>
+        </div>
+    </aside>
+
+    <!-- ============================================================
+         CONTENT AREA
+         ============================================================ -->
+    <main class="content-area">
+
+        <!-- Now Playing + Pipeline Badges -->
+        <div style="display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;">
+            <div class="now-playing idle" id="nowPlaying" style="flex: 1; min-width: 280px;">
+                <div class="np-icon" id="npIcon">&#9835;</div>
+                <div class="np-info">
+                    <div class="np-label">Now Playing</div>
+                    <div class="np-title" id="npTitle">--</div>
+                    <div class="np-time" id="npTime">0:00 / 0:00</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.65rem; color: var(--muted); text-transform: uppercase;">Segment</div>
+                    <div id="npSegNum" style="font-size: 1.6rem; font-weight: 800; color: var(--accent);">--</div>
+                </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; justify-content: center; gap: 6px;">
+                <div style="font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Pipeline</div>
+                <div class="pipeline-badges" id="pipelineBadges">
+                    <span class="pipe-badge active-idle" data-stage="idle">Idle</span>
+                    <span class="pipe-badge" data-stage="generating">Generating</span>
+                    <span class="pipe-badge" data-stage="downloading">Downloading</span>
+                    <span class="pipe-badge" data-stage="decoding">Decoding</span>
+                    <span class="pipe-badge" data-stage="ready">Ready</span>
+                    <span class="pipe-badge" data-stage="playing">Playing</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Visualizer -->
+        <div class="visualizer-wrap">
+            <canvas id="visualizer"></canvas>
+        </div>
+
+        <!-- Waveform Timeline Bar -->
+        <div class="waveform-section">
+            <div class="waveform-header">
+                <span class="live-badge live" id="liveBadge">LIVE</span>
+                <span class="waveform-time" id="waveformTime">0:00</span>
+            </div>
+            <div class="waveform-container" id="waveformContainer">
+                <canvas id="waveformCanvas"></canvas>
+                <div class="waveform-tooltip" id="waveformTooltip"></div>
+            </div>
+        </div>
+
+        <!-- Log Console -->
+        <div class="log-console" id="logConsole">Welcome to ACE-Step DJ. Configure your prompt and hit Play to start continuous generation.</div>
+    </main>
+</div>
+
+<!-- ================================================================
+     FOOTER
+     ================================================================ -->
+<footer>
+    <span><span class="status-dot dot-gray" id="ctxDot"></span> AudioContext: <span id="ctxState">suspended</span></span>
+    <span>Segments: <span id="totalSegments">0</span></span>
+    <span>Buffer: <span id="bufferStatus">empty</span></span>
+    <span>Ref: <span id="refStatus">none</span></span>
+</footer>
+
+<!-- ================================================================
+     JAVASCRIPT — DJEngine + UI wiring
+     ================================================================ -->
+<script>
+(function () {
+    'use strict';
+
+    // ================================================================
+    // DOM References
+    // ================================================================
+    const $ = (id) => document.getElementById(id);
+
+    const dom = {
+        apiBase:        $('apiBase'),
+        masterVolume:   $('masterVolume'),
+        volumeVal:      $('volumeVal'),
+        btnPlay:        $('btnPlay'),
+        btnStop:        $('btnStop'),
+        prompt:         $('prompt'),
+        negativePrompt: $('negativePrompt'),
+        lyricsGroup:    $('lyricsGroup'),
+        lyrics:         $('lyrics'),
+        instrumental:   $('instrumental'),
+        segDuration:    $('segDuration'),
+        segDurationVal: $('segDurationVal'),
+        contextDuration:  $('contextDuration'),
+        contextDurationVal: $('contextDurationVal'),
+        endGuard:         $('endGuard'),
+        endGuardVal:      $('endGuardVal'),
+        audioInfluence:   $('audioInfluence'),
+        audioInfluenceVal:$('audioInfluenceVal'),
+        bpm:            $('bpm'),
+        keyScale:       $('keyScale'),
+        vocalLanguage:  $('vocalLanguage'),
+        infSteps:       $('infSteps'),
+        infStepsVal:    $('infStepsVal'),
+        cfgScale:       $('cfgScale'),
+        cfgScaleVal:    $('cfgScaleVal'),
+        thinking:       $('thinking'),
+        nowPlaying:     $('nowPlaying'),
+        npIcon:         $('npIcon'),
+        npTitle:        $('npTitle'),
+        npTime:         $('npTime'),
+        npSegNum:       $('npSegNum'),
+        pipelineBadges: $('pipelineBadges'),
+        visualizer:     $('visualizer'),
+        waveformCanvas:    $('waveformCanvas'),
+        waveformContainer: $('waveformContainer'),
+        waveformTooltip:   $('waveformTooltip'),
+        liveBadge:         $('liveBadge'),
+        waveformTime:      $('waveformTime'),
+        logConsole:     $('logConsole'),
+        ctxDot:         $('ctxDot'),
+        ctxState:       $('ctxState'),
+        totalSegments:  $('totalSegments'),
+        bufferStatus:   $('bufferStatus'),
+        refStatus:      $('refStatus'),
+        loraSelect:     $('loraSelect'),
+        loraPath:       $('loraPath'),
+        loraLoad:       $('loraLoad'),
+        loraUnload:     $('loraUnload'),
+        loraToggle:     $('loraToggle'),
+        loraScale:      $('loraScale'),
+        loraScaleVal:   $('loraScaleVal'),
+        loraStatus:     $('loraStatus'),
+    };
+
+    // ================================================================
+    // Slider wiring — keep display values in sync
+    // ================================================================
+    function wireSlider(slider, display, formatter) {
+        const update = () => { display.textContent = formatter(slider.value); };
+        slider.addEventListener('input', update);
+        update();
+    }
+    wireSlider(dom.segDuration,   dom.segDurationVal,   v => v);
+    wireSlider(dom.contextDuration, dom.contextDurationVal, v => v);
+    wireSlider(dom.endGuard,     dom.endGuardVal,      v => v);
+    wireSlider(dom.audioInfluence, dom.audioInfluenceVal, v => parseFloat(v).toFixed(2));
+    wireSlider(dom.infSteps,      dom.infStepsVal,      v => v);
+    wireSlider(dom.cfgScale,      dom.cfgScaleVal,      v => parseFloat(v).toFixed(1));
+    wireSlider(dom.masterVolume,  dom.volumeVal,        v => v + '%');
+
+    // ================================================================
+    // Logging
+    // ================================================================
+    function log(msg, cls = 'log-info') {
+        const line = document.createElement('div');
+        line.className = cls;
+        const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+        line.textContent = `[${ts}] ${msg}`;
+        dom.logConsole.appendChild(line);
+        // Keep log from growing unbounded — trim to last 500 lines
+        while (dom.logConsole.childElementCount > 500) {
+            dom.logConsole.removeChild(dom.logConsole.firstElementChild);
+        }
+        dom.logConsole.scrollTop = dom.logConsole.scrollHeight;
+    }
+
+    // ================================================================
+    // Pipeline Badge Management
+    // ================================================================
+    function setPipelineStage(stage) {
+        const badges = dom.pipelineBadges.querySelectorAll('.pipe-badge');
+        badges.forEach(b => {
+            // Strip all active-* classes
+            b.className = 'pipe-badge';
+            if (b.dataset.stage === stage) {
+                b.classList.add('active-' + stage);
+            }
+        });
+    }
+
+    // ================================================================
+    // Helpers
+    // ================================================================
+    function getApiBase() {
+        return dom.apiBase.value.trim().replace(/\/+$/, '');
+    }
+
+    function fmtTime(sec) {
+        if (!isFinite(sec) || sec < 0) return '0:00';
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    /** Read current UI parameters into an object. */
+    function readParams() {
+        const isInstrumental = dom.instrumental.checked;
+        return {
+            prompt:          dom.prompt.value,
+            negative_prompt: dom.negativePrompt.value,
+            lyrics:          isInstrumental ? '[Instrumental]' : dom.lyrics.value,
+            audio_duration:  parseInt(dom.segDuration.value, 10),
+            task_type:       'text2music',
+            inference_steps: parseInt(dom.infSteps.value, 10),
+            guidance_scale:  parseFloat(dom.cfgScale.value),
+            thinking:        dom.thinking.checked,
+            batch_size:      1,
+            audio_format:    'mp3',
+            vocal_language:  dom.vocalLanguage.value,
+            bpm:             dom.bpm.value ? parseInt(dom.bpm.value, 10) : undefined,
+            key_scale:       dom.keyScale.value || undefined,
+        };
+    }
+
+    // ================================================================
+    // DJEngine — core continuous-generation + playback engine
+    // ================================================================
+    class DJEngine {
+        constructor() {
+            /** @type {AudioContext|null} */
+            this.audioCtx = null;
+            /** @type {GainNode|null} */
+            this.masterGain = null;
+            /** @type {AnalyserNode|null} */
+            this.analyser = null;
+
+            /**
+             * Each segment:
+             * { index, prompt, lyrics, fullBuffer, audioBuffer, metas,
+             *   source, gainNode, startTime, endTime }
+             */
+            this.segments = [];
+
+            /** Index of the segment currently playing (or about to play). */
+            this.currentIndex = -1;
+
+            /** True while the engine is actively running its loop. */
+            this.running = false;
+
+            /** True when a segment generation is in progress (prevents double-fire). */
+            this.generating = false;
+
+            /** The next segment we have decoded and ready to schedule. */
+            this.nextReady = null;
+
+            /**
+             * AudioBuffer of the last segment's playable region (context + playback,
+             * excluding end guard). Used to extract the tail as context prefill.
+             */
+            this.lastPlayableBuffer = null;
+
+            /** ID for the lookahead scheduler interval. */
+            this.schedulerInterval = null;
+
+            /** ID for the Now Playing timer updater. */
+            this.npInterval = null;
+
+            /** Visualizer animation frame id. */
+            this.visAFId = null;
+
+            /** Canvas 2D context for the visualizer. */
+            this.visCtx = dom.visualizer.getContext('2d');
+
+            /** Total segments generated (monotonic counter). */
+            this.segCounter = 0;
+
+            /** Has the user triggered buffer underrun pause? */
+            this.paused = false;
+
+            /** Waveform peaks cache: segIndex → Float32Array (100 peaks/sec) */
+            this.waveformPeaks = new Map();
+
+            /** Canvas 2D context for the waveform bar */
+            this.waveformCtx = null;
+
+            /** Whether playback is at the live edge (latest segment) */
+            this.isAtLiveEdge = true;
+
+            /** Segment currently being generated (index + expected duration) */
+            this.generatingPlaceholder = null;
+
+            /** Waveform animation frame id */
+            this.waveformAFId = null;
+
+            /** Cached playback position for the current frame */
+            this._cachedPlayPos = 0;
+
+            /** Pre-allocated frequency data buffer (set when analyser is created) */
+            this._freqData = null;
+        }
+
+        // ============================================================
+        // Lifecycle
+        // ============================================================
+
+        /**
+         * Start continuous DJ playback.
+         * Creates AudioContext on first call (browser autoplay policy).
+         */
+        async start() {
+            if (this.running) return;
+
+            const params = readParams();
+            if (!params.prompt.trim()) {
+                log('Prompt is empty — please enter a music description.', 'log-warn');
+                return;
+            }
+
+            this.running = true;
+            this.paused = false;
+            dom.btnPlay.disabled = true;
+            dom.btnStop.disabled = false;
+            log('DJ engine starting...', 'log-success');
+
+            // Create AudioContext on first user gesture
+            if (!this.audioCtx) {
+                this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                this.masterGain = this.audioCtx.createGain();
+                this.analyser = this.audioCtx.createAnalyser();
+                this.analyser.fftSize = 256;
+                this.masterGain.connect(this.analyser);
+                this.analyser.connect(this.audioCtx.destination);
+                this._applyVolume();
+                log('AudioContext created (' + this.audioCtx.sampleRate + ' Hz)', 'log-info');
+            }
+            if (this.audioCtx.state === 'suspended') {
+                await this.audioCtx.resume();
+            }
+            this._updateCtxFooter();
+
+            // Start visualizer
+            this._startVisualizer();
+
+            // Start waveform bar
+            this._initWaveform();
+
+            // Start lookahead scheduler
+            this._startScheduler();
+
+            // Start Now Playing updater
+            this._startNowPlayingUpdater();
+
+            // Kick off the first segment generation (no reference)
+            this._generateNext();
+        }
+
+        /**
+         * Stop the DJ engine — lets current segment finish, cancels future work.
+         */
+        stop() {
+            if (!this.running) return;
+            this.running = false;
+            this.generating = false;
+
+            // Stop scheduler
+            if (this.schedulerInterval) {
+                clearInterval(this.schedulerInterval);
+                this.schedulerInterval = null;
+            }
+            // Stop Now Playing updater
+            if (this.npInterval) {
+                clearInterval(this.npInterval);
+                this.npInterval = null;
+            }
+            // Stop unified animation loop (waveform + visualizer)
+            if (this.waveformAFId) {
+                cancelAnimationFrame(this.waveformAFId);
+                this.waveformAFId = null;
+            }
+
+            // Let currently playing source finish naturally (it will stop on its own).
+            // Mark pipeline idle.
+            setPipelineStage('idle');
+            dom.nowPlaying.classList.add('idle');
+            dom.btnPlay.disabled = false;
+            dom.btnStop.disabled = true;
+            this._updateFooter();
+
+            log('DJ engine stopped.', 'log-warn');
+        }
+
+        // ============================================================
+        // Segment Generation
+        // ============================================================
+
+        /**
+         * Extract the tail of an AudioBuffer as a WAV blob for upload.
+         * @param {AudioBuffer} buffer  Source buffer.
+         * @param {number} tailSeconds  How many seconds from the end to extract.
+         * @returns {Blob}  WAV blob of the tail portion.
+         */
+        _extractTailAsWav(buffer, tailSeconds) {
+            const sr = buffer.sampleRate;
+            const channels = buffer.numberOfChannels;
+            const tailFrames = Math.min(Math.round(tailSeconds * sr), buffer.length);
+            const startFrame = buffer.length - tailFrames;
+
+            // Build interleaved PCM16
+            const samples = tailFrames * channels;
+            const pcmData = new Int16Array(samples);
+            for (let ch = 0; ch < channels; ch++) {
+                const chData = buffer.getChannelData(ch);
+                for (let i = 0; i < tailFrames; i++) {
+                    const s = Math.max(-1, Math.min(1, chData[startFrame + i]));
+                    pcmData[i * channels + ch] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                }
+            }
+
+            // WAV header
+            const wavSize = 44 + pcmData.byteLength;
+            const wavBuf = new ArrayBuffer(wavSize);
+            const view = new DataView(wavBuf);
+            const writeStr = (offset, str) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+            writeStr(0, 'RIFF');
+            view.setUint32(4, wavSize - 8, true);
+            writeStr(8, 'WAVE');
+            writeStr(12, 'fmt ');
+            view.setUint32(16, 16, true);       // chunk size
+            view.setUint16(20, 1, true);         // PCM
+            view.setUint16(22, channels, true);
+            view.setUint32(24, sr, true);
+            view.setUint32(28, sr * channels * 2, true); // byte rate
+            view.setUint16(32, channels * 2, true);      // block align
+            view.setUint16(34, 16, true);        // bits per sample
+            writeStr(36, 'data');
+            view.setUint32(40, pcmData.byteLength, true);
+            new Int16Array(wavBuf, 44).set(pcmData);
+
+            return new Blob([wavBuf], { type: 'audio/wav' });
+        }
+
+        /**
+         * Generate a new segment via the ACE-Step API.
+         *
+         * First segment: task_type=text2music (no context).
+         * Subsequent: task_type=repaint with tail of previous audio as
+         * ctx_audio prefill. The model outpaints beyond the context,
+         * producing seamless continuation without crossfade artifacts.
+         *
+         * @param {Blob|null} ctxBlob  WAV blob of context audio (tail of previous segment).
+         * @param {number} contextDur  Duration of the context audio in seconds.
+         * @returns {Promise<object>}  Segment data.
+         */
+        async _generateSegment(ctxBlob, contextDur) {
+            const params = readParams();
+            const segIndex = this.segCounter++;
+            const apiBase = getApiBase();
+            const isRepaint = ctxBlob !== null;
+            const endGuard = parseInt(dom.endGuard.value, 10);
+            const coverStrength = parseFloat(dom.audioInfluence.value);
+
+            // Total audio duration includes end guard buffer (discarded to prevent endings)
+            const genDur = params.audio_duration + endGuard;
+            const totalDur = isRepaint ? contextDur + genDur : genDur;
+
+            log(`[Seg #${segIndex}] ${isRepaint ? 'Repaint' : 'Text2Music'} (${isRepaint ? contextDur + 's ctx + ' : ''}${params.audio_duration}s play + ${endGuard}s guard = ${totalDur}s total, cover_strength=${coverStrength.toFixed(2)})`, 'log-gen');
+            setPipelineStage('generating');
+
+            // --- 1. Release task ---
+            let releaseRes;
+            if (isRepaint) {
+                // Repaint mode: upload context audio as ctx_audio
+                const fd = new FormData();
+                fd.append('prompt', params.prompt);
+                if (params.negative_prompt) fd.append('lm_negative_prompt', params.negative_prompt);
+                fd.append('lyrics', params.lyrics);
+                fd.append('audio_duration', totalDur);
+                fd.append('task_type', 'repaint');
+                fd.append('repainting_start', contextDur);
+                fd.append('repainting_end', totalDur);
+                fd.append('audio_cover_strength', coverStrength);
+                fd.append('inference_steps', params.inference_steps);
+                fd.append('guidance_scale', params.guidance_scale);
+                fd.append('thinking', params.thinking);
+                fd.append('batch_size', 1);
+                fd.append('audio_format', 'wav');
+                fd.append('vocal_language', params.vocal_language);
+                if (params.bpm) fd.append('bpm', params.bpm);
+                if (params.key_scale) fd.append('key_scale', params.key_scale);
+                fd.append('ctx_audio', ctxBlob, 'context.wav');
+                releaseRes = await fetch(`${apiBase}/release_task`, {
+                    method: 'POST',
+                    body: fd,
+                });
+            } else {
+                // First segment: text2music (with end guard for longer gen)
+                const body = {
+                    prompt:              params.prompt,
+                    lyrics:              params.lyrics,
+                    audio_duration:      totalDur,
+                    task_type:           'text2music',
+                    inference_steps:     params.inference_steps,
+                    guidance_scale:      params.guidance_scale,
+                    thinking:            params.thinking,
+                    batch_size:          1,
+                    audio_format:        'wav',
+                    vocal_language:      params.vocal_language,
+                };
+                if (params.negative_prompt) body.lm_negative_prompt = params.negative_prompt;
+                if (params.bpm) body.bpm = params.bpm;
+                if (params.key_scale) body.key_scale = params.key_scale;
+                releaseRes = await fetch(`${apiBase}/release_task`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+            }
+            const releaseData = await releaseRes.json();
+
+            if (releaseData.code !== 200 || !releaseData.data || !releaseData.data.task_id) {
+                throw new Error(releaseData.error || 'Failed to release task');
+            }
+
+            const taskId = releaseData.data.task_id;
+            log(`[Seg #${segIndex}] Task ${taskId.slice(0, 8)}... queued.`, 'log-info');
+
+            // --- 2. Poll for completion ---
+            const result = await this._pollTask(taskId, segIndex);
+
+            // --- 3. Parse result ---
+            let resultArray = result;
+            if (typeof resultArray === 'string') resultArray = JSON.parse(resultArray);
+            if (!Array.isArray(resultArray)) resultArray = [resultArray];
+
+            const item = resultArray[0];
+            const fileUrl = item.file || item.url;
+            const metas = item.metas || {};
+
+            // --- 4. Download audio ---
+            log(`[Seg #${segIndex}] Downloading audio...`, 'log-play');
+            setPipelineStage('downloading');
+
+            const audioUrl = fileUrl.startsWith('http') ? fileUrl : `${apiBase}${fileUrl}`;
+            const audioRes = await fetch(audioUrl);
+            if (!audioRes.ok) throw new Error(`Audio download failed: ${audioRes.status}`);
+            const arrayBuf = await audioRes.arrayBuffer();
+
+            // --- 5. Decode full output ---
+            log(`[Seg #${segIndex}] Decoding audio buffer...`, 'log-info');
+            setPipelineStage('decoding');
+
+            const fullBuffer = await this.audioCtx.decodeAudioData(arrayBuf);
+
+            // --- 6. Trim: remove context prefix + end guard tail ---
+            // Context prefix: kept as ground truth by diffusion mask (repaint only)
+            // End guard tail: discarded to prevent the model's natural song ending
+            const sr = fullBuffer.sampleRate;
+            const trimStart = isRepaint ? Math.round(contextDur * sr) : 0;
+            const trimEnd = endGuard > 0 ? Math.round(endGuard * sr) : 0;
+            const playFrames = fullBuffer.length - trimStart - trimEnd;
+
+            let playbackBuffer = fullBuffer;
+            if (playFrames > 0 && (trimStart > 0 || trimEnd > 0)) {
+                playbackBuffer = this.audioCtx.createBuffer(
+                    fullBuffer.numberOfChannels, playFrames, sr
+                );
+                for (let ch = 0; ch < fullBuffer.numberOfChannels; ch++) {
+                    const src = fullBuffer.getChannelData(ch);
+                    playbackBuffer.copyToChannel(src.subarray(trimStart, trimStart + playFrames), ch);
+                }
+                const parts = [];
+                if (trimStart > 0) parts.push(`${contextDur}s ctx`);
+                if (trimEnd > 0) parts.push(`${endGuard}s guard`);
+                log(`[Seg #${segIndex}] Trimmed ${parts.join(' + ')} → ${(playFrames / sr).toFixed(1)}s playback`, 'log-info');
+            }
+
+            // Also create a "playable" buffer: full minus end guard (but keeping context).
+            // This is what we extract the next context tail from.
+            let playableBuffer = fullBuffer;
+            if (trimEnd > 0) {
+                const playableFrames = fullBuffer.length - trimEnd;
+                if (playableFrames > 0) {
+                    playableBuffer = this.audioCtx.createBuffer(
+                        fullBuffer.numberOfChannels, playableFrames, sr
+                    );
+                    for (let ch = 0; ch < fullBuffer.numberOfChannels; ch++) {
+                        playableBuffer.copyToChannel(
+                            fullBuffer.getChannelData(ch).subarray(0, playableFrames), ch
+                        );
+                    }
+                }
+            }
+
+            log(`[Seg #${segIndex}] Ready (${playbackBuffer.duration.toFixed(1)}s, BPM=${metas.bpm || '?'}, Key=${metas.keyscale || '?'})`, 'log-success');
+            setPipelineStage('ready');
+
+            const segment = {
+                index: segIndex,
+                prompt: params.prompt,
+                lyrics: params.lyrics,
+                playableBuffer,  // Full minus end guard (for extracting next context)
+                audioBuffer: playbackBuffer,  // Trimmed buffer for playback
+                metas,
+                source: null,
+                gainNode: null,
+                startTime: 0,
+                endTime: 0,
+            };
+
+            // Compute waveform peaks for the timeline bar
+            this.waveformPeaks.set(segIndex, this._computePeaks(playbackBuffer));
+            this.generatingPlaceholder = null;
+            this._updateFooter();
+
+            return segment;
+        }
+
+        /**
+         * Poll /query_result until the task completes or fails.
+         * @param {string} taskId
+         * @param {number} segIndex  For logging.
+         * @returns {Promise<string>}  The raw result field.
+         */
+        _pollTask(taskId, segIndex) {
+            const apiBase = getApiBase();
+
+            return new Promise((resolve, reject) => {
+                const startTime = Date.now();
+                const maxWait = 15 * 60 * 1000; // 15 minutes
+                const pollMs = 2000;
+
+                const tick = async () => {
+                    if (!this.running) {
+                        reject(new Error('Engine stopped'));
+                        return;
+                    }
+                    if (Date.now() - startTime > maxWait) {
+                        reject(new Error('Generation timed out (15 min)'));
+                        return;
+                    }
+                    try {
+                        const res = await fetch(`${apiBase}/query_result`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ task_id_list: [taskId] }),
+                        });
+                        const data = await res.json();
+
+                        if (data.code === 200 && data.data && data.data.length > 0) {
+                            const task = data.data[0];
+
+                            if (task.progress_text) {
+                                log(`[Seg #${segIndex}] ${task.progress_text}`, 'log-info');
+                            }
+
+                            if (task.status === 1) {
+                                // Success
+                                resolve(task.result);
+                                return;
+                            } else if (task.status === 2) {
+                                reject(new Error('Task failed on server'));
+                                return;
+                            }
+                            // status 0 → still running, keep polling
+                        }
+                    } catch (e) {
+                        log(`[Seg #${segIndex}] Poll error: ${e.message}`, 'log-error');
+                    }
+
+                    setTimeout(tick, pollMs);
+                };
+
+                setTimeout(tick, pollMs);
+            });
+        }
+
+        // ============================================================
+        // Scheduling + Cross-fade
+        // ============================================================
+
+        /**
+         * Schedule a segment for gapless playback at a specific AudioContext time.
+         * Since repaint provides model-level continuity, no crossfade envelopes
+         * are needed — segments play back-to-back seamlessly.
+         *
+         * @param {object} segment
+         * @param {number} startTime  AudioContext time to begin playback.
+         */
+        _scheduleSegment(segment, startTime) {
+            const source = this.audioCtx.createBufferSource();
+            source.buffer = segment.audioBuffer;
+
+            const gainNode = this.audioCtx.createGain();
+            source.connect(gainNode);
+            gainNode.connect(this.masterGain);
+
+            const dur = segment.audioBuffer.duration;
+            const endTime = startTime + dur;
+
+            // Constant gain — no crossfade needed
+            gainNode.gain.setValueAtTime(1, startTime);
+
+            source.start(startTime);
+
+            segment.source = source;
+            segment.gainNode = gainNode;
+            segment.startTime = startTime;
+            segment.endTime = endTime;
+
+            // When segment finishes, clean up
+            source.onended = () => {
+                this._cleanupOldSegments();
+            };
+
+            this.segments.push(segment);
+            this.currentIndex = this.segments.length - 1;
+
+            log(`[Seg #${segment.index}] Scheduled at t=${startTime.toFixed(2)} (dur=${dur.toFixed(1)}s)`, 'log-play');
+            setPipelineStage('playing');
+            this._updateNowPlaying(segment);
+            this.isAtLiveEdge = true;
+
+            return { startTime, endTime };
+        }
+
+        /**
+         * Skip playback to a specific segment by index, optionally starting
+         * at an offset within the segment (for mid-segment seeking).
+         * Stops all currently playing sources and reschedules from the
+         * target segment onward (including any subsequent buffered segments).
+         * @param {number} targetIndex  Segment index to skip to.
+         * @param {number} offset       Seconds into the target segment (default 0).
+         */
+        skipToSegment(targetIndex, offset = 0) {
+            if (!this.audioCtx || !this.running) return;
+
+            // Find the target in scheduled segments or in the next-ready buffer
+            let target = this.segments.find(s => s.index === targetIndex);
+            let fromNextReady = false;
+            if (!target && this.nextReady && this.nextReady.index === targetIndex) {
+                target = this.nextReady;
+                fromNextReady = true;
+            }
+            if (!target) {
+                log(`Segment #${targetIndex} still generating...`, 'log-warn');
+                return;
+            }
+            if (!target.audioBuffer) {
+                log(`Segment #${targetIndex} buffer was freed`, 'log-warn');
+                return;
+            }
+
+            // Clamp offset
+            const maxOff = target.audioBuffer.duration - 0.1;
+            offset = Math.max(0, Math.min(offset, maxOff));
+
+            log(`Skipping to segment #${targetIndex}${offset > 0 ? ` +${offset.toFixed(1)}s` : ''}`, 'log-info');
+
+            // 1. Stop all currently playing sources
+            for (const seg of this.segments) {
+                try {
+                    if (seg.source) { seg.source.onended = null; seg.source.stop(); seg.source.disconnect(); }
+                    if (seg.gainNode) { seg.gainNode.disconnect(); }
+                } catch (_e) { /* already stopped */ }
+                seg.source = null;
+                seg.gainNode = null;
+            }
+
+            // If target was in nextReady, move it into segments
+            if (fromNextReady) {
+                this.segments.push(target);
+                this.nextReady = null;
+            }
+
+            // 2. Reschedule from the target segment onward
+            const targetPos = this.segments.indexOf(target);
+            let t = this.audioCtx.currentTime + 0.05;
+
+            for (let i = targetPos; i < this.segments.length; i++) {
+                const seg = this.segments[i];
+                if (!seg.audioBuffer) break;  // no buffer = can't play further
+
+                const segOffset = (i === targetPos) ? offset : 0;
+                const dur = seg.audioBuffer.duration - segOffset;
+
+                const source = this.audioCtx.createBufferSource();
+                source.buffer = seg.audioBuffer;
+                const gainNode = this.audioCtx.createGain();
+                source.connect(gainNode);
+                gainNode.connect(this.masterGain);
+                gainNode.gain.setValueAtTime(1, t);
+                source.start(t, segOffset);
+
+                seg.source = source;
+                seg.gainNode = gainNode;
+                seg.startTime = t - segOffset;  // virtual start so elapsed calc works
+                seg.endTime = t + dur;
+                t = seg.endTime;
+
+                source.onended = () => this._cleanupOldSegments();
+            }
+
+            this.currentIndex = targetPos;
+            this._updateNowPlaying(target);
+            this.paused = false;
+            this.isAtLiveEdge = false;  // User seeked — not at live edge
+            setPipelineStage('playing');
+
+            // Kick off generation of the next segment after skip
+            if (!this.generating && !this.nextReady) {
+                this._generateNext();
+            }
+        }
+
+        /**
+         * The lookahead scheduler — runs every 200ms.
+         * Checks if the currently playing segment is approaching its end,
+         * and if so, schedules the next segment gaplessly at the end time.
+         * Also kicks off generation of the next segment if not already doing so.
+         */
+        _lookahead() {
+            if (!this.running || !this.audioCtx) return;
+
+            const now = this.audioCtx.currentTime;
+            const lookaheadWindow = 2.0; // schedule 2s before end
+
+            // Find the last scheduled segment
+            const lastSeg = this.segments.length > 0 ? this.segments[this.segments.length - 1] : null;
+
+            if (lastSeg) {
+                const timeUntilEnd = lastSeg.endTime - now;
+
+                // If next segment is ready and we are within the lookahead window, schedule it
+                if (this.nextReady && timeUntilEnd <= lookaheadWindow) {
+                    const nextSeg = this.nextReady;
+                    this.nextReady = null;
+
+                    // Gapless: next starts exactly when current ends
+                    this._scheduleSegment(nextSeg, lastSeg.endTime);
+                }
+
+                // Buffer underrun detection: current time has passed the end of
+                // all scheduled segments and there is no next ready
+                if (now >= lastSeg.endTime && !this.nextReady && this.running) {
+                    if (!this.paused) {
+                        this.paused = true;
+                        log('Buffer underrun — waiting for next segment...', 'log-warn');
+                        dom.bufferStatus.textContent = 'UNDERRUN';
+                        setPipelineStage('generating');
+                    }
+                }
+            }
+
+            // Always ensure generation is running — keeps the pipeline fed.
+            // _generateNext guards against double-fire with this.generating.
+            if (!this.generating && !this.nextReady) {
+                this._generateNext();
+            }
+        }
+
+        _startScheduler() {
+            if (this.schedulerInterval) clearInterval(this.schedulerInterval);
+            this.schedulerInterval = setInterval(() => this._lookahead(), 200);
+        }
+
+        // ============================================================
+        // Generation Pipeline
+        // ============================================================
+
+        /**
+         * Kick off generation of the next segment.
+         * First segment: text2music (no context).
+         * Subsequent: repaint with tail of previous segment as audio context prefill.
+         * Guards against double-fire.
+         */
+        async _generateNext() {
+            if (!this.running || this.generating) return;
+            this.generating = true;
+
+            const requestedContextDur = parseInt(dom.contextDuration.value, 10);
+            let contextDur = requestedContextDur;
+            let ctxBlob = null;
+
+            // If we have a previous playable buffer, extract its tail as context
+            // (excludes end guard so we don't use the discarded ending as context)
+            if (this.lastPlayableBuffer) {
+                contextDur = Math.min(requestedContextDur, this.lastPlayableBuffer.duration);
+                ctxBlob = this._extractTailAsWav(this.lastPlayableBuffer, contextDur);
+                dom.refStatus.textContent = `ctx ${contextDur.toFixed(1)}s (${(ctxBlob.size/1024).toFixed(0)}KB)`;
+            } else {
+                contextDur = 0;
+                dom.refStatus.textContent = 'none (first segment)';
+            }
+
+            // Show generating placeholder in waveform
+            const pendingIndex = this.segCounter;
+            const expectedDur = parseInt(dom.segDuration.value, 10);
+            this.generatingPlaceholder = { index: pendingIndex, duration: expectedDur };
+
+            try {
+                const segment = await this._generateSegment(ctxBlob, contextDur);
+                this.lastPlayableBuffer = segment.playableBuffer;
+                this.generating = false;
+
+                if (!this.running) return;  // Engine stopped while generating
+
+                // If this is the very first segment, schedule it immediately
+                if (this.segments.length === 0) {
+                    const playAt = this.audioCtx.currentTime + 0.1;
+                    this._scheduleSegment(segment, playAt);
+
+                    // Begin generating the second segment right away
+                    this._generateNext();
+                } else if (this.paused) {
+                    // Resume from buffer underrun: schedule immediately
+                    this.paused = false;
+                    const playAt = this.audioCtx.currentTime + 0.1;
+                    this._scheduleSegment(segment, playAt);
+                    log('Playback resumed after underrun.', 'log-success');
+                    this._generateNext();
+                } else {
+                    // Stash for the scheduler to pick up
+                    this.nextReady = segment;
+                    dom.bufferStatus.textContent = 'buffered';
+                }
+            } catch (err) {
+                this.generating = false;
+
+                // Clear the generating placeholder
+                this.generatingPlaceholder = null;
+
+                if (!this.running) return;
+
+                log(`Generation error: ${err.message}`, 'log-error');
+                setPipelineStage('error');
+
+                // Retry after a short delay
+                log('Retrying in 3 seconds...', 'log-warn');
+                setTimeout(() => {
+                    if (this.running) this._generateNext();
+                }, 3000);
+            }
+        }
+
+        // ============================================================
+        // Memory Management
+        // ============================================================
+
+        /**
+         * Release AudioBuffer references for segments that have finished playing,
+         * keeping the last 20 segments' audio data for skip-back support.
+         * Older segments stay in the array (for timeline display) but lose their buffers.
+         */
+        _cleanupOldSegments() {
+            const keep = 20;
+            if (this.segments.length <= keep) return;
+
+            const cutoff = this.segments.length - keep;
+            for (let i = 0; i < cutoff; i++) {
+                const old = this.segments[i];
+                if (!old.audioBuffer) continue;  // already cleaned
+                // Disconnect nodes
+                try {
+                    if (old.source) { old.source.disconnect(); }
+                    if (old.gainNode) { old.gainNode.disconnect(); }
+                } catch (_e) { /* already disconnected */ }
+                old.audioBuffer = null;
+                old.playableBuffer = null;
+                old.source = null;
+                old.gainNode = null;
+                // Peaks are kept in waveformPeaks map for visual display
+            }
+        }
+
+        // ============================================================
+        // Now Playing Updater
+        // ============================================================
+
+        _startNowPlayingUpdater() {
+            if (this.npInterval) clearInterval(this.npInterval);
+            this.npInterval = setInterval(() => this._tickNowPlaying(), 250);
+        }
+
+        _tickNowPlaying() {
+            if (!this.audioCtx || this.segments.length === 0) return;
+            const now = this.audioCtx.currentTime;
+
+            // Find which segment is currently playing
+            let playing = null;
+            for (let i = this.segments.length - 1; i >= 0; i--) {
+                const s = this.segments[i];
+                if (now >= s.startTime && now < s.endTime) {
+                    playing = s;
+                    break;
+                }
+            }
+
+            if (playing) {
+                const elapsed = now - playing.startTime;
+                const total = playing.audioBuffer ? playing.audioBuffer.duration : (playing.endTime - playing.startTime);
+                dom.npTime.textContent = `${fmtTime(elapsed)} / ${fmtTime(total)}`;
+                dom.npSegNum.textContent = '#' + playing.index;
+                dom.nowPlaying.classList.remove('idle');
+
+                // Update waveform time display (use frame-cached position)
+                dom.waveformTime.textContent = fmtTime(this._cachedPlayPos);
+
+                // Update LIVE badge state
+                this._updateLiveBadge();
+
+                // Update footer
+                dom.totalSegments.textContent = this.segCounter;
+                dom.bufferStatus.textContent = this.nextReady ? 'buffered' : (this.generating ? 'generating...' : 'empty');
+            }
+
+            this._updateCtxFooter();
+        }
+
+        _updateNowPlaying(segment) {
+            const display = segment.prompt.length > 60 ? segment.prompt.slice(0, 60) + '...' : segment.prompt;
+            dom.npTitle.textContent = display || '(no prompt)';
+            dom.npSegNum.textContent = '#' + segment.index;
+            dom.nowPlaying.classList.remove('idle');
+        }
+
+        _updateCtxFooter() {
+            if (this.audioCtx) {
+                dom.ctxState.textContent = this.audioCtx.state;
+                dom.ctxDot.className = 'status-dot ' + (this.audioCtx.state === 'running' ? 'dot-green' : 'dot-yellow');
+            }
+        }
+
+        _updateFooter() {
+            dom.totalSegments.textContent = this.segCounter;
+        }
+
+        // ============================================================
+        // Volume
+        // ============================================================
+
+        _applyVolume() {
+            if (this.masterGain) {
+                const vol = parseInt(dom.masterVolume.value, 10) / 100;
+                this.masterGain.gain.setValueAtTime(vol, this.audioCtx.currentTime);
+            }
+        }
+
+        // ============================================================
+        // Waveform Timeline Bar
+        // ============================================================
+
+        /**
+         * Compute waveform peaks from an AudioBuffer at 100 peaks/sec.
+         * Takes max(abs(samples)) across all channels per time bucket.
+         */
+        _computePeaks(buffer) {
+            const peaksPerSec = 100;
+            const sr = buffer.sampleRate;
+            const samplesPerPeak = Math.floor(sr / peaksPerSec);
+            const totalPeaks = Math.ceil(buffer.length / samplesPerPeak);
+            const peaks = new Float32Array(totalPeaks);
+
+            for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+                const data = buffer.getChannelData(ch);
+                for (let p = 0; p < totalPeaks; p++) {
+                    const start = p * samplesPerPeak;
+                    const end = Math.min(start + samplesPerPeak, data.length);
+                    let max = peaks[p];
+                    for (let i = start; i < end; i++) {
+                        const v = Math.abs(data[i]);
+                        if (v > max) max = v;
+                    }
+                    peaks[p] = max;
+                }
+            }
+            return peaks;
+        }
+
+        /** Initialize waveform canvas, context, and event listeners. */
+        _initWaveform() {
+            this.waveformCtx = dom.waveformCanvas.getContext('2d');
+            this._resizeWaveformCanvas();
+
+            // Resize on window resize
+            window.addEventListener('resize', () => this._resizeWaveformCanvas());
+
+            // Click to seek
+            dom.waveformContainer.addEventListener('click', (e) => this._onWaveformClick(e));
+
+            // Hover tooltip
+            dom.waveformContainer.addEventListener('mousemove', (e) => this._onWaveformHover(e));
+            dom.waveformContainer.addEventListener('mouseleave', () => {
+                dom.waveformTooltip.classList.remove('visible');
+            });
+
+            // LIVE badge click
+            dom.liveBadge.addEventListener('click', () => this._snapToLiveEdge());
+
+            // Start unified animation loop (waveform + visualizer)
+            this._animationLoop();
+        }
+
+        _resizeWaveformCanvas() {
+            const canvas = dom.waveformCanvas;
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = 80;
+        }
+
+        /**
+         * Single animation loop driving both waveform and visualizer canvases.
+         * Caches playPos once per frame to avoid redundant O(n) segment scans.
+         */
+        _animationLoop() {
+            if (!this.running) return;
+            this.waveformAFId = requestAnimationFrame(() => this._animationLoop());
+            this._cachedPlayPos = this._getAccumulatedPlayPos();
+            this._drawWaveform();
+            this._drawVisualizerFrame();
+        }
+
+        /**
+         * Get the current playback position in accumulated-duration space.
+         * This is always correct even after seeking, because it finds the
+         * currently playing segment via AudioContext timestamps, then sums
+         * durations of all prior segments + elapsed within the current one.
+         */
+        _getAccumulatedPlayPos() {
+            if (!this.audioCtx || this.segments.length === 0) return 0;
+            const now = this.audioCtx.currentTime;
+
+            // Find which segment is currently playing
+            let playingSeg = null;
+            let playingIdx = -1;
+            for (let i = this.segments.length - 1; i >= 0; i--) {
+                const s = this.segments[i];
+                if (s.startTime !== undefined && now >= s.startTime && now < s.endTime) {
+                    playingSeg = s;
+                    playingIdx = i;
+                    break;
+                }
+            }
+
+            if (!playingSeg) {
+                // Past all segments — return total duration
+                let total = 0;
+                for (const seg of this.segments) {
+                    total += seg.audioBuffer ? seg.audioBuffer.duration : (seg.endTime - seg.startTime);
+                }
+                return total;
+            }
+
+            // Sum durations of all segments before the playing one
+            let accumulated = 0;
+            for (let i = 0; i < playingIdx; i++) {
+                const seg = this.segments[i];
+                accumulated += seg.audioBuffer ? seg.audioBuffer.duration : (seg.endTime - seg.startTime);
+            }
+
+            // Add elapsed within the currently playing segment
+            const elapsed = now - playingSeg.startTime;
+            accumulated += Math.max(0, elapsed);
+
+            return accumulated;
+        }
+
+        /**
+         * Get the total duration of all scheduled + generating segments.
+         */
+        _getTotalStreamDuration() {
+            let total = 0;
+            for (const seg of this.segments) {
+                if (seg.audioBuffer) total += seg.audioBuffer.duration;
+            }
+            if (this.generatingPlaceholder) {
+                total += this.generatingPlaceholder.duration;
+            }
+            return total;
+        }
+
+        /**
+         * Draw the waveform timeline bar.
+         * Shows played audio, buffered audio, generating placeholder,
+         * segment boundaries, and playhead.
+         */
+        _drawWaveform() {
+            const canvas = dom.waveformCanvas;
+            const ctx = this.waveformCtx;
+            if (!ctx) return;
+            const W = canvas.width;
+            const H = canvas.height;
+            const peaksPerSec = 100;
+            const pixelsPerSec = W / 40;  // 40-second visible window
+            const playheadFrac = 0.7;     // playhead at 70% from left
+
+            // Clear
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, W, H);
+
+            if (this.segments.length === 0) return;
+
+            // Use frame-cached playback position (computed once in _animationLoop)
+            const playPos = this._cachedPlayPos;
+
+            // The time at the left edge of the visible window
+            const playheadX = W * playheadFrac;
+            const timeAtLeftEdge = playPos - (playheadFrac * 40);
+
+            // Build a flat list of segment ranges with their peaks
+            const segRanges = [];
+            let segTime = 0;
+            for (const seg of this.segments) {
+                const dur = seg.audioBuffer ? seg.audioBuffer.duration : (seg.endTime - seg.startTime);
+                segRanges.push({
+                    index: seg.index,
+                    start: segTime,
+                    end: segTime + dur,
+                    duration: dur,
+                    peaks: this.waveformPeaks.get(seg.index),
+                    prompt: seg.prompt,
+                    hasBuffer: !!seg.audioBuffer,
+                });
+                segTime += dur;
+            }
+
+            // Add generating placeholder at the end
+            if (this.generatingPlaceholder) {
+                segRanges.push({
+                    index: this.generatingPlaceholder.index,
+                    start: segTime,
+                    end: segTime + this.generatingPlaceholder.duration,
+                    duration: this.generatingPlaceholder.duration,
+                    peaks: null,
+                    prompt: dom.prompt.value || '',
+                    generating: true,
+                });
+            }
+
+            const timeAtRightEdge = timeAtLeftEdge + 40;
+
+            // Draw each segment's waveform
+            for (const sr of segRanges) {
+                // Skip if entirely outside visible window
+                if (sr.end < timeAtLeftEdge || sr.start > timeAtRightEdge) continue;
+
+                const segLeftX = (sr.start - timeAtLeftEdge) * pixelsPerSec;
+                const segRightX = (sr.end - timeAtLeftEdge) * pixelsPerSec;
+
+                if (sr.generating) {
+                    // Draw pulsing purple placeholder for generating segment
+                    const pulse = 0.3 + 0.2 * Math.sin(Date.now() / 300);
+                    ctx.fillStyle = `rgba(179, 136, 255, ${pulse})`;
+                    const x0 = Math.max(0, segLeftX);
+                    const x1 = Math.min(W, segRightX);
+                    ctx.fillRect(x0, H * 0.2, x1 - x0, H * 0.6);
+                    continue;
+                }
+
+                if (!sr.peaks) continue;
+
+                // Draw waveform bars for this segment.
+                // Two-pass: played peaks (bright green), then buffered (dim green).
+                // Minimises fillStyle changes — major canvas perf win.
+                const peaks = sr.peaks;
+                const barW = Math.max(1, pixelsPerSec / peaksPerSec - 0.5);
+
+                // Compute visible peak index range to skip off-screen peaks
+                const visStart = Math.max(0, Math.floor((timeAtLeftEdge - sr.start) * peaksPerSec) - 1);
+                const visEnd = Math.min(peaks.length, Math.ceil((timeAtRightEdge - sr.start) * peaksPerSec) + 1);
+
+                // Peak index where playhead falls within this segment
+                const playPeakIdx = Math.floor((playPos - sr.start) * peaksPerSec);
+
+                // Pass 1: played peaks (bright green)
+                const playedEnd = Math.min(visEnd, playPeakIdx + 1);
+                if (playedEnd > visStart) {
+                    ctx.fillStyle = '#1DB954';
+                    for (let p = visStart; p < playedEnd; p++) {
+                        const x = (sr.start + p / peaksPerSec - timeAtLeftEdge) * pixelsPerSec;
+                        const barH = Math.max(1, peaks[p] * H * 0.85);
+                        ctx.fillRect(x, (H - barH) / 2, barW, barH);
+                    }
+                }
+
+                // Pass 2: buffered/unbuffered peaks (dim green)
+                const bufStart = Math.max(visStart, playPeakIdx + 1);
+                if (bufStart < visEnd) {
+                    ctx.fillStyle = sr.hasBuffer ? 'rgba(29, 185, 84, 0.35)' : 'rgba(29, 185, 84, 0.15)';
+                    for (let p = bufStart; p < visEnd; p++) {
+                        const x = (sr.start + p / peaksPerSec - timeAtLeftEdge) * pixelsPerSec;
+                        const barH = Math.max(1, peaks[p] * H * 0.85);
+                        ctx.fillRect(x, (H - barH) / 2, barW, barH);
+                    }
+                }
+
+                // Segment boundary: dotted line
+                if (sr.start > timeAtLeftEdge && segLeftX > 0 && segLeftX < W) {
+                    ctx.setLineDash([3, 3]);
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(segLeftX, 0);
+                    ctx.lineTo(segLeftX, H);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Segment label
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                    ctx.font = '9px sans-serif';
+                    ctx.fillText(`#${sr.index}`, segLeftX + 3, 11);
+                }
+            }
+
+            // Draw playhead line (glow via a wider semi-transparent pass)
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(playheadX, 0);
+            ctx.lineTo(playheadX, H);
+            ctx.stroke();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(playheadX, 0);
+            ctx.lineTo(playheadX, H);
+            ctx.stroke();
+
+            // Small triangle at top of playhead
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(playheadX - 5, 0);
+            ctx.lineTo(playheadX + 5, 0);
+            ctx.lineTo(playheadX, 7);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        /**
+         * Map a click on the waveform canvas to a segment + offset, then seek.
+         */
+        _onWaveformClick(e) {
+            if (!this.audioCtx || this.segments.length === 0) return;
+
+            const rect = dom.waveformCanvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const W = dom.waveformCanvas.width;
+            const pixelsPerSec = W / 40;
+            const playheadFrac = 0.7;
+
+            const playPos = this._getAccumulatedPlayPos();
+
+            const timeAtLeftEdge = playPos - (playheadFrac * 40);
+            const clickTime = timeAtLeftEdge + (clickX / pixelsPerSec);
+
+            if (clickTime < 0) return;
+
+            // Find which segment this click falls in
+            let segTime = 0;
+            for (const seg of this.segments) {
+                const dur = seg.audioBuffer ? seg.audioBuffer.duration : (seg.endTime - seg.startTime);
+                if (clickTime >= segTime && clickTime < segTime + dur) {
+                    const offset = clickTime - segTime;
+                    this.skipToSegment(seg.index, offset);
+                    return;
+                }
+                segTime += dur;
+            }
+
+            // If click is beyond all segments (in generating zone), snap to live edge
+            if (this.segments.length > 0) {
+                const last = this.segments[this.segments.length - 1];
+                this._snapToLiveEdge();
+            }
+        }
+
+        /**
+         * Show tooltip on hover with segment info.
+         */
+        _onWaveformHover(e) {
+            if (!this.audioCtx || this.segments.length === 0) {
+                dom.waveformTooltip.classList.remove('visible');
+                return;
+            }
+
+            const rect = dom.waveformCanvas.getBoundingClientRect();
+            const hoverX = e.clientX - rect.left;
+            const W = dom.waveformCanvas.width;
+            const pixelsPerSec = W / 40;
+            const playheadFrac = 0.7;
+
+            // Use frame-cached position (avoids per-mousemove O(n) scan)
+            const playPos = this._cachedPlayPos;
+
+            const timeAtLeftEdge = playPos - (playheadFrac * 40);
+            const hoverTime = timeAtLeftEdge + (hoverX / pixelsPerSec);
+
+            // Find segment at hover time
+            let segTime = 0;
+            let found = null;
+            for (const seg of this.segments) {
+                const dur = seg.audioBuffer ? seg.audioBuffer.duration : (seg.endTime - seg.startTime);
+                if (hoverTime >= segTime && hoverTime < segTime + dur) {
+                    const offset = hoverTime - segTime;
+                    const snippet = (seg.prompt || '').slice(0, 30);
+                    found = `Seg #${seg.index} — ${snippet}${snippet.length >= 30 ? '...' : ''} — ${fmtTime(offset)}`;
+                    break;
+                }
+                segTime += dur;
+            }
+
+            if (!found && this.generatingPlaceholder && hoverTime >= segTime) {
+                found = `Seg #${this.generatingPlaceholder.index} — generating...`;
+            }
+
+            if (found) {
+                dom.waveformTooltip.textContent = found;
+                // Position tooltip above cursor
+                const tipX = Math.min(hoverX, W - 150);
+                dom.waveformTooltip.style.left = tipX + 'px';
+                dom.waveformTooltip.classList.add('visible');
+            } else {
+                dom.waveformTooltip.classList.remove('visible');
+            }
+        }
+
+        /** Snap back to the live edge (latest audio). */
+        _snapToLiveEdge() {
+            if (!this.audioCtx || this.segments.length === 0) return;
+            this.isAtLiveEdge = true;
+
+            // Find the last segment with a buffer and skip to near its end
+            const last = this.segments[this.segments.length - 1];
+            if (last && last.audioBuffer) {
+                // Skip to the last segment at its current elapsed position
+                const now = this.audioCtx.currentTime;
+                const elapsed = now - last.startTime;
+                if (elapsed >= 0 && elapsed < last.audioBuffer.duration) {
+                    // Already playing — just mark as live edge
+                    return;
+                }
+                // Otherwise skip to the last segment
+                this.skipToSegment(last.index);
+            }
+            this.isAtLiveEdge = true;  // Re-set after skipToSegment clears it
+        }
+
+        /** Update the LIVE badge to reflect live edge state. */
+        _updateLiveBadge() {
+            if (!this.audioCtx || this.segments.length === 0) return;
+            const now = this.audioCtx.currentTime;
+            const lastSeg = this.segments[this.segments.length - 1];
+
+            // Consider "at live edge" if within 3s of the end of all scheduled audio
+            const timeToEnd = lastSeg.endTime - now;
+            if (timeToEnd < 3 && !this.nextReady) {
+                this.isAtLiveEdge = true;
+            }
+
+            if (this.isAtLiveEdge) {
+                dom.liveBadge.className = 'live-badge live';
+            } else {
+                dom.liveBadge.className = 'live-badge behind';
+            }
+        }
+
+        _escHtml(str) {
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        // ============================================================
+        // Visualizer — frequency bars on <canvas>
+        // ============================================================
+
+        _startVisualizer() {
+            this._resizeCanvas();
+            window.addEventListener('resize', () => this._resizeCanvas());
+            // Visualizer frames are now driven by the unified _animationLoop
+        }
+
+        _resizeCanvas() {
+            const canvas = dom.visualizer;
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = 300;
+        }
+
+        _drawVisualizerFrame() {
+            const analyser = this.analyser;
+            if (!analyser) return;
+
+            // Pre-allocate frequency buffer once
+            if (!this._freqData || this._freqData.length !== analyser.frequencyBinCount) {
+                this._freqData = new Uint8Array(analyser.frequencyBinCount);
+            }
+            const dataArray = this._freqData;
+            const bufLen = dataArray.length;
+            analyser.getByteFrequencyData(dataArray);
+
+            const canvas = dom.visualizer;
+            const c = this.visCtx;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Clear
+            c.fillStyle = '#0a0a0a';
+            c.fillRect(0, 0, w, h);
+
+            // Draw frequency bars
+            const barCount = Math.min(bufLen, 128);
+            const barWidth = (w / barCount) * 0.8;
+            const gap = (w / barCount) * 0.2;
+
+            for (let i = 0; i < barCount; i++) {
+                const val = dataArray[i] / 255;
+                const barH = val * h * 0.9;
+                const x = i * (barWidth + gap);
+                const y = h - barH;
+
+                // Gradient color based on frequency position and amplitude
+                const hue = 140 + (i / barCount) * 40; // green to teal
+                const lightness = 30 + val * 40;
+                c.fillStyle = `hsl(${hue}, 80%, ${lightness}%)`;
+
+                // Round-topped bars
+                const radius = Math.min(barWidth / 2, 3);
+                c.beginPath();
+                c.moveTo(x + radius, y);
+                c.lineTo(x + barWidth - radius, y);
+                c.quadraticCurveTo(x + barWidth, y, x + barWidth, y + radius);
+                c.lineTo(x + barWidth, h);
+                c.lineTo(x, h);
+                c.lineTo(x, y + radius);
+                c.quadraticCurveTo(x, y, x + radius, y);
+                c.closePath();
+                c.fill();
+
+                // Highlight loud bars with a brighter fill (no shadowBlur for perf)
+                if (val > 0.7) {
+                    c.fillStyle = `hsl(${hue}, 100%, ${50 + val * 20}%)`;
+                    c.fill();
+                }
+            }
+
+            // Draw a subtle center line
+            c.strokeStyle = 'rgba(29, 185, 84, 0.1)';
+            c.lineWidth = 1;
+            c.beginPath();
+            c.moveTo(0, h * 0.5);
+            c.lineTo(w, h * 0.5);
+            c.stroke();
+        }
+    }
+
+    // ================================================================
+    // Instantiate engine + wire up controls
+    // ================================================================
+    const engine = new DJEngine();
+
+    // Instrumental toggle
+    dom.instrumental.addEventListener('change', (e) => {
+        dom.lyricsGroup.style.display = e.target.checked ? 'none' : 'block';
+    });
+
+    // Auto-fill placeholders on Enter if empty
+    function autoFillPlaceholder(el) {
+        el.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && el.value.trim() === '') {
+                e.preventDefault();
+                // Extract the placeholder text, removing the 'e.g. ' prefix if present
+                let text = el.getAttribute('placeholder') || '';
+                if (text.startsWith('e.g. ')) {
+                    text = text.substring(5);
+                }
+                el.value = text;
+            }
+        });
+    }
+
+    autoFillPlaceholder(dom.prompt);
+    autoFillPlaceholder(dom.negativePrompt);
+    autoFillPlaceholder(dom.lyrics);
+
+    // Play button
+    dom.btnPlay.addEventListener('click', () => {
+        engine.start();
+    });
+
+    // Stop button
+    dom.btnStop.addEventListener('click', () => {
+        engine.stop();
+    });
+
+    // Volume slider
+    dom.masterVolume.addEventListener('input', () => {
+        engine._applyVolume();
+    });
+
+    // ================================================================
+    // LoRA Controls
+    // ================================================================
+    async function loraApiCall(endpoint, method = 'GET', body = null) {
+        const base = dom.apiBase.value.replace(/\/+$/, '');
+        const opts = { method, headers: { 'Content-Type': 'application/json' } };
+        if (body) opts.body = JSON.stringify(body);
+        const res = await fetch(`${base}${endpoint}`, opts);
+        return res.json();
+    }
+
+    async function refreshLoraStatus() {
+        try {
+            const r = await loraApiCall('/v1/lora/status');
+            const d = r.data || {};
+            if (d.lora_loaded) {
+                const names = (d.adapters || []).join(', ');
+                const enabled = d.use_lora;
+                dom.loraStatus.textContent = `${enabled ? '✓' : '✗'} ${names} (scale ${(d.lora_scale ?? 1).toFixed(2)})`;
+                dom.loraStatus.className = 'lora-status' + (enabled ? ' active' : '');
+                dom.loraUnload.disabled = false;
+                dom.loraToggle.disabled = false;
+                dom.loraToggle.textContent = enabled ? 'Disable' : 'Enable';
+                dom.loraScale.value = d.lora_scale ?? 1;
+                dom.loraScaleVal.textContent = (d.lora_scale ?? 1).toFixed(2);
+            } else {
+                dom.loraStatus.textContent = 'No adapter loaded';
+                dom.loraStatus.className = 'lora-status';
+                dom.loraUnload.disabled = true;
+                dom.loraToggle.disabled = true;
+                dom.loraToggle.textContent = 'Disable';
+            }
+        } catch (e) {
+            dom.loraStatus.textContent = 'Status check failed';
+        }
+    }
+
+    dom.loraSelect.addEventListener('change', () => {
+        if (dom.loraSelect.value === 'custom') {
+            dom.loraPath.style.display = 'block';
+            dom.loraPath.focus();
+        } else {
+            dom.loraPath.style.display = 'none';
+        }
+    });
+
+    dom.loraLoad.addEventListener('click', async () => {
+        let path = dom.loraSelect.value;
+        if (path === 'custom') {
+            path = dom.loraPath.value.trim();
+        }
+        if (!path) return;
+        dom.loraLoad.disabled = true;
+        dom.loraLoad.textContent = 'Loading...';
+        try {
+            const r = await loraApiCall('/v1/lora/load', 'POST', { lora_path: path });
+            if (r.code === 200) {
+                log(`LoRA loaded: ${r.data?.message || path}`, 'log-success');
+            } else {
+                log(`LoRA load failed: ${r.data?.message || r.error || 'unknown error'}`, 'log-error');
+            }
+        } catch (e) {
+            log(`LoRA load error: ${e.message}`, 'log-error');
+        }
+        dom.loraLoad.disabled = false;
+        dom.loraLoad.textContent = 'Load';
+        refreshLoraStatus();
+    });
+
+    dom.loraUnload.addEventListener('click', async () => {
+        try {
+            await loraApiCall('/v1/lora/unload', 'POST');
+            log('LoRA unloaded', 'log-warn');
+        } catch (e) {
+            log(`LoRA unload error: ${e.message}`, 'log-error');
+        }
+        refreshLoraStatus();
+    });
+
+    dom.loraToggle.addEventListener('click', async () => {
+        const enabling = dom.loraToggle.textContent === 'Enable';
+        try {
+            await loraApiCall('/v1/lora/toggle', 'POST', { use_lora: enabling });
+            log(`LoRA ${enabling ? 'enabled' : 'disabled'}`, enabling ? 'log-success' : 'log-warn');
+        } catch (e) {
+            log(`LoRA toggle error: ${e.message}`, 'log-error');
+        }
+        refreshLoraStatus();
+    });
+
+    dom.loraScale.addEventListener('input', () => {
+        dom.loraScaleVal.textContent = parseFloat(dom.loraScale.value).toFixed(2);
+    });
+
+    dom.loraScale.addEventListener('change', async () => {
+        const scale = parseFloat(dom.loraScale.value);
+        try {
+            await loraApiCall('/v1/lora/scale', 'POST', { scale });
+            log(`LoRA scale set to ${scale.toFixed(2)}`, 'log-info');
+        } catch (e) {
+            log(`LoRA scale error: ${e.message}`, 'log-error');
+        }
+        refreshLoraStatus();
+    });
+
+    // Check LoRA status on page load
+    refreshLoraStatus();
+
+    // ================================================================
+    // Initial footer state
+    // ================================================================
+    setPipelineStage('idle');
+
+})();
+</script>
+</body>
+</html>

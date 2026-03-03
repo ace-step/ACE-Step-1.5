@@ -220,9 +220,11 @@
         }
         .progress-fill {
             height: 100%;
-            width: 0%;
+            width: 100%;
+            transform: scaleX(0);
+            transform-origin: left;
             background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 100%);
-            transition: width 0.2s linear; /* Smooth linear movement */
+            transition: transform 0.2s linear; /* Smooth linear movement */
             box-shadow: 0 0 15px rgba(29, 185, 84, 0.5);
         }
         
@@ -676,7 +678,9 @@
         activeRegion = null;
     });
 
-    window.addEventListener('resize', () => { if(wavesurfer) setTimeout(() => {}, 100); });
+    window.addEventListener('resize', () => {
+        // resize handled by wavesurfer internally
+    }, { passive: true });
 
     elements.fileInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -723,7 +727,7 @@
             if (progressState.current > hardLimit) progressState.current = hardLimit;
 
             // 4. Render
-            elements.progressFill.style.width = `${progressState.current}%`;
+            elements.progressFill.style.transform = `scaleX(${progressState.current / 100})`;
             elements.progressText.innerText = `${progressState.current.toFixed(1)}%`;
 
         }, UPDATE_INTERVAL_MS);
@@ -731,7 +735,7 @@
 
     function stopSmartProgressBar() {
         if (progressState.timerId) clearInterval(progressState.timerId);
-        elements.progressFill.style.width = '100%';
+        elements.progressFill.style.transform = 'scaleX(1)';
         elements.progressText.innerText = '100%';
     }
 

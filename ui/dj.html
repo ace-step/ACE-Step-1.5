@@ -1736,16 +1736,16 @@
             this._resizeWaveformCanvas();
 
             // Resize on window resize
-            window.addEventListener('resize', () => this._resizeWaveformCanvas());
+            window.addEventListener('resize', () => this._resizeWaveformCanvas(), { passive: true });
 
             // Click to seek
             dom.waveformContainer.addEventListener('click', (e) => this._onWaveformClick(e));
 
             // Hover tooltip
-            dom.waveformContainer.addEventListener('mousemove', (e) => this._onWaveformHover(e));
+            dom.waveformContainer.addEventListener('mousemove', (e) => this._onWaveformHover(e), { passive: true });
             dom.waveformContainer.addEventListener('mouseleave', () => {
                 dom.waveformTooltip.classList.remove('visible');
-            });
+            }, { passive: true });
 
             // LIVE badge click
             dom.liveBadge.addEventListener('click', () => this._snapToLiveEdge());
@@ -2129,7 +2129,7 @@
 
         _startVisualizer() {
             this._resizeCanvas();
-            window.addEventListener('resize', () => this._resizeCanvas());
+            window.addEventListener('resize', () => this._resizeCanvas(), { passive: true });
             // Visualizer frames are now driven by the unified _animationLoop
         }
 

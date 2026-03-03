@@ -36,6 +36,18 @@ from acestep.training_v2.ui import TrainingUpdate
 AdapterConfig = Union[LoRAConfigV2, LoKRConfigV2]
 
 
+def _is_attention_name(name: str) -> bool:
+    """Return True if *name* looks like an attention parameter path."""
+    key = name.lower()
+    return "attn" in key or any(part in key for part in ("q_proj", "k_proj", "v_proj", "o_proj"))
+
+
+def _is_ffn_name(name: str) -> bool:
+    """Return True if *name* looks like an FFN/MLP parameter path."""
+    key = name.lower()
+    return any(part in key for part in ("mlp", "ffn", "feed_forward", "fc", "up_proj", "down_proj", "gate_proj"))
+
+
 class _LastLossAccessor:
     """Lightweight wrapper that provides ``[-1]`` and bool access.
 
@@ -138,8 +150,16 @@ class FixedLoRAModule(nn.Module):
         self.lycoris_net: Any = None
         self.adapter_info: Dict[str, Any] = {}
 
-        # -- Adapter injection -----------------------------------------------
-        if self.adapter_type == "lokr":
+        self.training_mode = getattr(training_config, "training_mode", "adapter")
+
+        # -- Adapter or full fine-tune setup ---------------------------------
+        if self.training_mode == "full":
+            self.model = model
+            self._configure_full_finetune()
+            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            self.adapter_info = {"trainable_params": trainable_params}
+            logger.info("[OK] Full fine-tune enabled: %s trainable params", f"{trainable_params:,}")
+        elif self.adapter_type == "lokr":
             self._inject_lokr(model, adapter_config)  # type: ignore[arg-type]
         else:
             self._inject_lora(model, adapter_config)  # type: ignore[arg-type]
@@ -229,6 +249,48 @@ class FixedLoRAModule(nn.Module):
             f"{self.adapter_info['trainable_params']:,}",
             self.device,
         )
+
+    def _configure_full_finetune(self) -> None:
+        """Enable decoder-only full fine-tuning with explicit freezing."""
+        for p in self.model.parameters():
+            p.requires_grad = False
+
+        include = getattr(self.training_config, "full_train_include", "decoder")
+        if include != "decoder" or not hasattr(self.model, "decoder"):
+            raise ValueError("Only decoder full fine-tuning is supported currently")
+
+        for p in self.model.decoder.parameters():
+            p.requires_grad = True
+
+    def build_full_mode_param_groups(self) -> list[dict]:
+        """Build optimizer param groups with per-family LR multipliers."""
+        base_lr = float(self.training_config.learning_rate)
+        attn_mult = float(getattr(self.training_config, "full_lr_mult_attn", 1.0))
+        ffn_mult = float(getattr(self.training_config, "full_lr_mult_ffn", 1.0))
+        other_mult = float(getattr(self.training_config, "full_lr_mult_other", 1.0))
+
+        attn_params = []
+        ffn_params = []
+        other_params = []
+
+        for name, param in self.model.decoder.named_parameters():
+            if not param.requires_grad:
+                continue
+            if _is_attention_name(name):
+                attn_params.append(param)
+            elif _is_ffn_name(name):
+                ffn_params.append(param)
+            else:
+                other_params.append(param)
+
+        groups = []
+        if attn_params:
+            groups.append({"params": attn_params, "lr": base_lr * attn_mult})
+        if ffn_params:
+            groups.append({"params": ffn_params, "lr": base_lr * ffn_mult})
+        if other_params:
+            groups.append({"params": other_params, "lr": base_lr * other_mult})
+        return groups
 
     # -----------------------------------------------------------------------
     # Training step

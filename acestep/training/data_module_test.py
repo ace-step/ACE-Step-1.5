@@ -7,11 +7,16 @@ load_dataset_from_json that guards against path-traversal attacks
 
 import os
 import json
+import random
 import tempfile
 import unittest
+from unittest import mock
+
+import torch
 
 from acestep.training.path_safety import safe_path, set_safe_root
 from acestep.training.data_module import (
+    BucketedBatchSampler,
     PreprocessedTensorDataset,
     load_dataset_from_json,
 )
@@ -191,6 +196,20 @@ class LoadDatasetFromJsonTests(unittest.TestCase):
             self.assertEqual(meta["v"], 1)
         finally:
             os.unlink(path)
+
+
+class AceStepDataModuleInitTests(unittest.TestCase):
+    """Regression tests for legacy ``AceStepDataModule`` initialization."""
+
+    def test_init_does_not_require_preprocessed_only_cache_args(self):
+        """Legacy raw-audio datamodule should initialize without NameError."""
+        from acestep.training.data_module import AceStepDataModule
+
+        module = AceStepDataModule(samples=[], dit_handler=object())
+
+        self.assertEqual(module.samples, [])
+        self.assertIsNotNone(module.dit_handler)
+
 
 
 if __name__ == "__main__":

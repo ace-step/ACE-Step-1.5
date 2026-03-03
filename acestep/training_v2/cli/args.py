@@ -108,6 +108,13 @@ def build_root_parser() -> argparse.ArgumentParser:
         help="Random seed (default: 42)",
     )
 
+    p_validate = subparsers.add_parser(
+        "validate-dataset",
+        help="Validate preprocessed tensors and report dataset stats",
+        formatter_class=formatter_class,
+    )
+    p_validate.add_argument("--dataset-dir", type=str, required=True, help="Directory containing preprocessed .pt files")
+
     return root
 
 
@@ -201,6 +208,9 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
         default=_DEFAULT_NUM_WORKERS > 0,
         help="Keep workers alive between epochs (default: True; False on Windows)",
     )
+    g_data.add_argument("--length-bucket", action=argparse.BooleanOptionalAction, default=False, help="Bucket samples by latent length")
+    g_data.add_argument("--cache-policy", type=str, default="none", choices=["none", "ram_lru"], help="Dataset cache policy")
+    g_data.add_argument("--cache-max-items", type=int, default=0, help="Max cached samples for ram_lru cache")
 
     # -- Training hyperparams ------------------------------------------------
     g_train = parser.add_argument_group("Training")
@@ -221,7 +231,12 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
 
     # -- Adapter selection ---------------------------------------------------
     g_adapter = parser.add_argument_group("Adapter")
-    g_adapter.add_argument("--adapter-type", type=str, default="lora", choices=["lora", "lokr"], help="Adapter type: lora (PEFT) or lokr (LyCORIS) (default: lora)")
+    g_adapter.add_argument("--training-mode", type=str, default="adapter", choices=["adapter", "full"], help="Training mode: adapter (LoRA/LoKR) or full decoder fine-tune")
+    g_adapter.add_argument("--adapter-type", type=str, default="lora", choices=["lora", "lokr"], help="Adapter type (used in adapter mode)")
+    g_adapter.add_argument("--full-train-include", type=str, default="decoder", choices=["decoder"], help="Scope for full fine-tuning")
+    g_adapter.add_argument("--full-lr-mult-attn", type=float, default=1.0, help="LR multiplier for attention params in full mode")
+    g_adapter.add_argument("--full-lr-mult-ffn", type=float, default=1.0, help="LR multiplier for FFN params in full mode")
+    g_adapter.add_argument("--full-lr-mult-other", type=float, default=1.0, help="LR multiplier for remaining decoder params in full mode")
 
     # -- LoRA hyperparams ---------------------------------------------------
     g_lora = parser.add_argument_group("LoRA (used when --adapter-type=lora)")

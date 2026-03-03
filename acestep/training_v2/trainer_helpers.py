@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Generator, Optional, Tuple
+from functools import partial
 
 import torch
 import torch.nn as nn
@@ -143,6 +144,25 @@ def offload_non_decoder(model: nn.Module) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _save_full_decoder_state(module: Any, output_dir: str) -> None:
+    """Save decoder state for full fine-tuning mode."""
+    decoder = _unwrap_decoder(module.model)
+    path = os.path.join(output_dir, "full_decoder_state.pt")
+    torch.save(decoder.state_dict(), path)
+    logger.info("[OK] Full decoder weights saved to %s", path)
+
+
+def _load_full_decoder_state(module: Any, ckpt_dir: Path) -> bool:
+    """Load full decoder checkpoint when present."""
+    path = ckpt_dir / "full_decoder_state.pt"
+    if not path.exists():
+        return False
+    state = torch.load(str(path), map_location=module.device, weights_only=True)
+    decoder = _unwrap_decoder(module.model)
+    decoder.load_state_dict(state, strict=False)
+    return True
+
+
 def save_adapter_flat(trainer: Any, output_dir: str) -> None:
     """Save adapter weights directly into *output_dir* (no nesting).
 
@@ -153,6 +173,10 @@ def save_adapter_flat(trainer: Any, output_dir: str) -> None:
     module = trainer.module
     assert module is not None
     os.makedirs(output_dir, exist_ok=True)
+
+    if getattr(trainer.training_config, "training_mode", "adapter") == "full":
+        _save_full_decoder_state(module, output_dir)
+        return
 
     if trainer.adapter_type == "lokr":
         if module.lycoris_net is None:
@@ -240,6 +264,11 @@ def verify_saved_adapter(output_dir: str) -> None:
     a warning if the weights appear to be all zeros (which would mean
     the LoRA has no effect during inference).
     """
+    full_path = os.path.join(output_dir, "full_decoder_state.pt")
+    if os.path.exists(full_path):
+        logger.info("[OK] Full fine-tune weights saved: %s", full_path)
+        return
+
     safetensors_path = os.path.join(output_dir, "adapter_model.safetensors")
     config_path = os.path.join(output_dir, "adapter_config.json")
 
@@ -315,95 +344,186 @@ def resume_checkpoint(
         )
         ckpt_dir = ckpt_dir.parent
 
-    # -- Detect format: LoKR uses lokr_weights.safetensors ---------------
-    lokr_weights_path = ckpt_dir / "lokr_weights.safetensors"
-    state_path = ckpt_dir / "training_state.pt"
+    state_loader = partial(
+        _load_training_state,
+        module=module,
+        optimizer=optimizer,
+        scheduler=scheduler,
+    )
 
-    if lokr_weights_path.exists() and module.lycoris_net is not None:
-        # LoKR resume
-        if trainer.adapter_type != "lokr":
-            logger.warning(
-                "[WARN] Found lokr_weights.safetensors but adapter_type is '%s' "
-                "-- loading as LoKR anyway",
-                trainer.adapter_type,
-            )
-        load_lokr_weights(module.lycoris_net, str(lokr_weights_path))
-        if state_path.exists():
-            state = torch.load(
-                str(state_path), map_location=module.device, weights_only=False
-            )
-            epoch = state.get("epoch", 0)
-            step = state.get("global_step", 0)
-            if "optimizer_state_dict" in state:
-                optimizer.load_state_dict(state["optimizer_state_dict"])
-            if "scheduler_state_dict" in state:
-                scheduler.load_state_dict(state["scheduler_state_dict"])
-            yield TrainingUpdate(
-                0,
-                0.0,
-                f"[OK] Resumed LoKR from epoch {epoch}, step {step}",
-                kind="info",
-            )
-            return (epoch, step)
+    training_mode = getattr(trainer.training_config, "training_mode", "adapter")
+    if training_mode == "full":
+        return (yield from _resume_full_decoder(trainer, ckpt_dir, module, state_loader))
+
+    return (yield from _resume_lokr_or_lora(
+        trainer,
+        resume_path,
+        ckpt_dir,
+        module,
+        optimizer,
+        scheduler,
+        state_loader,
+    ))
+
+
+def _load_training_state(
+    ckpt_dir: Path,
+    module: Any,
+    optimizer: Any,
+    scheduler: Any,
+) -> Optional[Tuple[int, int, Dict[str, Any]]]:
+    """Load training progress and optimizer/scheduler state from ``training_state.pt``."""
+    state_path = ckpt_dir / "training_state.pt"
+    if not state_path.exists():
+        return None
+
+    state = torch.load(str(state_path), map_location=module.device, weights_only=False)
+    if "optimizer_state_dict" in state:
+        optimizer.load_state_dict(state["optimizer_state_dict"])
+    if "scheduler_state_dict" in state:
+        scheduler.load_state_dict(state["scheduler_state_dict"])
+
+    return state.get("epoch", 0), state.get("global_step", 0), state
+
+
+def _resume_full_decoder(
+    trainer: Any,
+    ckpt_dir: Path,
+    module: Any,
+    state_loader: Any,
+) -> Generator[TrainingUpdate, None, Optional[Tuple[int, int]]]:
+    """Handle full fine-tune checkpoint resume path."""
+    if not _load_full_decoder_state(module, ckpt_dir):
         yield TrainingUpdate(
-            0, 0.0, "[OK] LoKR weights loaded (no training state)", kind="info"
+            0,
+            0.0,
+            f"[WARN] full_decoder_state.pt not found in {ckpt_dir}",
+            kind="warn",
         )
         return None
 
-    # Warn if LoKR was expected but checkpoint is LoRA-format
-    if trainer.adapter_type == "lokr":
-        if not lokr_weights_path.exists():
-            logger.warning(
-                "[WARN] adapter_type is 'lokr' but no lokr_weights.safetensors "
-                "found in %s -- falling back to LoRA resume format",
-                resume_path,
-            )
-        elif module.lycoris_net is None:
-            logger.warning(
-                "[WARN] adapter_type is 'lokr' and lokr_weights.safetensors exists "
-                "but lycoris_net is None -- cannot load LoKR checkpoint",
-            )
+    training_state = state_loader(ckpt_dir=ckpt_dir)
+    if training_state is None:
+        yield TrainingUpdate(0, 0.0, "[OK] Loaded full decoder weights (no training state)", kind="info")
+        return None
 
-    # LoRA resume (original logic)
+    epoch, step, _ = training_state
+    yield TrainingUpdate(0, 0.0, f"[OK] Resumed full fine-tune from epoch {epoch}, step {step}", kind="info")
+    return (epoch, step)
+
+
+def _resume_lokr(
+    trainer: Any,
+    resume_path: str,
+    ckpt_dir: Path,
+    module: Any,
+    state_loader: Any,
+) -> Generator[TrainingUpdate, None, Optional[Tuple[int, int]]]:
+    """Handle LoKR checkpoint resume path when LoKR weights are present."""
+    lokr_weights_path = ckpt_dir / "lokr_weights.safetensors"
+    if not (lokr_weights_path.exists() and module.lycoris_net is not None):
+        if trainer.adapter_type == "lokr":
+            if not lokr_weights_path.exists():
+                logger.warning(
+                    "[WARN] adapter_type is 'lokr' but no lokr_weights.safetensors "
+                    "found in %s -- falling back to LoRA resume format",
+                    resume_path,
+                )
+            else:
+                logger.warning(
+                    "[WARN] adapter_type is 'lokr' and lokr_weights.safetensors exists "
+                    "but lycoris_net is None -- cannot load LoKR checkpoint",
+                )
+        return None
+
+    if trainer.adapter_type != "lokr":
+        logger.warning(
+            "[WARN] Found lokr_weights.safetensors but adapter_type is '%s' "
+            "-- loading as LoKR anyway",
+            trainer.adapter_type,
+        )
+
+    load_lokr_weights(module.lycoris_net, str(lokr_weights_path))
+    training_state = state_loader(ckpt_dir=ckpt_dir)
+    if training_state is None:
+        yield TrainingUpdate(0, 0.0, "[OK] LoKR weights loaded (no training state)", kind="info")
+        return None
+
+    # Full mode resume: no full decoder checkpoint found.
+    if getattr(trainer.training_config, "training_mode", "adapter") == "full":
+        yield TrainingUpdate(
+            0,
+            0.0,
+            f"[WARN] full_decoder_state.pt not found in {ckpt_dir}",
+            kind="warn",
+        )
+        return
+
+
+def _resume_lora(
+    ckpt_dir: Path,
+    module: Any,
+    optimizer: Any,
+    scheduler: Any,
+) -> Generator[TrainingUpdate, None, Optional[Tuple[int, int]]]:
+    """Handle LoRA checkpoint resume path."""
     ckpt_info = load_training_checkpoint(
         str(ckpt_dir),
         optimizer=optimizer,
         scheduler=scheduler,
         device=module.device,
     )
-    if ckpt_info["adapter_path"]:
-        adapter_path = ckpt_info["adapter_path"]
-        aw_path = os.path.join(adapter_path, "adapter_model.safetensors")
-        if not os.path.exists(aw_path):
-            aw_path = os.path.join(adapter_path, "adapter_model.bin")
-
-        if os.path.exists(aw_path):
-            from safetensors.torch import load_file
-
-            state_dict = (
-                load_file(aw_path)
-                if aw_path.endswith(".safetensors")
-                else torch.load(aw_path, map_location=module.device, weights_only=True)
-            )
-            decoder = module.model.decoder
-            if hasattr(decoder, "_forward_module"):
-                decoder = decoder._forward_module
-            decoder.load_state_dict(state_dict, strict=False)
-
-            start_epoch = ckpt_info["epoch"]
-            g_step = ckpt_info["global_step"]
-            parts = [f"[OK] Resumed from epoch {start_epoch}, step {g_step}"]
-            if ckpt_info["loaded_optimizer"]:
-                parts.append("optimizer OK")
-            if ckpt_info["loaded_scheduler"]:
-                parts.append("scheduler OK")
-            yield TrainingUpdate(0, 0.0, ", ".join(parts), kind="info")
-            return (start_epoch, g_step)
-        yield TrainingUpdate(
-            0, 0.0, f"[WARN] Adapter weights not found in {adapter_path}", kind="warn"
-        )
+    if not ckpt_info["adapter_path"]:
+        yield TrainingUpdate(0, 0.0, f"[WARN] No valid checkpoint in {ckpt_dir}", kind="warn")
         return None
-    yield TrainingUpdate(
-        0, 0.0, f"[WARN] No valid checkpoint in {ckpt_dir}", kind="warn"
+
+    adapter_path = ckpt_info["adapter_path"]
+    aw_path = os.path.join(adapter_path, "adapter_model.safetensors")
+    if not os.path.exists(aw_path):
+        aw_path = os.path.join(adapter_path, "adapter_model.bin")
+    if not os.path.exists(aw_path):
+        yield TrainingUpdate(0, 0.0, f"[WARN] Adapter weights not found in {adapter_path}", kind="warn")
+        return None
+
+    from safetensors.torch import load_file
+
+    state_dict = (
+        load_file(aw_path) if aw_path.endswith(".safetensors")
+        else torch.load(aw_path, map_location=module.device, weights_only=True)
     )
-    return None
+    decoder = module.model.decoder
+    if hasattr(decoder, "_forward_module"):
+        decoder = decoder._forward_module
+    decoder.load_state_dict(state_dict, strict=False)
+
+    start_epoch = ckpt_info["epoch"]
+    g_step = ckpt_info["global_step"]
+    parts = [f"[OK] Resumed from epoch {start_epoch}, step {g_step}"]
+    if ckpt_info["loaded_optimizer"]:
+        parts.append("optimizer OK")
+    if ckpt_info["loaded_scheduler"]:
+        parts.append("scheduler OK")
+    yield TrainingUpdate(0, 0.0, ", ".join(parts), kind="info")
+    return (start_epoch, g_step)
+
+
+def _resume_lokr_or_lora(
+    trainer: Any,
+    resume_path: str,
+    ckpt_dir: Path,
+    module: Any,
+    optimizer: Any,
+    scheduler: Any,
+    state_loader: Any,
+) -> Generator[TrainingUpdate, None, Optional[Tuple[int, int]]]:
+    """Resume adapter-mode training by trying LoKR then LoRA format."""
+    lokr_result = yield from _resume_lokr(
+        trainer,
+        resume_path,
+        ckpt_dir,
+        module,
+        state_loader,
+    )
+    if lokr_result is not None:
+        return lokr_result
+    return (yield from _resume_lora(ckpt_dir, module, optimizer, scheduler))

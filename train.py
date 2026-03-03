@@ -61,7 +61,7 @@ def _has_subcommand() -> bool:
     args = sys.argv[1:]
     if "--help" in args or "-h" in args:
         return True  # let argparse handle help
-    known = {"vanilla", "fixed", "estimate"}
+    known = {"vanilla", "fixed", "estimate", "validate-dataset"}
     return bool(known & set(args))
 
 
@@ -89,8 +89,8 @@ def _dispatch(args) -> int:
 
     sub = args.subcommand
 
-    # All subcommands need path validation
-    if not validate_paths(args):
+    # Most subcommands need path validation
+    if sub != "validate-dataset" and not validate_paths(args):
         return 1
 
     if sub == "vanilla":
@@ -103,6 +103,9 @@ def _dispatch(args) -> int:
 
     elif sub == "estimate":
         return _run_estimate(args)
+
+    elif sub == "validate-dataset":
+        return _run_validate_dataset(args)
 
     else:
         print(f"[FAIL] Unknown subcommand: {sub}", file=sys.stderr)
@@ -201,6 +204,30 @@ def _run_preprocess(args) -> int:
     print(f"       python train.py fixed --dataset-dir {result['output_dir']} ...")
     return 0
 
+
+
+def _run_validate_dataset(args) -> int:
+    """Validate preprocessed tensors and print quality stats."""
+    from acestep.training_v2.dataset_validation import validate_preprocessed_dataset
+
+    report = validate_preprocessed_dataset(args.dataset_dir)
+    print("\n" + "=" * 60)
+    print("  Dataset Validation")
+    print("=" * 60)
+    print(f"  Dataset:       {args.dataset_dir}")
+    print(f"  Samples:       {report['total_samples']}")
+    print(f"  Valid:         {report['valid_samples']}")
+    print(f"  Invalid:       {report['invalid_samples']}")
+    print(f"  NaN/Inf:       {report['nan_or_inf_samples']}")
+    print(f"  Min latent T:  {report['min_latent_length']}")
+    print(f"  Max latent T:  {report['max_latent_length']}")
+    print(f"  Avg latent T:  {report['avg_latent_length']:.2f}")
+    if report["errors"]:
+        print("\n[WARN] Sample errors:")
+        for err in report["errors"][:10]:
+            print(f"  - {err}")
+    print("=" * 60)
+    return 0 if report["invalid_samples"] == 0 else 1
 
 def _run_estimate(args) -> int:
     """Run gradient sensitivity estimation."""

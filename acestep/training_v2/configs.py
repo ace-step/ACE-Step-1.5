@@ -155,6 +155,30 @@ class TrainingConfigV2(TrainingConfig):
     adapter_type: str = "lora"
     """Adapter type: 'lora' (PEFT) or 'lokr' (LyCORIS)."""
 
+    training_mode: str = "adapter"
+    """Training mode: 'adapter' (LoRA/LoKR) or 'full' (decoder full fine-tune)."""
+
+    full_train_include: str = "decoder"
+    """Scope for full fine-tuning. Currently supports 'decoder'."""
+
+    full_lr_mult_attn: float = 1.0
+    """LR multiplier for attention parameters in full fine-tuning."""
+
+    full_lr_mult_ffn: float = 1.0
+    """LR multiplier for FFN/MLP parameters in full fine-tuning."""
+
+    full_lr_mult_other: float = 1.0
+    """LR multiplier for non-attention, non-FFN decoder parameters in full fine-tuning."""
+
+    length_bucket: bool = False
+    """Enable latent-length bucketing to reduce padding waste."""
+
+    cache_policy: str = "none"
+    """Dataset cache policy: 'none' or 'ram_lru'."""
+
+    cache_max_items: int = 0
+    """Max RAM cache entries when cache_policy='ram_lru' (0 disables cache)."""
+
     # --- Model / paths ------------------------------------------------------
     model_variant: str = "turbo"
     """Model variant: 'turbo', 'base', or 'sft'."""
@@ -252,6 +276,14 @@ class TrainingConfigV2(TrainingConfig):
                 "offload_encoder": self.offload_encoder,
                 "vram_profile": self.vram_profile,
                 "adapter_type": self.adapter_type,
+                "training_mode": self.training_mode,
+                "full_train_include": self.full_train_include,
+                "full_lr_mult_attn": self.full_lr_mult_attn,
+                "full_lr_mult_ffn": self.full_lr_mult_ffn,
+                "full_lr_mult_other": self.full_lr_mult_other,
+                "length_bucket": self.length_bucket,
+                "cache_policy": self.cache_policy,
+                "cache_max_items": self.cache_max_items,
                 "cfg_ratio": self.cfg_ratio,
                 "timestep_mu": self.timestep_mu,
                 "timestep_sigma": self.timestep_sigma,

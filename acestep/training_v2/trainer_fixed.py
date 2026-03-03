@@ -149,6 +149,9 @@ class FixedLoRATrainer:
                 prefetch_factor=cfg.prefetch_factor if num_workers > 0 else None,
                 persistent_workers=cfg.persistent_workers if num_workers > 0 else False,
                 pin_memory_device=cfg.pin_memory_device,
+                length_bucket=getattr(cfg, "length_bucket", False),
+                cache_policy=getattr(cfg, "cache_policy", "none"),
+                cache_max_items=getattr(cfg, "cache_max_items", 0),
             )
             data_module.setup("fit")
 
@@ -256,6 +259,9 @@ class FixedLoRATrainer:
 
         # -- Trainable params / optimizer -----------------------------------
         trainable_params = [p for p in self.module.model.parameters() if p.requires_grad]
+        optimizer_params = trainable_params
+        if getattr(cfg, "training_mode", "adapter") == "full":
+            optimizer_params = self.module.build_full_mode_param_groups()
         if not trainable_params:
             yield TrainingUpdate(0, 0.0, "[FAIL] No trainable parameters found", kind="fail")
             tb.close()
@@ -265,7 +271,7 @@ class FixedLoRATrainer:
 
         optimizer_type = getattr(cfg, "optimizer_type", "adamw")
         optimizer = build_optimizer(
-            trainable_params,
+            optimizer_params,
             optimizer_type=optimizer_type,
             lr=cfg.learning_rate,
             weight_decay=cfg.weight_decay,

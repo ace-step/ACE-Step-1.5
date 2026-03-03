@@ -110,6 +110,9 @@ def run_basic_training_loop(
     train_loader = data_module.train_dataloader()
 
     trainable_params = [p for p in module.model.parameters() if p.requires_grad]
+    optimizer_params = trainable_params
+    if getattr(cfg, "training_mode", "adapter") == "full":
+        optimizer_params = module.build_full_mode_param_groups()
     if not trainable_params:
         yield TrainingUpdate(0, 0.0, "[FAIL] No trainable parameters found", kind="fail")
         tb.close()
@@ -118,7 +121,7 @@ def run_basic_training_loop(
     device_type = module.device_type if hasattr(module, "device_type") else str(module.device).split(":")[0]
     optimizer_type = getattr(cfg, "optimizer_type", "adamw")
     optimizer = build_optimizer(
-        trainable_params,
+        optimizer_params,
         optimizer_type=optimizer_type,
         lr=cfg.learning_rate,
         weight_decay=cfg.weight_decay,

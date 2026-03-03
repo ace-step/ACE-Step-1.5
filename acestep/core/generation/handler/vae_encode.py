@@ -62,7 +62,7 @@ class VaeEncodeMixin:
         if samples <= chunk_size:
             vae_input = audio.to(self.device).to(self.vae.dtype)
             with torch.inference_mode():
-                latents = self.vae.encode(vae_input).latent_dist.sample()
+                latents = self.vae.encode(vae_input).latent_dist.mode()
             if input_was_2d:
                 latents = latents.squeeze(0)
             return latents

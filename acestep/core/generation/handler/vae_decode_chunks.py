@@ -32,7 +32,7 @@ class VaeDecodeChunksMixin:
         while chunk_size - 2 * effective_overlap <= 0 and effective_overlap > 0:
             effective_overlap = effective_overlap // 2
         if effective_overlap != overlap:
-            logger.warning(
+            logger.debug(
                 f"[tiled_decode] Reduced overlap from {overlap} to {effective_overlap} for chunk_size={chunk_size}"
             )
         overlap = effective_overlap

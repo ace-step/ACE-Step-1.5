@@ -28,8 +28,8 @@ DOWNLOAD_SOURCE=""
 #   - <=6GB VRAM: LLM disabled (DiT-only mode)
 #   - >6GB VRAM: LLM enabled
 # Values: auto (default), true (force enable), false (force disable)
-export ACESTEP_INIT_LLM=auto
-# export ACESTEP_INIT_LLM=true
+export ACESTEP_INIT_LLM=false
+# export ACESTEP_INIT_LLM=false
 # export ACESTEP_INIT_LLM=false
 
 # LM model path (optional, only used when LLM is enabled)

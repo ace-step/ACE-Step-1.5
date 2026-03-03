@@ -50,7 +50,7 @@ class ServiceGenerateRequestMixin:
     ) -> Dict[str, Any]:
         """Normalize scalar/list generation inputs and clamp turbo infer steps."""
         if self.config.is_turbo and infer_steps > 8:
-            logger.warning(
+            logger.info(
                 "[service_generate] dmd_gan version: infer_steps {} exceeds maximum 8, clamping to 8",
                 infer_steps,
             )

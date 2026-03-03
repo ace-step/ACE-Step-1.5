@@ -28,14 +28,18 @@ DOWNLOAD_SOURCE=""
 #   - <=6GB VRAM: LLM disabled (DiT-only mode)
 #   - >6GB VRAM: LLM enabled
 # Values: auto (default), true (force enable), false (force disable)
-export ACESTEP_INIT_LLM=false
+export ACESTEP_INIT_LLM=true
 # export ACESTEP_INIT_LLM=false
 # export ACESTEP_INIT_LLM=false
 
 # LM model path (optional, only used when LLM is enabled)
 # Available models: acestep-5Hz-lm-0.6B, acestep-5Hz-lm-1.7B, acestep-5Hz-lm-4B
-LM_MODEL_PATH=""
+LM_MODEL_PATH="--lm-model-path acestep-5Hz-lm-4B"
 # LM_MODEL_PATH="--lm-model-path acestep-5Hz-lm-0.6B"
+
+# LLM quantization (int8_weight_only for Ampere GPUs like 3090)
+export ACESTEP_LLM_QUANTIZATION=int8_weight_only
+export ACESTEP_LM_BACKEND=pt
 
 # Update check on startup (set to "false" to disable)
 CHECK_UPDATE="true"

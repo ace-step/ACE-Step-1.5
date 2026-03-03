@@ -347,19 +347,59 @@ class LLMHandler:
                 caption, lyrics, is_negative_prompt=True, generation_phase="cot", negative_prompt=negative_prompt
             )
 
-    def _load_pytorch_model(self, model_path: str, device: str) -> Tuple[bool, str]:
-        """Load PyTorch model from path and return (success, status_message)"""
+    def _load_pytorch_model(self, model_path: str, device: str, quantization: Optional[str] = None) -> Tuple[bool, str]:
+        """Load PyTorch model from path and return (success, status_message).
+
+        Args:
+            quantization: Optional quantization method. Supported: "int8_weight_only".
+                         Requires torchao. When enabled, model is quantized on CPU
+                         before moving to GPU to avoid OOM.
+        """
         try:
-            self.llm = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
-            if not self.offload_to_cpu:
-                self.llm = self.llm.to(device).to(self.dtype)
+            quant_label = ""
+
+            if quantization is not None and device == "cuda":
+                # Quantize on CPU first, then move to GPU to avoid OOM with large models
+                try:
+                    from torchao.quantization import quantize_, Int8WeightOnlyConfig
+                    from torchao.quantization.quant_api import _is_linear
+                    if quantization == "int8_weight_only":
+                        quant_config = Int8WeightOnlyConfig()
+                    else:
+                        raise ValueError(f"Unsupported LLM quantization: {quantization}")
+
+                    logger.info(f"Loading 5Hz LM to CPU for {quantization} quantization...")
+                    self.llm = AutoModelForCausalLM.from_pretrained(
+                        model_path, trust_remote_code=True, torch_dtype=self.dtype
+                    )
+                    self.llm.eval()
+                    logger.info(f"Applying {quantization} quantization on CPU...")
+                    quantize_(self.llm, quant_config, filter_fn=_is_linear)
+                    if not self.offload_to_cpu:
+                        logger.info("Moving quantized 5Hz LM to GPU...")
+                        self.llm = self.llm.to(device)
+                    quant_label = f", Quantization: {quantization}"
+                    logger.info(f"5Hz LM quantized with: {quantization}")
+                except Exception as qe:
+                    logger.warning(f"LLM quantization failed ({qe}), falling back to unquantized load")
+                    self.llm = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
+                    if not self.offload_to_cpu:
+                        self.llm = self.llm.to(device).to(self.dtype)
+                    else:
+                        self.llm = self.llm.to("cpu").to(self.dtype)
+                    self.llm.eval()
             else:
-                self.llm = self.llm.to("cpu").to(self.dtype)
-            self.llm.eval()
+                self.llm = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
+                if not self.offload_to_cpu:
+                    self.llm = self.llm.to(device).to(self.dtype)
+                else:
+                    self.llm = self.llm.to("cpu").to(self.dtype)
+                self.llm.eval()
+
             self.llm_backend = "pt"
             self.llm_initialized = True
-            logger.info(f"5Hz LM initialized successfully using PyTorch backend on {device}")
-            status_msg = f"✅ 5Hz LM initialized successfully\nModel: {model_path}\nBackend: PyTorch\nDevice: {device}"
+            logger.info(f"5Hz LM initialized successfully using PyTorch backend on {device}{quant_label}")
+            status_msg = f"✅ 5Hz LM initialized successfully\nModel: {model_path}\nBackend: PyTorch\nDevice: {device}{quant_label}"
             return True, status_msg
         except Exception as e:
             return False, f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
@@ -453,6 +493,7 @@ class LLMHandler:
         device: str = "auto",
         offload_to_cpu: bool = False,
         dtype: Optional[torch.dtype] = None,
+        quantization: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """
         Initialize 5Hz LM model
@@ -464,10 +505,12 @@ class LLMHandler:
             device: Device type ("auto", "cuda", "mps", "xpu", or "cpu")
             offload_to_cpu: Whether to offload to CPU
             dtype: Data type (if None, auto-detect based on device)
+            quantization: Optional quantization method for PyTorch backend (e.g. "int8_weight_only")
 
         Returns:
             (status_message, success)
         """
+        self._llm_quantization = quantization
         try:
             if device == "auto":
                 if torch.cuda.is_available():
@@ -597,7 +640,7 @@ class LLMHandler:
                         if backend == "mlx":
                             # User explicitly requested MLX, fall back to PyTorch
                             logger.warning("MLX explicitly requested but failed, falling back to PyTorch backend")
-                            success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
+                            success, status_msg = self._load_pytorch_model(full_lm_model_path, device, quantization=self._llm_quantization)
                             if not success:
                                 return status_msg, False
                             status_msg = f"✅ 5Hz LM initialized (PyTorch fallback from MLX)\nModel: {full_lm_model_path}\nBackend: PyTorch"
@@ -606,7 +649,7 @@ class LLMHandler:
                 elif backend == "mlx":
                     logger.warning("MLX not available (requires Apple Silicon + mlx-lm package)")
                     # Fall back to PyTorch
-                    success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
+                    success, status_msg = self._load_pytorch_model(full_lm_model_path, device, quantization=self._llm_quantization)
                     if not success:
                         return status_msg, False
                     status_msg = f"✅ 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
@@ -637,7 +680,7 @@ class LLMHandler:
                     logger.warning(
                         f"vLLM disabled due to insufficient free VRAM (total={total_gb:.2f}GB, free={free_gb:.2f}GB, need>={VRAM_SAFE_FREE_GB}GB free) — falling back to PyTorch backend"
                     )
-                    success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
+                    success, status_msg = self._load_pytorch_model(full_lm_model_path, device, quantization=self._llm_quantization)
                     if not success:
                         return status_msg, False
                     status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
@@ -656,12 +699,12 @@ class LLMHandler:
                                     return mlx_status, True
                                 logger.warning(f"MLX also failed: {mlx_status}, falling back to PyTorch")
                             logger.warning("Falling back to PyTorch backend")
-                            success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
+                            success, status_msg = self._load_pytorch_model(full_lm_model_path, device, quantization=self._llm_quantization)
                             if not success:
                                 return status_msg, False
                             status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
             elif backend != "mlx":
-                success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
+                success, status_msg = self._load_pytorch_model(full_lm_model_path, device, quantization=self._llm_quantization)
                 if not success:
                     return status_msg, False
 

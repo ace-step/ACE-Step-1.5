@@ -74,11 +74,16 @@ def initialize_llm_at_startup(
         lm_offload_env = os.getenv("ACESTEP_LM_OFFLOAD_TO_CPU")
         lm_offload = env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False) if lm_offload_env is not None else offload_to_cpu
 
+        lm_quantization = os.getenv("ACESTEP_LLM_QUANTIZATION", "").strip() or None
+
         lm_model_name = get_model_name(lm_model_path)
         try:
             ensure_model_downloaded(lm_model_name, checkpoint_dir)
         except Exception as exc:
             print(f"[API Server] Warning: Failed to download LLM model: {exc}")
+
+        if lm_quantization:
+            print(f"[API Server] LLM quantization: {lm_quantization}")
 
         llm_status, llm_ok = llm_handler.initialize(
             checkpoint_dir=checkpoint_dir,
@@ -87,6 +92,7 @@ def initialize_llm_at_startup(
             device=lm_device,
             offload_to_cpu=lm_offload,
             dtype=None,
+            quantization=lm_quantization,
         )
         if llm_ok:
             app.state._llm_initialized = True

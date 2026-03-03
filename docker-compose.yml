@@ -1,0 +1,21 @@
+services:
+  acestep:
+    build: .
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - ACESTEP_DOWNLOAD_SOURCE=huggingface
+    ports:
+      - "7860:7860"
+      - "8001:8001"
+    volumes:
+      - ./checkpoints:/app/checkpoints
+      - ./output:/app/output
+    command: ["uv", "run", "python", "acestep/acestep_v15_pipeline.py", "--server-name", "0.0.0.0"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

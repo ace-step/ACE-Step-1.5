@@ -1,0 +1,22 @@
+name: Fork Sync
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      skip_rebase:
+        description: 'Only sync main, skip rebase of ht'
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    uses: heiervang-technologies/.github/.github/workflows/fork-sync-reusable.yml@main
+    with:
+      upstream_repo: 'ace-step/ACE-Step-1.5'
+      upstream_branch: 'main'
+      fork_branch: 'ht'
+      skip_rebase: ${{ inputs.skip_rebase || false }}
+    secrets:
+      gh_pat: ${{ secrets.HAI_GH_PAT }}

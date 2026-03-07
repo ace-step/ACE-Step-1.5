@@ -282,7 +282,7 @@ merge_config.bat                    ./merge_config.sh
 为 Windows 用户提供了预装依赖的便携包：
 
 1. 下载并解压：[ACE-Step-1.5.7z](https://files.acemusic.ai/acemusic/win/ACE-Step-1.5.7z)
-2. 包含 `python_embeded`，所有依赖已预装
+2. 包含 `python_embedded`，所有依赖已预装
 3. **要求：** CUDA 12.8
 
 ### 快速启动脚本

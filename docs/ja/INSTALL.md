@@ -282,7 +282,7 @@ merge_config.bat                    ./merge_config.sh
 Windows ユーザー向けに、依存関係がプリインストールされたポータブルパッケージを提供しています：
 
 1. ダウンロードして解凍：[ACE-Step-1.5.7z](https://files.acemusic.ai/acemusic/win/ACE-Step-1.5.7z)
-2. `python_embeded` に全依存関係がプリインストール済み
+2. `python_embedded` に全依存関係がプリインストール済み
 3. **要件：** CUDA 12.8
 
 ### クイックスタートスクリプト

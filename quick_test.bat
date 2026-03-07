@@ -30,13 +30,13 @@ if !ERRORLEVEL! EQU 0 (
 )
 echo.
 
-REM Test 3: Check python_embeded
-echo [Test 3] Checking python_embeded...
-if exist "%~dp0python_embeded\python.exe" (
-    echo [PASS] python_embeded found
-    "%~dp0python_embeded\python.exe" --version
+REM Test 3: Check python_embedded
+echo [Test 3] Checking python_embedded...
+if exist "%~dp0python_embedded\python.exe" (
+    echo [PASS] python_embedded found
+    "%~dp0python_embedded\python.exe" --version
 ) else (
-    echo [INFO] python_embeded not found
+    echo [INFO] python_embedded not found
 )
 echo.
 
@@ -76,8 +76,8 @@ echo.
 REM Determine which environment will be used
 set ENV_FOUND=0
 
-if exist "%~dp0python_embeded\python.exe" (
-    echo [RESULT] Will use: python_embeded
+if exist "%~dp0python_embedded\python.exe" (
+    echo [RESULT] Will use: python_embedded
     echo No additional setup needed!
     set ENV_FOUND=1
 )

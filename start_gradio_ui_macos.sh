@@ -228,27 +228,27 @@ echo "Server will be available at: http://${SERVER_NAME}:${PORT}"
 echo
 
 # ==================== Auto-detect Python environment ====================
-# Priority: python_embeded (portable package) > uv
-if [[ -f "$SCRIPT_DIR/python_embeded/bin/python3.11" ]]; then
+# Priority: python_embedded (portable package) > uv
+if [[ -f "$SCRIPT_DIR/python_embedded/bin/python3.11" ]]; then
     echo "[Environment] Found embedded Python, verifying..."
 
     # Proactively fix permissions and Gatekeeper BEFORE any execution attempt.
     # On macOS Sequoia, running a quarantined binary triggers a blocking popup,
     # so we must strip attributes and re-sign first.
-    chmod +x "$SCRIPT_DIR/python_embeded/bin/"* 2>/dev/null || true
+    chmod +x "$SCRIPT_DIR/python_embedded/bin/"* 2>/dev/null || true
     echo "[Setup] Removing quarantine attributes..."
-    xattr -cr "$SCRIPT_DIR/python_embeded" 2>/dev/null || true
+    xattr -cr "$SCRIPT_DIR/python_embedded" 2>/dev/null || true
     echo "[Setup] Re-signing binaries (ad-hoc)..."
-    find "$SCRIPT_DIR/python_embeded" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) \
+    find "$SCRIPT_DIR/python_embedded" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) \
         -exec codesign --force --sign - {} \; 2>/dev/null || true
 
-    if "$SCRIPT_DIR/python_embeded/bin/python3.11" -c "pass" 2>/dev/null; then
+    if "$SCRIPT_DIR/python_embedded/bin/python3.11" -c "pass" 2>/dev/null; then
         echo "[Environment] Using embedded Python."
-        PYTHON_EXE="$SCRIPT_DIR/python_embeded/bin/python3.11"
+        PYTHON_EXE="$SCRIPT_DIR/python_embedded/bin/python3.11"
         SCRIPT_PATH="$SCRIPT_DIR/acestep/acestep_v15_pipeline.py"
 
         # On Apple Silicon, verify MLX packages work with this macOS version.
-        # python_embeded may ship wheels built for a different macOS; pip
+        # python_embedded may ship wheels built for a different macOS; pip
         # reinstall fetches the correct platform wheel automatically.
         if [[ "$ARCH" == "arm64" ]]; then
             _need_mlx_fix=0

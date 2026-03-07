@@ -121,11 +121,11 @@ echo API Documentation: http://%HOST%:%PORT%/docs
 echo.
 
 REM Auto-detect Python environment
-if exist "%~dp0python_embeded\python.exe" (
+if exist "%~dp0python_embedded\python.exe" (
     echo [Environment] Using embedded Python...
 
     REM Build command with optional parameters
-    set "PYTHON_EXE=%~dp0python_embeded\python.exe"
+    set "PYTHON_EXE=%~dp0python_embedded\python.exe"
     set "SCRIPT_PATH=%~dp0acestep\api_server.py"
     set "CMD=--host %HOST% --port %PORT%"
     if not "%API_KEY%"=="" set "CMD=!CMD! %API_KEY%"
@@ -145,7 +145,7 @@ if exist "%~dp0python_embeded\python.exe" (
         echo ========================================
         echo.
         echo ACE-Step requires either:
-        echo   1. python_embeded directory ^(portable package^)
+        echo   1. python_embedded directory ^(portable package^)
         echo   2. uv package manager
         echo.
         echo Would you like to install uv now? ^(Recommended^)

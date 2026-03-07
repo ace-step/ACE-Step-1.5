@@ -33,7 +33,7 @@ _CHECKPOINT_TO_VARIANT: Dict[str, str] = {
     "acestep-v15-turbo-shift3": "turbo",
     "acestep-v15-turbo-continuous": "turbo",
     "acestep-v15-turbo-fix-inst-shift3": "turbo",
-    "acestep-v15-turbo-fix-inst-shift-continous": "turbo",
+    "acestep-v15-turbo-fix-inst-shift-continuous": "turbo",
     "acestep-v15-turbo-fix-inst-shift-dynamic": "turbo",
     "acestep-v15-turbo-rl": "turbo",
 }

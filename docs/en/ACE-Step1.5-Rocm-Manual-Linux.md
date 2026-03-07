@@ -14,10 +14,10 @@ sudo pacman -S python311 git
 git clone https://github.com/ace-step/ACE-Step-1.5.git
 cd ACE-Step-1.5/ 
 
-#Create the virtual python enviroment with python Version 3.11
+#Create the virtual python environment with python Version 3.11
 python3.11 -m venv .venv
 
-#activate the enviroment in the terminal
+#activate the environment in the terminal
 source .venv/bin/activate
 
 #install pytorch requirements

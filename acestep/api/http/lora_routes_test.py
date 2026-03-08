@@ -7,24 +7,13 @@ from typing import Any, Dict
 from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 
+from acestep.api._test_support import wrap_response as _wrap_response, noop_verify_api_key as _verify_api_key
 from acestep.api.http.lora_routes import (
     LoadLoRARequest,
     SetLoRAScaleRequest,
     ToggleLoRARequest,
     register_lora_routes,
 )
-
-
-def _wrap_response(data: Any, code: int = 200, error: str | None = None) -> Dict[str, Any]:
-    """Return response envelope matching api_server wrapper contract."""
-
-    return {"data": data, "code": code, "error": error}
-
-
-async def _verify_api_key(_: str | None = None) -> None:
-    """Test no-op auth dependency."""
-
-    return None
 
 
 def _get_route_endpoint(app: FastAPI, path: str, method: str):

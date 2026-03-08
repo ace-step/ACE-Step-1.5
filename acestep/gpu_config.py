@@ -52,6 +52,7 @@ def is_mps_platform() -> bool:
 
         return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
     except Exception:
+        logger.debug("MPS platform check failed", exc_info=True)
         return False
 
 
@@ -62,6 +63,7 @@ def is_cuda_available() -> bool:
 
         return torch.cuda.is_available()
     except Exception:
+        logger.debug("CUDA availability check failed", exc_info=True)
         return False
 
 
@@ -72,6 +74,7 @@ def is_mps_available() -> bool:
 
         return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
     except Exception:
+        logger.debug("MPS availability check failed", exc_info=True)
         return False
 
 
@@ -82,6 +85,7 @@ def is_xpu_available() -> bool:
 
         return hasattr(torch, "xpu") and torch.xpu.is_available()
     except Exception:
+        logger.debug("XPU availability check failed", exc_info=True)
         return False
 
 
@@ -102,7 +106,50 @@ def is_rocm_available() -> bool:
             and torch.version.hip is not None
         )
     except Exception:
+        logger.debug("ROCm availability check failed", exc_info=True)
         return False
+
+
+def resolve_device(requested: str = "auto") -> str:
+    """Resolve a device string to the best available hardware accelerator.
+
+    When *requested* is ``"auto"``, the priority order is
+    CUDA > MPS > XPU > CPU (matching the established convention).
+
+    When a specific device is requested but unavailable, a fallback chain
+    is tried and a warning is logged.  The function never raises; it always
+    returns a usable device string.
+    """
+    _AVAILABLE = {
+        "cuda": is_cuda_available,
+        "mps": is_mps_available,
+        "xpu": is_xpu_available,
+    }
+    _PRIORITY = ["cuda", "mps", "xpu"]
+
+    def _first_available() -> str:
+        for dev in _PRIORITY:
+            if _AVAILABLE[dev]():
+                return dev
+        return "cpu"
+
+    if requested == "auto":
+        return _first_available()
+
+    # Specific device requested -- check availability.
+    check = _AVAILABLE.get(requested)
+    if check is None or check():
+        # Unknown device (let PyTorch handle it) or device is available.
+        return requested
+
+    # Requested device unavailable -- try fallbacks.
+    fallback = _first_available()
+    logger.warning(
+        "[resolve_device] {} requested but unavailable. Falling back to {}.",
+        requested.upper(),
+        fallback.upper(),
+    )
+    return fallback
 
 
 # ===========================================================================

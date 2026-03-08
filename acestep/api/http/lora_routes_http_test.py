@@ -3,23 +3,11 @@
 import unittest
 from typing import Any, Dict
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from acestep.api._test_support import wrap_response as _wrap_response, bearer_verify_api_key as _verify_api_key
 from acestep.api.http.lora_routes import register_lora_routes
-
-
-def _wrap_response(data: Any, code: int = 200, error: str | None = None) -> Dict[str, Any]:
-    """Return response envelope matching API server contract."""
-
-    return {"data": data, "code": code, "error": error}
-
-
-async def _verify_api_key(authorization: str | None = Header(None)) -> None:
-    """Require a fixed bearer token for integration tests."""
-
-    if authorization != "Bearer test-token":
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 class _FakeHandler:

@@ -8,19 +8,8 @@ from unittest import mock
 from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 
+from acestep.api._test_support import wrap_response as _wrap_response, noop_verify_api_key as _verify_api_key
 from acestep.api.http.reinitialize_route import register_reinitialize_route
-
-
-def _wrap_response(data, code=200, error=None):
-    """Return an ``api_server``-compatible response envelope dict."""
-
-    return {"data": data, "code": code, "error": error}
-
-
-async def _verify_api_key(_: str | None = None) -> None:
-    """Return ``None`` as a no-op auth dependency for unit tests."""
-
-    return None
 
 
 def _get_endpoint(app: FastAPI, path: str, method: str):

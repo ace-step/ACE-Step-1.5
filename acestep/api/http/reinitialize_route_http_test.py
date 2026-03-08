@@ -5,25 +5,13 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from acestep.api._test_support import wrap_response as _wrap_response, bearer_verify_api_key as _verify_api_key
 from acestep.api.http.reinitialize_route import register_reinitialize_route
 
 _NON_EXISTENT_TEST_ROOT = str(Path.cwd() / "non-existent-test-root")
-
-
-def _wrap_response(data, code=200, error=None):
-    """Return an ``api_server``-compatible response envelope dict."""
-
-    return {"data": data, "code": code, "error": error}
-
-
-async def _verify_api_key(authorization: str | None = Header(None)) -> None:
-    """Validate a fixed bearer token and return ``None`` on success."""
-
-    if authorization != "Bearer test-token":
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 class ReinitializeRouteHttpTests(unittest.TestCase):

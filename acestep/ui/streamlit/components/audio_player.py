@@ -42,7 +42,7 @@ def audio_player_widget(audio_path: str, label: str = "Audio", show_download: bo
             minutes = int(duration // 60)
             seconds = int(duration % 60)
             st.metric("Duration", f"{minutes}m {seconds}s")
-        except:
+        except Exception:
             st.metric("Duration", "Unknown")
     
     with col3:

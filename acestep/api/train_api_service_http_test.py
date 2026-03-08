@@ -3,27 +3,15 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 import unittest
 from unittest import mock
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from acestep.api._test_support import wrap_response as _wrap_response, bearer_verify_api_key as _verify_api_key
 from acestep.api.train_api_service import register_training_api_routes
-
-
-def _wrap_response(data: Any, code: int = 200, error: Optional[str] = None) -> Dict[str, Any]:
-    """Return API-compatible response envelope for tests."""
-
-    return {"data": data, "code": code, "error": error}
-
-
-async def _verify_api_key(authorization: str | None = Header(None)) -> None:
-    """Require fixed bearer token for test requests."""
-
-    if authorization != "Bearer test-token":
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @contextmanager

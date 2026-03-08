@@ -6,32 +6,11 @@ import time
 import unittest
 from types import SimpleNamespace
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
+from acestep.api._test_support import wrap_response as _wrap_response, noop_verify_api_key as _verify_token_from_request
 from acestep.api.http.query_result_route import register_query_result_route
-
-
-def _wrap_response(data, code=200, error=None):
-    """Return an ``api_server``-compatible response envelope dict."""
-
-    return {
-        "data": data,
-        "code": code,
-        "error": error,
-        "timestamp": int(time.time() * 1000),
-        "extra": None,
-    }
-
-
-def _verify_token_from_request(body: dict, authorization: str | None = None) -> None:
-    """Validate a fixed body/header token for route unit tests."""
-
-    if (body or {}).get("ai_token") == "test-token":
-        return
-    if authorization == "Bearer test-token":
-        return
-    raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def _map_status(status: str) -> int:

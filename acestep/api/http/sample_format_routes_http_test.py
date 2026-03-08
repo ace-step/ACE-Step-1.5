@@ -7,13 +7,8 @@ from types import SimpleNamespace
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from acestep.api._test_support import wrap_response as _wrap_response
 from acestep.api.http.sample_format_routes import register_sample_format_routes
-
-
-def _wrap_response(data, code=200, error=None):
-    """Return an ``api_server``-compatible response envelope dict."""
-
-    return {"data": data, "code": code, "error": error}
 
 
 def _verify_token_from_request(body: dict, authorization: str | None = None) -> None:

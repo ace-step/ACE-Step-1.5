@@ -148,7 +148,7 @@ class GenerationParams:
     lm_negative_prompt: str = "NO USER INPUT"
     use_cot_metas: bool = True
     use_cot_caption: bool = True
-    use_cot_lyrics: bool = False  # TODO: not used yet
+    use_cot_lyrics: bool = False  # Reserved for future use
     use_cot_language: bool = True
     use_constrained_decoding: bool = True
 

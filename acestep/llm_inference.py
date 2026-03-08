@@ -9,13 +9,12 @@ import time
 import random
 import warnings
 from typing import Optional, Dict, Any, Tuple, List, Union
-from contextlib import contextmanager
 
 import yaml
 import torch
 from loguru import logger
 from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer
 from transformers.generation.streamers import BaseStreamer
 from transformers.generation.logits_process import (
     LogitsProcessorList,
@@ -23,12 +22,34 @@ from transformers.generation.logits_process import (
 )
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config, resolve_device
+from acestep.lm_output_parser import parse_lm_output as _parse_lm_output
+from acestep.lm_prompts import (
+    build_formatted_prompt as _build_formatted_prompt,
+    build_formatted_prompt_for_format as _build_formatted_prompt_for_format,
+    build_formatted_prompt_for_inspiration as _build_formatted_prompt_for_inspiration,
+    build_formatted_prompt_for_understanding as _build_formatted_prompt_for_understanding,
+    build_formatted_prompt_with_cot as _build_formatted_prompt_with_cot,
+    has_meaningful_negative_prompt as _has_meaningful_negative_prompt,
+)
 
-# Minimum free VRAM (GB) required to attempt vLLM initialization.
-# vLLM's KV cache allocator adapts to available memory, so we only need a
-# basic sanity check — not a hard total-VRAM gate.
-VRAM_SAFE_FREE_GB = 2.0
+# Re-export constants from the canonical location for backward compatibility.
+from acestep.llm.constants import (  # noqa: F401
+    BYTES_PER_GB,
+    CODES_PER_SECOND,
+    CODES_PHASE_TOKEN_BUFFER,
+    COT_PHASE_TOKEN_BUFFER,
+    DEFAULT_MAX_MODEL_LEN,
+    LOW_GPU_MAX_MODEL_LEN,
+    MODEL_LEN_HEADROOM,
+    VRAM_SAFE_FREE_GB,
+)
+
+# Backend mixins (imported here so LLMHandler can inherit from them).
+from acestep.llm.mlx_backend import MlxBackendMixin
+from acestep.llm.memory import MemoryMixin
+from acestep.llm.pt_backend import PytorchBackendMixin
+from acestep.llm.vllm_backend import VllmBackendMixin
 
 
 def _warn_if_prerelease_python():
@@ -43,8 +64,20 @@ def _warn_if_prerelease_python():
         )
 
 
-class LLMHandler:
-    """5Hz LM Handler for audio code generation"""
+class LLMHandler(
+    VllmBackendMixin,
+    PytorchBackendMixin,
+    MlxBackendMixin,
+    MemoryMixin,
+):
+    """5Hz LM Handler for audio code generation.
+
+    Backend-specific methods are provided by mixins:
+    - VllmBackendMixin  (vllm_backend.py)
+    - PytorchBackendMixin  (pt_backend.py)
+    - MlxBackendMixin  (mlx_backend.py)
+    - MemoryMixin  (memory.py)
+    """
 
     STOP_REASONING_TAG = "</think>"
 
@@ -57,7 +90,7 @@ class LLMHandler:
         self.llm_tokenizer = None
         self.llm_initialized = False
         self.llm_backend = None
-        self.max_model_len = 4096
+        self.max_model_len = DEFAULT_MAX_MODEL_LEN
         self.device = "cpu"
         self.dtype = torch.float32
         self.offload_to_cpu = False
@@ -162,7 +195,7 @@ class LLMHandler:
         try:
             device = torch.device("cuda:0")
             total_gpu_mem_bytes = torch.cuda.get_device_properties(device).total_memory
-            total_gpu = total_gpu_mem_bytes / 1024**3
+            total_gpu = total_gpu_mem_bytes / BYTES_PER_GB
 
             low_gpu_memory_mode = False
 
@@ -179,7 +212,7 @@ class LLMHandler:
 
             # Fallback to original logic if no model_path provided
             reserved_mem_bytes = torch.cuda.memory_reserved(device)
-            reserved_gpu = reserved_mem_bytes / 1024**3
+            reserved_gpu = reserved_mem_bytes / BYTES_PER_GB
             available_gpu = total_gpu - reserved_gpu
 
             if total_gpu < minimal_gpu:
@@ -236,29 +269,29 @@ class LLMHandler:
                 pass  # Fallback to DURATION_MAX if GPU config unavailable
 
             effective_duration = max(DURATION_MIN, min(gpu_max_dur, target_duration))
-            target_codes = int(effective_duration * 5)
+            target_codes = int(effective_duration * CODES_PER_SECOND)
             if generation_phase == "codes":
                 # Codes phase: CoT already in prompt, only audio codes generated.
                 # Constrained decoder forces EOS at target_codes, so small buffer suffices.
-                max_new_tokens = target_codes + 10
+                max_new_tokens = target_codes + CODES_PHASE_TOKEN_BUFFER
             else:
                 # CoT phase or mixed: add larger buffer for metadata overhead.
-                max_new_tokens = target_codes + 500
+                max_new_tokens = target_codes + COT_PHASE_TOKEN_BUFFER
         else:
             if fallback_max is not None:
                 max_new_tokens = fallback_max
             else:
-                max_new_tokens = getattr(self, "max_model_len", 4096) - 64
+                max_new_tokens = getattr(self, "max_model_len", DEFAULT_MAX_MODEL_LEN) - MODEL_LEN_HEADROOM
 
         # Cap at model's max length
         if hasattr(self, "max_model_len"):
-            max_new_tokens = min(max_new_tokens, self.max_model_len - 64)
+            max_new_tokens = min(max_new_tokens, self.max_model_len - MODEL_LEN_HEADROOM)
 
         return max_new_tokens
 
     def _has_meaningful_negative_prompt(self, negative_prompt: str) -> bool:
         """Check if negative prompt is meaningful (not default/empty)"""
-        return negative_prompt and negative_prompt.strip() and negative_prompt.strip() != "NO USER INPUT"
+        return _has_meaningful_negative_prompt(negative_prompt)
 
     def _build_logits_processor(self, repetition_penalty: float) -> LogitsProcessorList:
         """Build logits processor list with repetition penalty if needed"""
@@ -346,23 +379,6 @@ class LLMHandler:
             return self.build_formatted_prompt(
                 caption, lyrics, is_negative_prompt=True, generation_phase="cot", negative_prompt=negative_prompt
             )
-
-    def _load_pytorch_model(self, model_path: str, device: str) -> Tuple[bool, str]:
-        """Load PyTorch model from path and return (success, status_message)"""
-        try:
-            self.llm = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
-            if not self.offload_to_cpu:
-                self.llm = self.llm.to(device).to(self.dtype)
-            else:
-                self.llm = self.llm.to("cpu").to(self.dtype)
-            self.llm.eval()
-            self.llm_backend = "pt"
-            self.llm_initialized = True
-            logger.info(f"5Hz LM initialized successfully using PyTorch backend on {device}")
-            status_msg = f"✅ 5Hz LM initialized successfully\nModel: {model_path}\nBackend: PyTorch\nDevice: {device}"
-            return True, status_msg
-        except Exception as e:
-            return False, f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
 
     def _apply_top_k_filter(self, logits: torch.Tensor, top_k: Optional[int]) -> torch.Tensor:
         """Apply top-k filtering to logits"""
@@ -469,629 +485,190 @@ class LLMHandler:
             (status_message, success)
         """
         try:
-            if device == "auto":
-                if torch.cuda.is_available():
-                    device = "cuda"
-                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    device = "mps"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    device = "xpu"
-                else:
-                    device = "cpu"
-            elif device == "cuda" and not torch.cuda.is_available():
-                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    logger.warning("[initialize] CUDA requested but unavailable. Falling back to MPS.")
-                    device = "mps"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    logger.warning("[initialize] CUDA requested but unavailable. Falling back to XPU.")
-                    device = "xpu"
-                else:
-                    logger.warning("[initialize] CUDA requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
-            elif device == "mps" and not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
-                if torch.cuda.is_available():
-                    logger.warning("[initialize] MPS requested but unavailable. Falling back to CUDA.")
-                    device = "cuda"
-                elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                    logger.warning("[initialize] MPS requested but unavailable. Falling back to XPU.")
-                    device = "xpu"
-                else:
-                    logger.warning("[initialize] MPS requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
-            elif device == "xpu" and not (hasattr(torch, 'xpu') and torch.xpu.is_available()):
-                if torch.cuda.is_available():
-                    logger.warning("[initialize] XPU requested but unavailable. Falling back to CUDA.")
-                    device = "cuda"
-                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    logger.warning("[initialize] XPU requested but unavailable. Falling back to MPS.")
-                    device = "mps"
-                else:
-                    logger.warning("[initialize] XPU requested but unavailable. Falling back to CPU.")
-                    device = "cpu"
-
+            device = resolve_device(device)
             self.device = device
             self.offload_to_cpu = offload_to_cpu
+            self.dtype = self._resolve_dtype(device, dtype)
 
-            # Set dtype based on device: bfloat16 for cuda/xpu, float32 for mps/cpu
-            # Note: LLM stays in float32 on MPS because autoregressive generation is
-            # latency-bound (not compute-bound), and many LLM weights trained in bfloat16
-            # produce NaN/inf when naively converted to float16 (different exponent range).
-            # The DiT and VAE use float16 on MPS where it actually helps throughput.
-            if dtype is None:
-                if device in ["cuda", "xpu"]:
-                    self.dtype = torch.bfloat16
-                else:
-                    self.dtype = torch.float32
-            else:
-                self.dtype = dtype
-                # Keep LM in float32 on MPS for stability.
-                if device == "mps" and self.dtype != torch.float32:
-                    logger.warning(
-                        f"[initialize] Overriding requested dtype {self.dtype} to float32 for LM on MPS."
-                    )
-                    self.dtype = torch.float32
-
-            # If lm_model_path is None, use default
-            if lm_model_path is None:
-                lm_model_path = "acestep-5Hz-lm-1.7B"
-                logger.info(f"[initialize] lm_model_path is None, using default: {lm_model_path}")
-
-            full_lm_model_path = os.path.join(checkpoint_dir, lm_model_path)
+            full_lm_model_path = self._resolve_model_path(checkpoint_dir, lm_model_path)
             if not os.path.exists(full_lm_model_path):
                 return f"❌ 5Hz LM model not found at {full_lm_model_path}", False
 
-            # Proactive CUDA cleanup before LM load to reduce fragmentation on mode/model switch
+            # Proactive CUDA cleanup before LM load
             if device == "cuda" and torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
 
-            logger.info("loading 5Hz LM tokenizer... it may take 80~90s")
-            start_time = time.time()
-            # TODO: load tokenizer too slow, not found solution yet
-            llm_tokenizer = AutoTokenizer.from_pretrained(full_lm_model_path, use_fast=True)
-            logger.info(f"5Hz LM tokenizer loaded successfully in {time.time() - start_time:.2f} seconds")
-            self.llm_tokenizer = llm_tokenizer
+            self._load_tokenizer(full_lm_model_path)
+            self._init_constrained_processor()
 
-            # Initialize shared constrained decoding processor (one-time initialization)
-            # Use GPU-based max_duration to limit duration values in constrained decoding
-            logger.info("Initializing constrained decoding processor...")
-            processor_start = time.time()
-
-            gpu_config = get_global_gpu_config()
-            # Use max_duration_with_lm since LM is being initialized
-            max_duration_for_constraint = gpu_config.max_duration_with_lm
-            logger.info(f"Setting constrained decoding max_duration to {max_duration_for_constraint}s based on GPU config (tier: {gpu_config.tier})")
-
-            self.constrained_processor = MetadataConstrainedLogitsProcessor(
-                tokenizer=self.llm_tokenizer,
-                enabled=True,
-                debug=False,
-                max_duration=max_duration_for_constraint,
-            )
-            logger.info(f"Constrained processor initialized in {time.time() - processor_start:.2f} seconds")
-
-            # Disable CUDA/HIP graph capture on ROCm (unverified on RDNA3 Windows)
-            # and on Jetson (SDPA paged-cache decode calls .item() during capture).
-            is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
-            is_jetson = False
-            if device == "cuda" and torch.cuda.is_available():
-                try:
-                    dev_name = torch.cuda.get_device_name(0).lower()
-                    is_jetson = any(k in dev_name for k in ("orin", "xavier", "tegra"))
-                    if is_jetson:
-                        logger.info(f"Jetson GPU detected ({dev_name}): disabling CUDA graph capture for nano-vllm")
-                except Exception:
-                    pass
-            enforce_eager_for_vllm = bool(is_rocm or is_jetson)
-
-            # Auto-detect best backend on Apple Silicon
-            if backend == "mlx" or (backend == "vllm" and device == "mps"):
-                # On Apple Silicon, prefer MLX (native acceleration) over PyTorch MPS
-                if self._is_mlx_available():
-                    logger.info("Attempting MLX backend for Apple Silicon acceleration...")
-                    mlx_success, mlx_status = self._load_mlx_model(full_lm_model_path)
-                    if mlx_success:
-                        return mlx_status, True
-                    else:
-                        logger.warning(f"MLX backend failed: {mlx_status}")
-                        if backend == "mlx":
-                            # User explicitly requested MLX, fall back to PyTorch
-                            logger.warning("MLX explicitly requested but failed, falling back to PyTorch backend")
-                            success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
-                            if not success:
-                                return status_msg, False
-                            status_msg = f"✅ 5Hz LM initialized (PyTorch fallback from MLX)\nModel: {full_lm_model_path}\nBackend: PyTorch"
-                            return status_msg, True
-                        # else: backend was "vllm" on MPS, continue to vllm attempt below
-                elif backend == "mlx":
-                    logger.warning("MLX not available (requires Apple Silicon + mlx-lm package)")
-                    # Fall back to PyTorch
-                    success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
-                    if not success:
-                        return status_msg, False
-                    status_msg = f"✅ 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
-                    return status_msg, True
-
-            if backend == "vllm" and device != "cuda":
-                logger.info(
-                    f"[initialize] vllm backend requires CUDA, using PyTorch backend for device={device}."
-                )
-                backend = "pt"
-
-            # Initialize based on user-selected backend
-            if backend == "vllm":
-                _warn_if_prerelease_python()
-                total_gb = get_gpu_memory_gb() if device == "cuda" else 0.0
-                free_gb = 0.0
-                if device == "cuda" and torch.cuda.is_available():
-                    try:
-                        if hasattr(torch.cuda, "mem_get_info"):
-                            free_bytes, _ = torch.cuda.mem_get_info()
-                            free_gb = free_bytes / (1024**3)
-                        else:
-                            total_bytes = torch.cuda.get_device_properties(0).total_memory
-                            free_gb = (total_bytes - torch.cuda.memory_reserved(0)) / (1024**3)
-                    except Exception:
-                        free_gb = 0.0
-                if device == "cuda" and free_gb < VRAM_SAFE_FREE_GB:
-                    logger.warning(
-                        f"vLLM disabled due to insufficient free VRAM (total={total_gb:.2f}GB, free={free_gb:.2f}GB, need>={VRAM_SAFE_FREE_GB}GB free) — falling back to PyTorch backend"
-                    )
-                    success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
-                    if not success:
-                        return status_msg, False
-                    status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
-                else:
-                    status_msg = self._initialize_5hz_lm_vllm(
-                        full_lm_model_path,
-                        enforce_eager=enforce_eager_for_vllm,
-                    )
-                    logger.info(f"5Hz LM status message: {status_msg}")
-                    if status_msg.startswith("❌"):
-                        if not self.llm_initialized:
-                            if device == "mps" and self._is_mlx_available():
-                                logger.warning("vllm failed on MPS, trying MLX backend...")
-                                mlx_success, mlx_status = self._load_mlx_model(full_lm_model_path)
-                                if mlx_success:
-                                    return mlx_status, True
-                                logger.warning(f"MLX also failed: {mlx_status}, falling back to PyTorch")
-                            logger.warning("Falling back to PyTorch backend")
-                            success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
-                            if not success:
-                                return status_msg, False
-                            status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
-            elif backend != "mlx":
-                success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
-                if not success:
-                    return status_msg, False
-
-            return status_msg, True
+            return self._initialize_backend(backend, device, full_lm_model_path)
 
         except Exception as e:
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
 
-    def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False) -> str:
-        """Initialize 5Hz LM model using vllm backend. When enforce_eager is True, CUDA graph
-        capture is disabled (required when LoRA training may run in the same process)."""
-        if not torch.cuda.is_available():
-            self.llm_initialized = False
-            logger.error("CUDA/ROCm is not available. Please check your GPU setup.")
-            return "❌ CUDA/ROCm is not available. Please check your GPU setup."
+    # ----- initialize() helpers -----
+
+    def _resolve_dtype(self, device: str, dtype: Optional[torch.dtype]) -> torch.dtype:
+        """Pick the best dtype for the LM on *device*."""
+        if dtype is None:
+            return torch.bfloat16 if device in ("cuda", "xpu") else torch.float32
+        # Keep LM in float32 on MPS for stability.
+        if device == "mps" and dtype != torch.float32:
+            logger.warning(
+                f"[initialize] Overriding requested dtype {dtype} to float32 for LM on MPS."
+            )
+            return torch.float32
+        return dtype
+
+    @staticmethod
+    def _resolve_model_path(checkpoint_dir: str, lm_model_path: Optional[str]) -> str:
+        if lm_model_path is None:
+            lm_model_path = "acestep-5Hz-lm-1.7B"
+            logger.info(f"[initialize] lm_model_path is None, using default: {lm_model_path}")
+        return os.path.join(checkpoint_dir, lm_model_path)
+
+    def _load_tokenizer(self, full_lm_model_path: str) -> None:
+        logger.info("loading 5Hz LM tokenizer... it may take 80~90s")
+        start_time = time.time()
+        self.llm_tokenizer = AutoTokenizer.from_pretrained(full_lm_model_path, use_fast=True)
+        logger.info(f"5Hz LM tokenizer loaded successfully in {time.time() - start_time:.2f} seconds")
+
+    def _init_constrained_processor(self) -> None:
+        logger.info("Initializing constrained decoding processor...")
+        processor_start = time.time()
+        gpu_config = get_global_gpu_config()
+        max_duration_for_constraint = gpu_config.max_duration_with_lm
+        logger.info(
+            f"Setting constrained decoding max_duration to {max_duration_for_constraint}s "
+            f"based on GPU config (tier: {gpu_config.tier})"
+        )
+        self.constrained_processor = MetadataConstrainedLogitsProcessor(
+            tokenizer=self.llm_tokenizer,
+            enabled=True,
+            debug=False,
+            max_duration=max_duration_for_constraint,
+        )
+        logger.info(f"Constrained processor initialized in {time.time() - processor_start:.2f} seconds")
+
+    @staticmethod
+    def _should_enforce_eager(device: str) -> bool:
+        """Check if CUDA graph capture should be disabled (ROCm / Jetson)."""
+        is_rocm = hasattr(torch.version, "hip") and torch.version.hip is not None
+        is_jetson = False
+        if device == "cuda" and torch.cuda.is_available():
+            try:
+                dev_name = torch.cuda.get_device_name(0).lower()
+                is_jetson = any(k in dev_name for k in ("orin", "xavier", "tegra"))
+                if is_jetson:
+                    logger.info(f"Jetson GPU detected ({dev_name}): disabling CUDA graph capture")
+            except Exception:
+                pass
+        return bool(is_rocm or is_jetson)
+
+    def _initialize_backend(
+        self, backend: str, device: str, model_path: str
+    ) -> Tuple[str, bool]:
+        """Dispatch to the appropriate backend (MLX → vLLM → PyTorch)."""
+        # MLX path (Apple Silicon)
+        if backend == "mlx" or (backend == "vllm" and device == "mps"):
+            result = self._try_mlx_backend(backend, device, model_path)
+            if result is not None:
+                return result
+            # If MLX didn't conclusively handle it, fall through to vllm/pt.
+
+        # vLLM requires CUDA
+        if backend == "vllm" and device != "cuda":
+            logger.info(f"[initialize] vllm requires CUDA, using PyTorch for device={device}.")
+            backend = "pt"
+
+        if backend == "vllm":
+            return self._try_vllm_backend(device, model_path)
+
+        if backend != "mlx":
+            return self._try_pytorch_backend(model_path, device)
+
+        # Should not be reached; MLX path handles its own return.
+        return "❌ No suitable backend found.", False
+
+    def _try_mlx_backend(
+        self, backend: str, device: str, model_path: str
+    ) -> Optional[Tuple[str, bool]]:
+        """Attempt MLX; return result tuple or *None* to fall through."""
+        if self._is_mlx_available():
+            logger.info("Attempting MLX backend for Apple Silicon acceleration...")
+            mlx_success, mlx_status = self._load_mlx_model(model_path)
+            if mlx_success:
+                return mlx_status, True
+            logger.warning(f"MLX backend failed: {mlx_status}")
+            if backend == "mlx":
+                logger.warning("MLX explicitly requested but failed, falling back to PyTorch")
+                return self._try_pytorch_backend(model_path, device, label="PyTorch fallback from MLX")
+            return None  # fall through to vllm/pt
+        if backend == "mlx":
+            logger.warning("MLX not available (requires Apple Silicon + mlx-lm package)")
+            return self._try_pytorch_backend(model_path, device, label="PyTorch fallback, MLX not available")
+        return None
+
+    def _try_vllm_backend(self, device: str, model_path: str) -> Tuple[str, bool]:
+        """Try vLLM, falling back to PyTorch on failure."""
+        _warn_if_prerelease_python()
+
+        free_gb = self._get_free_gpu_gb(device)
+        if device == "cuda" and free_gb < VRAM_SAFE_FREE_GB:
+            total_gb = get_gpu_memory_gb()
+            logger.warning(
+                f"vLLM disabled: insufficient free VRAM "
+                f"(total={total_gb:.2f}GB, free={free_gb:.2f}GB, need>={VRAM_SAFE_FREE_GB}GB) "
+                f"— falling back to PyTorch"
+            )
+            return self._try_pytorch_backend(model_path, device, label="PyTorch fallback")
+
+        enforce_eager = self._should_enforce_eager(device)
+        status_msg = self._initialize_5hz_lm_vllm(model_path, enforce_eager=enforce_eager)
+        logger.info(f"5Hz LM status message: {status_msg}")
+
+        if not status_msg.startswith("❌"):
+            return status_msg, True
+
+        # vLLM failed -- attempt fallbacks.
+        if not self.llm_initialized:
+            if device == "mps" and self._is_mlx_available():
+                logger.warning("vllm failed on MPS, trying MLX backend...")
+                mlx_ok, mlx_status = self._load_mlx_model(model_path)
+                if mlx_ok:
+                    return mlx_status, True
+                logger.warning(f"MLX also failed: {mlx_status}, falling back to PyTorch")
+            logger.warning("Falling back to PyTorch backend")
+            return self._try_pytorch_backend(model_path, device, label="PyTorch fallback")
+
+        return status_msg, True
+
+    def _try_pytorch_backend(
+        self, model_path: str, device: str, label: str = "PyTorch"
+    ) -> Tuple[str, bool]:
+        """Load via PyTorch, returning a standard result tuple."""
+        success, status_msg = self._load_pytorch_model(model_path, device)
+        if not success:
+            return status_msg, False
+        return (
+            f"✅ 5Hz LM initialized successfully ({label})\n"
+            f"Model: {model_path}\nBackend: PyTorch"
+        ), True
+
+    @staticmethod
+    def _get_free_gpu_gb(device: str) -> float:
+        """Return free GPU memory in GB (0.0 if unavailable)."""
+        if device != "cuda" or not torch.cuda.is_available():
+            return 0.0
         try:
-            from nanovllm import LLM, SamplingParams
-        except ImportError:
-            self.llm_initialized = False
-            logger.error("nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .")
-            return "❌ nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install ."
-
-        try:
-            current_device = torch.cuda.current_device()
-            device_name = torch.cuda.get_device_name(current_device)
-
-            torch.cuda.empty_cache()
-            self._cleanup_torch_distributed_state()
-
-            # Use adaptive GPU memory utilization based on model size
-            gpu_memory_utilization, low_gpu_memory_mode = self.get_gpu_memory_utilization(
-                model_path=model_path,
-                minimal_gpu=3,
-                min_ratio=0.1,
-                max_ratio=0.9
-            )
-
-            if low_gpu_memory_mode:
-                self.max_model_len = 2048
-            else:
-                self.max_model_len = 4096
-
-            logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: {enforce_eager}, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
-            start_time = time.time()
-            self.llm = LLM(
-                model=model_path,
-                enforce_eager=enforce_eager,
-                tensor_parallel_size=1,
-                max_model_len=self.max_model_len,
-                gpu_memory_utilization=gpu_memory_utilization,
-                tokenizer=self.llm_tokenizer,
-            )
-            logger.info(f"5Hz LM initialized successfully in {time.time() - start_time:.2f} seconds")
-            self.llm_initialized = True
-            self.llm_backend = "vllm"
-            return f"✅ 5Hz LM initialized successfully\nModel: {model_path}\nDevice: {device_name}\nGPU Memory Utilization: {gpu_memory_utilization:.3f}\nLow GPU Memory Mode: {low_gpu_memory_mode}"
-        except Exception as e:
-            self.llm_initialized = False
-            return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-
-    def _run_vllm(
-        self,
-        formatted_prompts: Union[str, List[str]],
-        temperature: float,
-        cfg_scale: float,
-        negative_prompt: str,
-        top_k: Optional[int],
-        top_p: Optional[float],
-        repetition_penalty: float,
-        use_constrained_decoding: bool = True,
-        constrained_decoding_debug: bool = False,
-        metadata_temperature: Optional[float] = None,
-        codes_temperature: Optional[float] = None,
-        target_duration: Optional[float] = None,
-        user_metadata: Optional[Dict[str, Optional[str]]] = None,
-        stop_at_reasoning: bool = False,
-        skip_genres: bool = True,
-        skip_caption: bool = False,
-        skip_language: bool = False,
-        generation_phase: str = "cot",
-        caption: str = "",
-        lyrics: str = "",
-        cot_text: str = "",
-        seeds: Optional[List[int]] = None,
-    ) -> Union[str, List[str]]:
-        """
-        Unified vllm generation function supporting both single and batch modes.
-        Accepts either a single formatted prompt (str) or a list of formatted prompts (List[str]).
-        Returns a single string for single mode, or a list of strings for batch mode.
-        """
-        from nanovllm import SamplingParams
-
-        # Determine if batch mode
-        formatted_prompt_list, is_batch = self._normalize_batch_input(formatted_prompts)
-        batch_size = len(formatted_prompt_list)
-
-        # Determine effective temperature for sampler
-        # Batch mode doesn't support phase temperatures, so use simple temperature
-        # Single mode supports phase temperatures
-        use_phase_temperatures = not is_batch and (metadata_temperature is not None or codes_temperature is not None)
-        effective_sampler_temp = 1.0 if use_phase_temperatures else temperature
-
-        # Setup constrained processor
-        constrained_processor = self._setup_constrained_processor(
-            use_constrained_decoding=use_constrained_decoding or use_phase_temperatures,
-            constrained_decoding_debug=constrained_decoding_debug,
-            target_duration=target_duration,
-            user_metadata=user_metadata,
-            stop_at_reasoning=stop_at_reasoning,
-            skip_genres=skip_genres,
-            skip_caption=skip_caption,
-            skip_language=skip_language,
-            generation_phase=generation_phase,
-            is_batch=is_batch,
-            metadata_temperature=metadata_temperature,
-            codes_temperature=codes_temperature,
-        )
-
-        # Calculate max_tokens based on target_duration and generation phase
-        max_tokens = self._compute_max_new_tokens(
-            target_duration=target_duration,
-            generation_phase=generation_phase,
-            fallback_max=self.max_model_len - 64,
-        )
-
-        sampling_params = SamplingParams(
-            max_tokens=max_tokens,
-            temperature=effective_sampler_temp,
-            cfg_scale=cfg_scale,
-            top_k=top_k,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
-            logits_processor=constrained_processor,
-            logits_processor_update_state=constrained_processor.update_state if constrained_processor else None,
-        )
-
-        if cfg_scale > 1.0:
-            # Build unconditional prompt based on generation phase
-            formatted_unconditional_prompt = self._build_unconditional_prompt(
-                caption=caption,
-                lyrics=lyrics,
-                cot_text=cot_text,
-                negative_prompt=negative_prompt,
-                generation_phase=generation_phase,
-                is_batch=is_batch,
-            )
-            unconditional_prompts = [formatted_unconditional_prompt] * batch_size
-
-            outputs = self.llm.generate(
-                formatted_prompt_list,
-                sampling_params,
-                unconditional_prompts=unconditional_prompts,
-            )
-        else:
-            outputs = self.llm.generate(formatted_prompt_list, sampling_params)
-
-        # Extract text from outputs
-        output_texts = []
-        for output in outputs:
-            if hasattr(output, "outputs") and len(output.outputs) > 0:
-                output_texts.append(output.outputs[0].text)
-            elif hasattr(output, "text"):
-                output_texts.append(output.text)
-            elif isinstance(output, dict) and "text" in output:
-                output_texts.append(output["text"])
-            else:
-                output_texts.append(str(output))
-
-        # Return single string for single mode, list for batch mode
-        return output_texts[0] if not is_batch else output_texts
-
-    def _run_pt_single(
-        self,
-        formatted_prompt: str,
-        temperature: float,
-        cfg_scale: float,
-        negative_prompt: str,
-        top_k: Optional[int],
-        top_p: Optional[float],
-        repetition_penalty: float,
-        use_constrained_decoding: bool,
-        constrained_decoding_debug: bool,
-        target_duration: Optional[float],
-        user_metadata: Optional[Dict[str, Optional[str]]],
-        stop_at_reasoning: bool,
-        skip_genres: bool,
-        skip_caption: bool,
-        skip_language: bool,
-        generation_phase: str,
-        caption: str,
-        lyrics: str,
-        cot_text: str,
-    ) -> str:
-        """Internal helper function for single-item PyTorch generation."""
-        inputs = self.llm_tokenizer(
-            formatted_prompt,
-            return_tensors="pt",
-            padding=False,
-            truncation=True,
-        )
-
-        # Setup constrained processor
-        constrained_processor = self._setup_constrained_processor(
-            use_constrained_decoding=use_constrained_decoding,
-            constrained_decoding_debug=constrained_decoding_debug,
-            target_duration=target_duration,
-            user_metadata=user_metadata,
-            stop_at_reasoning=stop_at_reasoning,
-            skip_genres=skip_genres,
-            skip_caption=skip_caption,
-            skip_language=skip_language,
-            generation_phase=generation_phase,
-            is_batch=False,
-        )
-
-        with self._load_model_context():
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-
-            # Calculate max_new_tokens based on target_duration and generation phase
-            max_new_tokens = self._compute_max_new_tokens(
-                target_duration=target_duration,
-                generation_phase=generation_phase,
-                fallback_max=getattr(self.llm.config, "max_new_tokens", 4096),
-            )
-
-            # Build logits processor list (only for CFG and repetition penalty)
-            logits_processor = self._build_logits_processor(repetition_penalty)
-
-            if cfg_scale > 1.0:
-                # Build unconditional prompt based on generation phase
-                formatted_unconditional_prompt = self._build_unconditional_prompt(
-                    caption=caption,
-                    lyrics=lyrics,
-                    cot_text=cot_text,
-                    negative_prompt=negative_prompt,
-                    generation_phase=generation_phase,
-                    is_batch=False,
-                )
-
-                # Tokenize both prompts together to ensure same length (with left padding)
-                # Left padding is important for generation tasks
-                batch_texts = [formatted_prompt, formatted_unconditional_prompt]
-                original_padding_side = self.llm_tokenizer.padding_side
-                self.llm_tokenizer.padding_side = 'left'
-                batch_inputs_tokenized = self.llm_tokenizer(
-                    batch_texts,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                )
-                self.llm_tokenizer.padding_side = original_padding_side
-                batch_inputs_tokenized = {k: v.to(self.device) for k, v in batch_inputs_tokenized.items()}
-
-                # Extract batch inputs
-                batch_input_ids = batch_inputs_tokenized['input_ids']
-                batch_attention_mask = batch_inputs_tokenized.get('attention_mask', None)
-
-                # Use custom CFG generation loop with constrained decoding
-                outputs = self._generate_with_cfg_custom(
-                    batch_input_ids=batch_input_ids,
-                    batch_attention_mask=batch_attention_mask,
-                    max_new_tokens=max_new_tokens,
-                    temperature=temperature,
-                    cfg_scale=cfg_scale,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    pad_token_id=self.llm_tokenizer.pad_token_id or self.llm_tokenizer.eos_token_id,
-                    streamer=None,
-                    constrained_processor=constrained_processor,
-                )
-
-                # Extract only the conditional output (first in batch)
-                outputs = outputs[0:1]  # Keep only conditional output
-            elif use_constrained_decoding:
-                # Use custom constrained decoding loop for non-CFG
-                outputs = self._generate_with_constrained_decoding(
-                    input_ids=inputs["input_ids"],
-                    attention_mask=inputs.get("attention_mask"),
-                    max_new_tokens=max_new_tokens,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    pad_token_id=self.llm_tokenizer.pad_token_id or self.llm_tokenizer.eos_token_id,
-                    streamer=None,
-                    constrained_processor=constrained_processor,
-                )
-            else:
-                # Generate without CFG using native generate() parameters
-                with torch.inference_mode():
-                    outputs = self.llm.generate(
-                        **inputs,
-                        max_new_tokens=max_new_tokens,
-                        temperature=temperature if temperature > 0 else 1.0,
-                        do_sample=True if temperature > 0 else False,
-                        top_k=top_k if top_k is not None and top_k > 0 else None,
-                        top_p=top_p if top_p is not None and 0.0 < top_p < 1.0 else None,
-                        logits_processor=logits_processor if len(logits_processor) > 0 else None,
-                        pad_token_id=self.llm_tokenizer.pad_token_id or self.llm_tokenizer.eos_token_id,
-                        streamer=None,
-                    )
-
-        # Decode the generated tokens
-        # outputs is a tensor with shape [batch_size, seq_len], extract first sequence
-        if isinstance(outputs, torch.Tensor):
-            if outputs.dim() == 2:
-                generated_ids = outputs[0]
-            else:
-                generated_ids = outputs
-        else:
-            generated_ids = outputs[0]
-
-        # Only decode the newly generated tokens (skip the input prompt)
-        # Use the original input length (before batch processing for CFG)
-        if cfg_scale > 1.0:
-            # In CFG case, we need to use the conditional input length from batch_inputs_tokenized
-            # Both sequences have the same length due to padding
-            input_length = batch_inputs_tokenized['input_ids'].shape[1]
-        else:
-            input_length = inputs["input_ids"].shape[1]
-
-        generated_ids = generated_ids[input_length:]
-
-        # Move to CPU for decoding (tokenizer needs CPU tensors)
-        if generated_ids.device.type != "cpu":
-            generated_ids = generated_ids.cpu()
-
-        output_text = self.llm_tokenizer.decode(generated_ids, skip_special_tokens=False)
-        return output_text
-
-    def _run_pt(
-        self,
-        formatted_prompts: Union[str, List[str]],
-        temperature: float,
-        cfg_scale: float,
-        negative_prompt: str,
-        top_k: Optional[int],
-        top_p: Optional[float],
-        repetition_penalty: float,
-        use_constrained_decoding: bool = True,
-        constrained_decoding_debug: bool = False,
-        target_duration: Optional[float] = None,
-        user_metadata: Optional[Dict[str, Optional[str]]] = None,
-        stop_at_reasoning: bool = False,
-        skip_genres: bool = True,
-        skip_caption: bool = False,
-        skip_language: bool = False,
-        generation_phase: str = "cot",
-        caption: str = "",
-        lyrics: str = "",
-        cot_text: str = "",
-        seeds: Optional[List[int]] = None,
-    ) -> Union[str, List[str]]:
-        """
-        Unified PyTorch generation function supporting both single and batch modes.
-        Accepts either a single formatted prompt (str) or a list of formatted prompts (List[str]).
-        Returns a single string for single mode, or a list of strings for batch mode.
-        Note: PyTorch backend processes batch items sequentially (doesn't support true batching efficiently).
-        """
-        # Determine if batch mode
-        formatted_prompt_list, is_batch = self._normalize_batch_input(formatted_prompts)
-
-        # For batch mode, process each item sequentially with different seeds.
-        # Wrap the entire loop in a single _load_model_context() so the model
-        # loads to GPU once and offloads once, instead of per-item.
-        if is_batch:
-            output_texts = []
-
-            with self._load_model_context():
-                for i, formatted_prompt in enumerate(formatted_prompt_list):
-                    # Set seed for this item if provided
-                    if seeds and i < len(seeds):
-                        torch.manual_seed(seeds[i])
-                        if torch.cuda.is_available():
-                            torch.cuda.manual_seed_all(seeds[i])
-                        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                            torch.mps.manual_seed(seeds[i])
-
-                    # Generate using single-item method with batch-mode defaults
-                    output_text = self._run_pt_single(
-                        formatted_prompt=formatted_prompt,
-                        temperature=temperature,
-                        cfg_scale=cfg_scale,
-                        negative_prompt=negative_prompt,
-                        top_k=top_k,
-                        top_p=top_p,
-                        repetition_penalty=repetition_penalty,
-                        use_constrained_decoding=use_constrained_decoding,
-                        constrained_decoding_debug=constrained_decoding_debug,
-                        target_duration=target_duration,
-                        user_metadata=None,
-                        stop_at_reasoning=False,
-                        skip_genres=True,
-                        skip_caption=True,
-                        skip_language=True,
-                        generation_phase=generation_phase,
-                        caption=caption,
-                        lyrics=lyrics,
-                        cot_text=cot_text,
-                    )
-
-                    output_texts.append(output_text)
-
-            return output_texts
-
-        # Single mode: process the formatted prompt
-        formatted_prompt = formatted_prompt_list[0]
-
-        return self._run_pt_single(
-            formatted_prompt=formatted_prompt,
-            temperature=temperature,
-            cfg_scale=cfg_scale,
-            negative_prompt=negative_prompt,
-            top_k=top_k,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
-            use_constrained_decoding=use_constrained_decoding,
-            constrained_decoding_debug=constrained_decoding_debug,
-            target_duration=target_duration,
-            user_metadata=user_metadata,
-            stop_at_reasoning=stop_at_reasoning,
-            skip_genres=skip_genres,
-            skip_caption=skip_caption,
-            skip_language=skip_language,
-            generation_phase=generation_phase,
-            caption=caption,
-            lyrics=lyrics,
-            cot_text=cot_text,
-        )
+            if hasattr(torch.cuda, "mem_get_info"):
+                free_bytes, _ = torch.cuda.mem_get_info()
+                return free_bytes / BYTES_PER_GB
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+            return (total_bytes - torch.cuda.memory_reserved(0)) / BYTES_PER_GB
+        except Exception:
+            return 0.0
 
     def has_all_metas(self, user_metadata: Optional[Dict[str, Optional[str]]]) -> bool:
         """Check if all required metadata are present."""
@@ -1495,161 +1072,48 @@ class LLMHandler:
             }
 
     def build_formatted_prompt(self, caption: str, lyrics: str = "", is_negative_prompt: bool = False, generation_phase: str = "cot", negative_prompt: str = "NO USER INPUT") -> str:
-        """
-        Build the chat-formatted prompt for 5Hz LM from caption/lyrics.
-        Raises a ValueError if the tokenizer is not initialized.
+        """Build the chat-formatted prompt for 5Hz LM.
 
-        Args:
-            caption: Caption text
-            lyrics: Lyrics text
-            is_negative_prompt: If True, builds unconditional prompt for CFG
-            generation_phase: "cot" or "codes" - affects unconditional prompt format
-            negative_prompt: Negative prompt for CFG (used when is_negative_prompt=True)
-
-        Example:
-            prompt = handler.build_formatted_prompt("calm piano", "hello world")
+        Delegates to :func:`acestep.lm_prompts.build_formatted_prompt`.
         """
         if self.llm_tokenizer is None:
             raise ValueError("LLM tokenizer is not initialized. Call initialize() first.")
-
-        if is_negative_prompt:
-            # Unconditional prompt for CFG
-            # Check if user provided a meaningful negative prompt (not the default)
-            has_negative_prompt = self._has_meaningful_negative_prompt(negative_prompt)
-
-            if generation_phase == "cot":
-                # CoT phase unconditional prompt
-                if has_negative_prompt:
-                    # If negative prompt provided, use it as caption
-                    prompt = f"# Caption\n{negative_prompt}\n\n# Lyric\n{lyrics}\n"
-                else:
-                    # No negative prompt: remove caption, keep only lyrics
-                    prompt = f"# Lyric\n{lyrics}\n"
-            else:
-                # Codes phase: will be handled by build_formatted_prompt_with_cot
-                # For backward compatibility, use simple caption as before
-                prompt = caption
-        else:
-            # Conditional prompt: include both caption and lyrics
-            prompt = f"# Caption\n{caption}\n\n# Lyric\n{lyrics}\n"
-
-        return self.llm_tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": f"# Instruction\n{DEFAULT_LM_INSTRUCTION}\n\n"},
-                {"role": "user", "content": prompt},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
+        return _build_formatted_prompt(
+            self.llm_tokenizer, caption, lyrics,
+            is_negative_prompt=is_negative_prompt,
+            generation_phase=generation_phase,
+            negative_prompt=negative_prompt,
         )
 
     def build_formatted_prompt_with_cot(self, caption: str, lyrics: str, cot_text: str, is_negative_prompt: bool = False, negative_prompt: str = "NO USER INPUT") -> str:
-        """
-        Build the chat-formatted prompt for codes generation phase with pre-generated CoT.
+        """Build codes-generation prompt with pre-generated CoT.
 
-        Args:
-            caption: Caption text
-            lyrics: Lyrics text
-            cot_text: Pre-generated CoT text (e.g., "<think>\\nbpm: 120\\n...\\n</think>")
-            is_negative_prompt: If True, uses empty CoT for CFG unconditional prompt
-            negative_prompt: Negative prompt for CFG (used when is_negative_prompt=True)
-
-        Returns:
-            Formatted prompt string
-
-        Example:
-            cot = "<think>\\nbpm: 120\\ncaption: calm piano\\n...\\n</think>"
-            prompt = handler.build_formatted_prompt_with_cot("calm piano", "hello", cot)
+        Delegates to :func:`acestep.lm_prompts.build_formatted_prompt_with_cot`.
         """
         if self.llm_tokenizer is None:
             raise ValueError("LLM tokenizer is not initialized. Call initialize() first.")
-
-        if is_negative_prompt:
-            # Unconditional prompt for codes phase
-            # Check if user provided a meaningful negative prompt
-            has_negative_prompt = self._has_meaningful_negative_prompt(negative_prompt)
-
-            # Use empty CoT for unconditional
-            cot_for_prompt = "<think>\n</think>"
-
-            if has_negative_prompt:
-                # If negative prompt provided, use it as caption
-                caption_for_prompt = negative_prompt
-            else:
-                # No negative prompt: use original caption
-                caption_for_prompt = caption
-        else:
-            # Conditional prompt: use the full CoT and original caption
-            cot_for_prompt = cot_text
-            caption_for_prompt = caption
-
-        # Build user prompt with caption and lyrics ONLY (no COT)
-        # COT should be in the assistant's message, not user's
-        user_prompt = f"# Caption\n{caption_for_prompt}\n\n# Lyric\n{lyrics}\n"
-
-        # Build the chat with assistant message containing the COT
-        # The model will continue generation after the COT
-        formatted = self.llm_tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": f"# Instruction\n{DEFAULT_LM_INSTRUCTION}\n\n"},
-                {"role": "user", "content": user_prompt},
-                {"role": "assistant", "content": cot_for_prompt},
-            ],
-            tokenize=False,
-            add_generation_prompt=False,  # Don't add generation prompt, COT is already in assistant
+        return _build_formatted_prompt_with_cot(
+            self.llm_tokenizer, caption, lyrics, cot_text,
+            is_negative_prompt=is_negative_prompt,
+            negative_prompt=negative_prompt,
         )
-
-        # Add a newline after </think> so model generates audio codes on next line
-        if not formatted.endswith('\n'):
-            formatted += '\n'
-
-        return formatted
 
     def build_formatted_prompt_for_understanding(
         self,
         audio_codes: str,
         is_negative_prompt: bool = False,
-        negative_prompt: str = "NO USER INPUT"
+        negative_prompt: str = "NO USER INPUT",
     ) -> str:
-        """
-        Build the chat-formatted prompt for audio understanding from codes.
+        """Build the prompt for audio understanding (codes -> metadata).
 
-        This is the reverse of generation: given audio codes, generate metadata and lyrics.
-
-        Args:
-            audio_codes: Audio code string (e.g., "<|audio_code_123|><|audio_code_456|>...")
-            is_negative_prompt: If True, builds unconditional prompt for CFG
-            negative_prompt: Negative prompt for CFG (used when is_negative_prompt=True)
-
-        Returns:
-            Formatted prompt string
-
-        Example:
-            codes = "<|audio_code_18953|><|audio_code_13833|>..."
-            prompt = handler.build_formatted_prompt_for_understanding(codes)
+        Delegates to :func:`acestep.lm_prompts.build_formatted_prompt_for_understanding`.
         """
         if self.llm_tokenizer is None:
             raise ValueError("LLM tokenizer is not initialized. Call initialize() first.")
-
-        # For understanding task, user provides audio codes
-        # Unconditional prompt uses negative_prompt or empty string
-        if is_negative_prompt:
-            user_content = negative_prompt if negative_prompt and negative_prompt.strip() else ""
-        else:
-            user_content = audio_codes
-
-        return self.llm_tokenizer.apply_chat_template(
-            [
-                {
-                    "role": "system",
-                    "content": f"# Instruction\n{DEFAULT_LM_UNDERSTAND_INSTRUCTION}\n\n"
-                },
-                {
-                    "role": "user",
-                    "content": user_content
-                },
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
+        return _build_formatted_prompt_for_understanding(
+            self.llm_tokenizer, audio_codes,
+            is_negative_prompt=is_negative_prompt,
+            negative_prompt=negative_prompt,
         )
 
     def understand_audio_from_codes(
@@ -1795,53 +1259,19 @@ class LLMHandler:
         query: str,
         instrumental: bool = False,
         is_negative_prompt: bool = False,
-        negative_prompt: str = "NO USER INPUT"
+        negative_prompt: str = "NO USER INPUT",
     ) -> str:
-        """
-        Build the chat-formatted prompt for inspiration/simple mode.
+        """Build the prompt for inspiration/simple mode.
 
-        This generates a complete sample (caption, lyrics, metadata) from a user's
-        natural language music description query.
-
-        Args:
-            query: User's natural language music description
-            instrumental: Whether to generate instrumental music (no vocals)
-            is_negative_prompt: If True, builds unconditional prompt for CFG
-            negative_prompt: Negative prompt for CFG (used when is_negative_prompt=True)
-
-        Returns:
-            Formatted prompt string
-
-        Example:
-            query = "a soft Bengali love song for a quiet evening"
-            prompt = handler.build_formatted_prompt_for_inspiration(query, instrumental=False)
+        Delegates to :func:`acestep.lm_prompts.build_formatted_prompt_for_inspiration`.
         """
         if self.llm_tokenizer is None:
             raise ValueError("LLM tokenizer is not initialized. Call initialize() first.")
-
-        # Build user content with query and instrumental flag
-        instrumental_str = "true" if instrumental else "false"
-
-        if is_negative_prompt:
-            # For CFG unconditional prompt
-            user_content = negative_prompt if negative_prompt and negative_prompt.strip() else ""
-        else:
-            # Normal prompt: query + instrumental flag
-            user_content = f"{query}\n\ninstrumental: {instrumental_str}"
-
-        return self.llm_tokenizer.apply_chat_template(
-            [
-                {
-                    "role": "system",
-                    "content": f"# Instruction\n{DEFAULT_LM_INSPIRED_INSTRUCTION}\n\n"
-                },
-                {
-                    "role": "user",
-                    "content": user_content
-                },
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
+        return _build_formatted_prompt_for_inspiration(
+            self.llm_tokenizer, query,
+            instrumental=instrumental,
+            is_negative_prompt=is_negative_prompt,
+            negative_prompt=negative_prompt,
         )
 
     def create_sample_from_query(
@@ -1971,51 +1401,18 @@ class LLMHandler:
         caption: str,
         lyrics: str,
         is_negative_prompt: bool = False,
-        negative_prompt: str = "NO USER INPUT"
+        negative_prompt: str = "NO USER INPUT",
     ) -> str:
-        """
-        Build the chat-formatted prompt for format/rewrite mode.
+        """Build the prompt for format/rewrite mode.
 
-        This formats user-provided caption and lyrics into a more detailed and specific
-        musical description with metadata.
-
-        Args:
-            caption: User's caption/description of the music
-            lyrics: User's lyrics
-            is_negative_prompt: If True, builds unconditional prompt for CFG
-            negative_prompt: Negative prompt for CFG (used when is_negative_prompt=True)
-
-        Returns:
-            Formatted prompt string
-
-        Example:
-            caption = "Latin pop, reggaeton, flamenco-pop"
-            lyrics = "[Verse 1]\\nTengo un nudo..."
-            prompt = handler.build_formatted_prompt_for_format(caption, lyrics)
+        Delegates to :func:`acestep.lm_prompts.build_formatted_prompt_for_format`.
         """
         if self.llm_tokenizer is None:
             raise ValueError("LLM tokenizer is not initialized. Call initialize() first.")
-
-        if is_negative_prompt:
-            # For CFG unconditional prompt
-            user_content = negative_prompt if negative_prompt and negative_prompt.strip() else ""
-        else:
-            # Normal prompt: caption + lyrics
-            user_content = f"# Caption\n{caption}\n\n# Lyric\n{lyrics}"
-
-        return self.llm_tokenizer.apply_chat_template(
-            [
-                {
-                    "role": "system",
-                    "content": f"# Instruction\n{DEFAULT_LM_REWRITE_INSTRUCTION}\n\n"
-                },
-                {
-                    "role": "user",
-                    "content": user_content
-                },
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
+        return _build_formatted_prompt_for_format(
+            self.llm_tokenizer, caption, lyrics,
+            is_negative_prompt=is_negative_prompt,
+            negative_prompt=negative_prompt,
         )
 
     def format_sample_from_input(
@@ -2543,1453 +1940,12 @@ class LLMHandler:
         return generated_ids
 
     def parse_lm_output(self, output_text: str) -> Tuple[Dict[str, Any], str]:
+        """Parse LM output to extract metadata and audio codes.
+
+        Delegates to :func:`acestep.lm_output_parser.parse_lm_output`.
         """
-        Parse LM output to extract metadata and audio codes.
-
-        Expected format:
-        <think>
-        bpm: 73
-        caption: A calm piano melody
-        duration: 273
-        genres: Chinese folk
-        keyscale: G major
-        language: en
-        timesignature: 4
-        </think>
-
-        <|audio_code_56535|><|audio_code_62918|>...
-
-        Returns:
-            Tuple of (metadata_dict, audio_codes_string)
-        """
-        debug_output_text = output_text.split("</think>")[0]
-        logger.debug(f"Debug output text: {debug_output_text}")
-        metadata = {}
-        audio_codes = ""
-
-        import re
-
-        # Extract audio codes - find all <|audio_code_XXX|> patterns
-        code_pattern = r'<\|audio_code_\d+\|>'
-        code_matches = re.findall(code_pattern, output_text)
-        if code_matches:
-            audio_codes = "".join(code_matches)
-
-        # Extract metadata from reasoning section
-        # Try different reasoning tag patterns
-        reasoning_patterns = [
-            r'<think>(.*?)</think>',
-            r'<think>(.*?)</think>',
-            r'<reasoning>(.*?)</reasoning>',
-        ]
-
-        reasoning_text = None
-        for pattern in reasoning_patterns:
-            match = re.search(pattern, output_text, re.DOTALL)
-            if match:
-                reasoning_text = match.group(1).strip()
-                break
-
-        # If no reasoning tags found, try to parse metadata from the beginning of output
-        if not reasoning_text:
-            # Look for metadata lines before audio codes
-            lines_before_codes = output_text.split('<|audio_code_')[0] if '<|audio_code_' in output_text else output_text
-            reasoning_text = lines_before_codes.strip()
-
-        # Parse metadata fields with YAML multi-line value support
-        if reasoning_text:
-            lines = reasoning_text.split('\n')
-            current_key = None
-            current_value_lines = []
-
-            def save_current_field():
-                """Save the accumulated field value"""
-                nonlocal current_key, current_value_lines
-                if current_key and current_value_lines:
-                    # Join multi-line value
-                    value = '\n'.join(current_value_lines)
-
-                    if current_key == 'bpm':
-                        try:
-                            metadata['bpm'] = int(value.strip())
-                        except:
-                            metadata['bpm'] = value.strip()
-                    elif current_key == 'caption':
-                        # Post-process caption to remove YAML multi-line formatting
-                        metadata['caption'] = MetadataConstrainedLogitsProcessor.postprocess_caption(value)
-                    elif current_key == 'duration':
-                        try:
-                            metadata['duration'] = int(value.strip())
-                        except:
-                            metadata['duration'] = value.strip()
-                    elif current_key == 'genres':
-                        metadata['genres'] = value.strip()
-                    elif current_key == 'keyscale':
-                        metadata['keyscale'] = value.strip()
-                    elif current_key == 'language':
-                        metadata['language'] = value.strip()
-                    elif current_key == 'timesignature':
-                        metadata['timesignature'] = value.strip()
-
-                current_key = None
-                current_value_lines = []
-
-            for line in lines:
-                # Skip lines starting with '<' (tags)
-                if line.strip().startswith('<'):
-                    continue
-
-                # Check if this is a new field (no leading spaces and contains ':')
-                if line and not line[0].isspace() and ':' in line:
-                    # Save previous field if any
-                    save_current_field()
-
-                    # Parse new field
-                    parts = line.split(':', 1)
-                    if len(parts) == 2:
-                        current_key = parts[0].strip().lower()
-                        # First line of value (after colon)
-                        first_value = parts[1]
-                        if first_value.strip():
-                            current_value_lines.append(first_value)
-                elif line.startswith(' ') or line.startswith('\t'):
-                    # Continuation line (YAML multi-line value)
-                    if current_key:
-                        current_value_lines.append(line)
-
-            # Don't forget to save the last field
-            save_current_field()
-
-        return metadata, audio_codes
-
-    # =========================================================================
-    # MLX Backend Methods (Apple Silicon native acceleration)
-    # =========================================================================
-
-    @staticmethod
-    def _is_mlx_available() -> bool:
-        """Check if MLX framework is available (Apple Silicon).
-
-        Delegates to the cached ``mlx_available()`` helper to avoid
-        re-importing ``mlx.core`` when the native extension failed on
-        first load (which causes a fatal nanobind duplicate-enum crash).
-        """
-        try:
-            from acestep.models.mlx import mlx_available
-            if not mlx_available():
-                return False
-            import mlx_lm
-            return True
-        except Exception:
-            return False
-
-    def _load_mlx_model(self, model_path: str) -> Tuple[bool, str]:
-        """
-        Load the 5Hz LM model using mlx-lm for native Apple Silicon acceleration.
-
-        Args:
-            model_path: Path to the HuggingFace model directory
-
-        Returns:
-            Tuple of (success, status_message)
-        """
-        try:
-            import mlx.core as mx
-            from mlx_lm.utils import load as mlx_load
-
-            logger.info(f"Loading MLX model from {model_path}")
-            start_time = time.time()
-
-            # Try standard mlx-lm load first
-            try:
-                self._mlx_model, _ = mlx_load(model_path)
-            except Exception as first_err:
-                # The ACE-Step 5Hz LM checkpoints store safetensors keys without
-                # the "model." prefix (e.g. "layers.0.xxx" instead of
-                # "model.layers.0.xxx") which is what mlx-lm's Qwen3 model
-                # expects.  When the standard load fails we retry with the
-                # prefix remapped.
-                logger.info(
-                    f"Standard MLX load failed ({first_err}), "
-                    "retrying with 'model.' prefix remapping..."
-                )
-                import glob as _glob
-                from pathlib import Path
-                from mlx_lm.utils import load_model, load_config, load_tokenizer, _get_classes
-
-                _model_path = Path(model_path)
-                config = load_config(_model_path)
-
-                # Load raw weights from safetensors
-                weight_files = _glob.glob(str(_model_path / "model*.safetensors"))
-                if not weight_files:
-                    raise FileNotFoundError(f"No safetensors found in {model_path}") from first_err
-
-                weights = {}
-                for wf in weight_files:
-                    weights.update(mx.load(wf))
-
-                # Check if keys need "model." prefix by inspecting first key
-                sample_key = next(iter(weights))
-                if not sample_key.startswith("model."):
-                    logger.info("Adding 'model.' prefix to weight keys for MLX compatibility")
-                    weights = {f"model.{k}": v for k, v in weights.items()}
-
-                # Build model from config
-                model_class, model_args_class = _get_classes(config=config)
-                model_args = model_args_class.from_dict(config)
-                model = model_class(model_args)
-
-                if hasattr(model, "sanitize"):
-                    weights = model.sanitize(weights)
-
-                model.load_weights(list(weights.items()), strict=True)
-                mx.eval(model.parameters())
-                model.eval()
-                self._mlx_model = model
-
-            mx.eval(self._mlx_model.parameters())
-            # Store model path for get_hf_model_for_scoring
-            self._mlx_model_path = model_path
-
-            load_time = time.time() - start_time
-            logger.info(f"MLX model loaded successfully in {load_time:.2f}s")
-
-            self.llm_backend = "mlx"
-            self.llm_initialized = True
-            status_msg = (
-                f"✅ 5Hz LM initialized successfully\n"
-                f"Model: {model_path}\n"
-                f"Backend: MLX (Apple Silicon native)\n"
-                f"Device: Apple Silicon GPU"
-            )
-            return True, status_msg
-
-        except Exception as e:
-            import traceback
-            error_detail = traceback.format_exc()
-            logger.warning(f"Failed to load MLX model: {e}\n{error_detail}")
-            return False, f"❌ MLX load failed: {str(e)}"
-
-    def _make_mlx_cache(self):
-        """Create a KV cache for the MLX model."""
-        import mlx.core as mx
-        try:
-            from mlx_lm.models.cache import make_prompt_cache
-            return make_prompt_cache(self._mlx_model)
-        except (ImportError, AttributeError):
-            # Fallback: try model's own cache creation
-            try:
-                return self._mlx_model.make_cache()
-            except AttributeError:
-                raise RuntimeError(
-                    "Cannot create MLX KV cache. Ensure mlx-lm version >= 0.20.0"
-                )
-
-    def _run_mlx_batch_native(
-        self,
-        formatted_prompt: str,
-        batch_size: int,
-        temperature: float,
-        cfg_scale: float,
-        negative_prompt: str,
-        top_k: Optional[int],
-        top_p: Optional[float],
-        repetition_penalty: float,
-        use_constrained_decoding: bool,
-        constrained_decoding_debug: bool,
-        target_duration: Optional[float],
-        caption: str,
-        lyrics: str,
-        cot_text: str,
-        seeds: Optional[List[int]] = None,
-    ) -> List[str]:
-        """
-        Optimized native MLX batch generation for codes phase.
-
-        Strategy: shared prefill + clone cache + interleaved B=1 decode.
-
-        On Apple Silicon, LLM decode is memory-bandwidth-bound. Batching the
-        forward pass (B>1) doubles the KV cache reads per step and actually
-        *slows down* throughput for 1.7B-class models. Instead, we:
-
-        1. Prefill ONCE with B=1, then clone the KV caches for each item.
-           This saves ~50% of prefill time vs sequential generation.
-        2. Interleave B=1 forward passes across items within each step.
-           Each item gets its own cache, constrained state, and seed.
-
-        This achieves ~1.25x speedup over fully sequential generation while
-        maintaining the full ~44 tok/s per-item decode speed.
-
-        Only used for codes generation phase where all prompts are identical.
-        Raises on failure so the caller can fall back to sequential mode.
-        """
-        import mlx.core as mx
-        import numpy as np
-        from mlx_lm.models.cache import make_prompt_cache, KVCache
-        from mlx_lm.sample_utils import make_sampler
-
-        # ---- Tokenize (single prompt, shared by all items) ----
-        inputs = self.llm_tokenizer(
-            formatted_prompt,
-            return_tensors="np",
-            padding=False,
-            truncation=True,
-        )
-        input_ids_np = inputs["input_ids"]  # [1, seq_len]
-        prompt_length = input_ids_np.shape[1]
-        prompt = mx.array(input_ids_np[0])  # 1D [seq_len]
-
-        # ---- Calculate max_new_tokens ----
-        # Batch native is always codes phase
-        max_new_tokens = self._compute_max_new_tokens(
-            target_duration=target_duration,
-            generation_phase="codes",
+        return _parse_lm_output(
+            output_text,
+            postprocess_caption=MetadataConstrainedLogitsProcessor.postprocess_caption,
         )
 
-        # ---- EOS tokens ----
-        eos_token_id = self.llm_tokenizer.eos_token_id
-        pad_token_id = self.llm_tokenizer.pad_token_id or eos_token_id
-
-        # ---- Native MLX sampler ----
-        sampler = make_sampler(
-            temp=temperature if temperature > 0 else 0.0,
-            top_p=top_p if top_p is not None and 0.0 < top_p < 1.0 else 1.0,
-            top_k=top_k if top_k is not None and top_k > 0 else 0,
-        )
-
-        # ---- Repetition penalty config ----
-        use_rep_penalty = repetition_penalty != 1.0
-        rep_penalty_val = float(repetition_penalty)
-
-        use_cfg = cfg_scale > 1.0
-        cfg_label = "CFG " if use_cfg else ""
-        prefill_step_size = 2048
-
-        # ---- Pre-convert constrained masks to MLX (shared by all items) ----
-        from acestep.constrained_logits_processor import FSMState
-        _mlx_non_audio_mask = None
-        _mlx_eos_id = None
-        _target_codes = None
-
-        # Setup a temporary constrained processor to get masks
-        constrained_processor = self._setup_constrained_processor(
-            use_constrained_decoding=use_constrained_decoding,
-            constrained_decoding_debug=constrained_decoding_debug,
-            target_duration=target_duration,
-            user_metadata=None,
-            stop_at_reasoning=False,
-            skip_genres=True,
-            skip_caption=True,
-            skip_language=True,
-            generation_phase="codes",
-            is_batch=True,
-        )
-
-        if constrained_processor is not None:
-            if hasattr(constrained_processor, 'non_audio_code_mask') and constrained_processor.non_audio_code_mask is not None:
-                _mlx_non_audio_mask = mx.array(constrained_processor.non_audio_code_mask.float().numpy())
-            if hasattr(constrained_processor, 'eos_token_id') and constrained_processor.eos_token_id is not None:
-                _mlx_eos_id = int(constrained_processor.eos_token_id)
-            if hasattr(constrained_processor, 'target_codes'):
-                _target_codes = constrained_processor.target_codes
-
-            # Pre-transition FSM to CODES_GENERATION
-            if constrained_processor.state == FSMState.THINK_TAG:
-                if "</think>" in formatted_prompt:
-                    constrained_processor.state = FSMState.CODES_GENERATION
-                    constrained_processor.codes_count = 0
-
-        # ===== SHARED PREFILL PHASE (done ONCE for all batch items) =====
-        prefill_start = time.time()
-        logger.info(f"MLX batch native: prefilling once for {batch_size} items (shared prompt)")
-
-        def _clone_cache_list(cache_list):
-            """Deep-copy a list of KVCache objects so each batch item gets independent state."""
-            cloned = []
-            for c in cache_list:
-                new_c = KVCache()
-                if c.keys is not None:
-                    # mx.array(...) on an existing array creates a copy
-                    new_c.keys = mx.array(c.keys)
-                    new_c.values = mx.array(c.values)
-                    new_c.offset = c.offset
-                cloned.append(new_c)
-            return cloned
-
-        if use_cfg:
-            # Build unconditional prompt
-            uncond_text = self._build_unconditional_prompt(
-                caption=caption, lyrics=lyrics, cot_text=cot_text,
-                negative_prompt=negative_prompt, generation_phase="codes", is_batch=True,
-            )
-            uncond_inputs = self.llm_tokenizer(
-                uncond_text, return_tensors="np", padding=False, truncation=True,
-            )
-            uncond_prompt = mx.array(uncond_inputs["input_ids"][0])
-            uncond_length = len(uncond_prompt)
-
-            # Create single KV caches and prefill once
-            base_cond_cache = make_prompt_cache(self._mlx_model)
-            base_uncond_cache = make_prompt_cache(self._mlx_model)
-
-            # Chunked prefill for conditional prompt
-            cond_remaining = prompt
-            while len(cond_remaining) > 1:
-                chunk_size = min(prefill_step_size, len(cond_remaining) - 1)
-                self._mlx_model(cond_remaining[:chunk_size][None], cache=base_cond_cache)
-                mx.eval([c.state for c in base_cond_cache])
-                cond_remaining = cond_remaining[chunk_size:]
-                mx.clear_cache()
-
-            # Chunked prefill for unconditional prompt
-            uncond_remaining = uncond_prompt
-            while len(uncond_remaining) > 1:
-                chunk_size = min(prefill_step_size, len(uncond_remaining) - 1)
-                self._mlx_model(uncond_remaining[:chunk_size][None], cache=base_uncond_cache)
-                mx.eval([c.state for c in base_uncond_cache])
-                uncond_remaining = uncond_remaining[chunk_size:]
-                mx.clear_cache()
-
-            # Process last tokens of both prompts to get initial logits
-            base_cond_logits = self._mlx_model(cond_remaining[None], cache=base_cond_cache)
-            base_uncond_logits = self._mlx_model(uncond_remaining[None], cache=base_uncond_cache)
-            mx.eval(base_cond_logits, base_uncond_logits)
-
-            # Clone caches for each batch item (item 0 reuses the base cache)
-            item_cond_caches = [base_cond_cache]
-            item_uncond_caches = [base_uncond_cache]
-            for i in range(1, batch_size):
-                item_cond_caches.append(_clone_cache_list(base_cond_cache))
-                item_uncond_caches.append(_clone_cache_list(base_uncond_cache))
-            # Eval cloned caches
-            for i in range(1, batch_size):
-                mx.eval(*[c.keys for c in item_cond_caches[i] if c.keys is not None])
-                mx.eval(*[c.keys for c in item_uncond_caches[i] if c.keys is not None])
-
-            # Initial logits for each item (same values, but we need separate references)
-            item_last_cond = [base_cond_logits[:, -1:, :]] * batch_size
-            item_last_uncond = [base_uncond_logits[:, -1:, :]] * batch_size
-
-            prefill_time = time.time() - prefill_start
-            total_prefill_tokens = prompt_length + uncond_length
-            prefill_tps = total_prefill_tokens / prefill_time if prefill_time > 0 else 0
-            logger.info(
-                f"MLX batch native prefill: {total_prefill_tokens} tokens "
-                f"(cond={prompt_length}, uncond={uncond_length}) "
-                f"in {prefill_time:.2f}s ({prefill_tps:.1f} tok/s) "
-                f"[shared across {batch_size} items, saved {(batch_size-1)*total_prefill_tokens} redundant tokens]"
-            )
-        else:
-            # Non-CFG mode
-            base_cache = make_prompt_cache(self._mlx_model)
-            remaining = prompt
-            while len(remaining) > 1:
-                chunk_size = min(prefill_step_size, len(remaining) - 1)
-                self._mlx_model(remaining[:chunk_size][None], cache=base_cache)
-                mx.eval([c.state for c in base_cache])
-                remaining = remaining[chunk_size:]
-                mx.clear_cache()
-
-            base_logits = self._mlx_model(remaining[None], cache=base_cache)
-            mx.eval(base_logits)
-
-            item_caches = [base_cache]
-            for i in range(1, batch_size):
-                item_caches.append(_clone_cache_list(base_cache))
-            for i in range(1, batch_size):
-                mx.eval(*[c.keys for c in item_caches[i] if c.keys is not None])
-
-            item_last_logits = [base_logits[:, -1:, :]] * batch_size
-
-            prefill_time = time.time() - prefill_start
-            prefill_tps = prompt_length / prefill_time if prefill_time > 0 else 0
-            logger.info(
-                f"MLX batch native prefill: {prompt_length} tokens "
-                f"in {prefill_time:.2f}s ({prefill_tps:.1f} tok/s) "
-                f"[shared across {batch_size} items]"
-            )
-
-        # ===== INTERLEAVED AUTOREGRESSIVE GENERATION LOOP =====
-        # Each item has independent: tokens, codes_count, finished flag, KV cache, random key
-        # But they share: model weights, masks, sampler
-        #
-        # Why interleaved B=1 instead of true batch B=N?
-        # On Apple Silicon, LLM decode is memory-bandwidth-bound.
-        # B=2 doubles KV cache reads per step, causing ~3x slowdown per step
-        # for 1.7B models. Interleaved B=1 keeps the full ~44 tok/s speed
-        # while still sharing the prefill computation.
-        base_token_ids = list(input_ids_np[0])
-        item_all_token_ids = [list(base_token_ids) for _ in range(batch_size)]
-        item_new_tokens = [[] for _ in range(batch_size)]
-        item_codes_count = [0] * batch_size
-        item_finished = [False] * batch_size
-
-        # Pre-compute per-item seed bases (large primes to avoid correlation)
-        item_seed_bases = []
-        for i in range(batch_size):
-            if seeds and i < len(seeds):
-                item_seed_bases.append(seeds[i])
-            else:
-                item_seed_bases.append(42 + i * 1000003)
-
-        decode_start = time.time()
-        pbar = tqdm(total=max_new_tokens, desc=f"MLX {cfg_label}Batch Gen (native, n={batch_size})", unit="tok")
-
-        for step in range(max_new_tokens):
-            # Check if all items are done
-            if all(item_finished):
-                break
-
-            # Process each active item (interleaved B=1 forward passes)
-            for i in range(batch_size):
-                if item_finished[i]:
-                    continue
-
-                # ---- Set deterministic per-item seed for this step ----
-                # This ensures reproducibility: item i at step s always uses the same seed
-                mx.random.seed(item_seed_bases[i] + step * 1000003)
-
-                # ---- Combine logits (CFG) ----
-                if use_cfg:
-                    step_logits = item_last_uncond[i] + cfg_scale * (item_last_cond[i] - item_last_uncond[i])
-                else:
-                    step_logits = item_last_logits[i]
-
-                step_logits = step_logits.reshape(1, -1)  # [1, vocab_size]
-
-                # ---- Repetition penalty ----
-                if use_rep_penalty and len(item_all_token_ids[i]) > 0:
-                    token_indices = mx.array(item_all_token_ids[i])
-                    selected = step_logits[:, token_indices]
-                    modified = mx.where(
-                        selected > 0,
-                        selected / rep_penalty_val,
-                        selected * rep_penalty_val,
-                    )
-                    step_logits[:, token_indices] = modified
-
-                # ---- Constrained decoding (native MLX fast path) ----
-                if _mlx_non_audio_mask is not None:
-                    step_logits = step_logits + _mlx_non_audio_mask
-                if _target_codes is not None and _mlx_eos_id is not None:
-                    if item_codes_count[i] < _target_codes:
-                        step_logits = mx.concatenate([
-                            step_logits[:, :_mlx_eos_id],
-                            mx.array([[float('-inf')]]),
-                            step_logits[:, _mlx_eos_id + 1:],
-                        ], axis=1)
-                    else:
-                        eos_val = step_logits[:, _mlx_eos_id:_mlx_eos_id + 1]
-                        step_logits = mx.full(step_logits.shape, float('-inf'))
-                        step_logits = mx.concatenate([
-                            step_logits[:, :_mlx_eos_id],
-                            eos_val,
-                            step_logits[:, _mlx_eos_id + 1:],
-                        ], axis=1)
-
-                # ---- Sample ----
-                logprobs = step_logits - mx.logsumexp(step_logits, keepdims=True)
-                token_arr = sampler(logprobs)
-                mx.eval(token_arr)
-                token_id = token_arr.item()
-
-                item_new_tokens[i].append(token_id)
-                item_all_token_ids[i].append(token_id)
-
-                # Update codes count
-                item_codes_count[i] += 1
-
-                # Check EOS
-                if token_id == eos_token_id:
-                    item_finished[i] = True
-                    continue
-                if pad_token_id is not None and pad_token_id != eos_token_id and token_id == pad_token_id:
-                    item_finished[i] = True
-                    continue
-
-                # ---- Next forward step (B=1 per item) ----
-                next_input = mx.array([[token_id]])
-                if use_cfg:
-                    cond_logits = self._mlx_model(next_input, cache=item_cond_caches[i])
-                    uncond_logits = self._mlx_model(next_input, cache=item_uncond_caches[i])
-                    item_last_cond[i] = cond_logits[:, -1:, :]
-                    item_last_uncond[i] = uncond_logits[:, -1:, :]
-                else:
-                    logits_out = self._mlx_model(next_input, cache=item_caches[i])
-                    item_last_logits[i] = logits_out[:, -1:, :]
-
-            pbar.update(1)
-
-            # Periodic memory cleanup
-            if step % 256 == 0 and step > 0:
-                mx.clear_cache()
-
-        pbar.close()
-
-        # ---- Log generation summary ----
-        decode_time = time.time() - decode_start
-        total_tokens = sum(len(t) for t in item_new_tokens)
-        avg_tokens = total_tokens / batch_size if batch_size > 0 else 0
-        decode_tps = total_tokens / decode_time if decode_time > 0 else 0
-        total_time = prefill_time + decode_time
-        logger.info(
-            f"MLX batch native generation complete: {batch_size} items, "
-            f"{total_tokens} total tokens ({avg_tokens:.0f} avg) in {decode_time:.2f}s "
-            f"({decode_tps:.1f} tok/s) | prefill {prefill_time:.2f}s + decode {decode_time:.2f}s = {total_time:.2f}s total"
-        )
-
-        # Decode each item's tokens
-        output_texts = []
-        for i in range(batch_size):
-            output_text = self.llm_tokenizer.decode(item_new_tokens[i], skip_special_tokens=False)
-            output_texts.append(output_text)
-
-        return output_texts
-
-    def _run_mlx_single_native(
-        self,
-        formatted_prompt: str,
-        temperature: float,
-        cfg_scale: float,
-        negative_prompt: str,
-        top_k: Optional[int],
-        top_p: Optional[float],
-        repetition_penalty: float,
-        use_constrained_decoding: bool,
-        constrained_decoding_debug: bool,
-        target_duration: Optional[float],
-        user_metadata: Optional[Dict[str, Optional[str]]],
-        stop_at_reasoning: bool,
-        skip_genres: bool,
-        skip_caption: bool,
-        skip_language: bool,
-        generation_phase: str,
-        caption: str,
-        lyrics: str,
-        cot_text: str,
-    ) -> str:
-        """
-        Optimized native MLX generation using mlx-lm infrastructure.
-
-        Key improvements over the hybrid approach:
-        1. Native MLX sampling (temperature, top-k, top-p) via mlx-lm make_sampler
-           - Eliminates numpy/PyTorch round-trip for EVERY generated token
-        2. Native MLX repetition penalty (no per-step PyTorch conversion)
-        3. Chunked prefill for memory-efficient long prompt processing
-        4. Periodic memory cleanup (mx.clear_cache) matching mlx-lm patterns
-        5. Bridges to PyTorch ONLY for constrained decoding FSM when active
-
-        Raises on failure so the caller can fall back to the legacy hybrid method.
-        """
-        import mlx.core as mx
-        import numpy as np
-        from mlx_lm.models.cache import make_prompt_cache
-        from mlx_lm.sample_utils import make_sampler
-
-        # ---- Tokenize ----
-        inputs = self.llm_tokenizer(
-            formatted_prompt,
-            return_tensors="np",
-            padding=False,
-            truncation=True,
-        )
-        input_ids_np = inputs["input_ids"]  # [1, seq_len]
-        prompt_length = input_ids_np.shape[1]
-        prompt = mx.array(input_ids_np[0])  # 1D [seq_len]
-
-        # ---- Setup constrained processor ----
-        constrained_processor = self._setup_constrained_processor(
-            use_constrained_decoding=use_constrained_decoding,
-            constrained_decoding_debug=constrained_decoding_debug,
-            target_duration=target_duration,
-            user_metadata=user_metadata,
-            stop_at_reasoning=stop_at_reasoning,
-            skip_genres=skip_genres,
-            skip_caption=skip_caption,
-            skip_language=skip_language,
-            generation_phase=generation_phase,
-            is_batch=False,
-        )
-
-        # ---- Calculate max_new_tokens ----
-        max_new_tokens = self._compute_max_new_tokens(
-            target_duration=target_duration,
-            generation_phase=generation_phase,
-        )
-
-        # ---- EOS tokens ----
-        eos_token_id = self.llm_tokenizer.eos_token_id
-        pad_token_id = self.llm_tokenizer.pad_token_id or eos_token_id
-
-        # ---- Native MLX sampler (replaces PyTorch top-k/top-p/temperature) ----
-        sampler = make_sampler(
-            temp=temperature if temperature > 0 else 0.0,
-            top_p=top_p if top_p is not None and 0.0 < top_p < 1.0 else 1.0,
-            top_k=top_k if top_k is not None and top_k > 0 else 0,
-        )
-
-        # ---- Repetition penalty config ----
-        use_rep_penalty = repetition_penalty != 1.0
-        rep_penalty_val = float(repetition_penalty)
-
-        use_cfg = cfg_scale > 1.0
-        cfg_label = "CFG " if use_cfg else ""
-        tqdm_desc = f"MLX {cfg_label}Gen (native)"
-        prefill_step_size = 2048
-
-        # ---- Pre-convert constrained processor masks to MLX (one-time) ----
-        # This enables native MLX fast-path for CODES_GENERATION state,
-        # eliminating the PyTorch bridge for 99%+ of Phase 2 tokens.
-        from acestep.constrained_logits_processor import FSMState
-        _mlx_non_audio_mask = None
-        _mlx_eos_id = None
-        _target_codes = None
-        _use_native_codes_path = False
-
-        if constrained_processor is not None:
-            # Pre-convert the non-audio-code mask to MLX (blocks everything except audio codes + EOS)
-            if hasattr(constrained_processor, 'non_audio_code_mask') and constrained_processor.non_audio_code_mask is not None:
-                _mlx_non_audio_mask = mx.array(constrained_processor.non_audio_code_mask.float().numpy())
-            if hasattr(constrained_processor, 'eos_token_id') and constrained_processor.eos_token_id is not None:
-                _mlx_eos_id = int(constrained_processor.eos_token_id)
-            if hasattr(constrained_processor, 'target_codes'):
-                _target_codes = constrained_processor.target_codes
-
-            # For codes phase, the prompt already contains </think>.
-            # Pre-transition FSM to CODES_GENERATION so the native fast path
-            # activates from the very first generated token.
-            if generation_phase == "codes" and constrained_processor.state == FSMState.THINK_TAG:
-                if "</think>" in formatted_prompt:
-                    constrained_processor.state = FSMState.CODES_GENERATION
-                    constrained_processor.codes_count = 0
-                    _use_native_codes_path = True
-                    logger.info("MLX native: pre-transitioned FSM to CODES_GENERATION (native fast path)")
-
-        # ===== PREFILL PHASE =====
-        prefill_start = time.time()
-
-        if use_cfg:
-            # Build unconditional prompt
-            uncond_text = self._build_unconditional_prompt(
-                caption=caption,
-                lyrics=lyrics,
-                cot_text=cot_text,
-                negative_prompt=negative_prompt,
-                generation_phase=generation_phase,
-                is_batch=False,
-            )
-            uncond_inputs = self.llm_tokenizer(
-                uncond_text,
-                return_tensors="np",
-                padding=False,
-                truncation=True,
-            )
-            uncond_prompt = mx.array(uncond_inputs["input_ids"][0])
-            uncond_length = len(uncond_prompt)
-
-            # Create KV caches via mlx-lm infrastructure
-            cond_cache = make_prompt_cache(self._mlx_model)
-            uncond_cache = make_prompt_cache(self._mlx_model)
-
-            # Chunked prefill for conditional prompt
-            cond_remaining = prompt
-            while len(cond_remaining) > 1:
-                chunk_size = min(prefill_step_size, len(cond_remaining) - 1)
-                self._mlx_model(cond_remaining[:chunk_size][None], cache=cond_cache)
-                mx.eval([c.state for c in cond_cache])
-                cond_remaining = cond_remaining[chunk_size:]
-                mx.clear_cache()
-
-            # Chunked prefill for unconditional prompt
-            uncond_remaining = uncond_prompt
-            while len(uncond_remaining) > 1:
-                chunk_size = min(prefill_step_size, len(uncond_remaining) - 1)
-                self._mlx_model(uncond_remaining[:chunk_size][None], cache=uncond_cache)
-                mx.eval([c.state for c in uncond_cache])
-                uncond_remaining = uncond_remaining[chunk_size:]
-                mx.clear_cache()
-
-            # Process last tokens of both prompts
-            cond_logits = self._mlx_model(cond_remaining[None], cache=cond_cache)
-            uncond_logits = self._mlx_model(uncond_remaining[None], cache=uncond_cache)
-            mx.eval(cond_logits, uncond_logits)
-
-            last_cond = cond_logits[:, -1:, :]
-            last_uncond = uncond_logits[:, -1:, :]
-
-            prefill_time = time.time() - prefill_start
-            total_prefill_tokens = prompt_length + uncond_length
-            prefill_tps = total_prefill_tokens / prefill_time if prefill_time > 0 else 0
-            logger.info(
-                f"MLX native prefill: {total_prefill_tokens} tokens "
-                f"(cond={prompt_length}, uncond={uncond_length}) "
-                f"in {prefill_time:.2f}s ({prefill_tps:.1f} tok/s)"
-            )
-        else:
-            # Non-CFG: single cache
-            cache = make_prompt_cache(self._mlx_model)
-
-            # Chunked prefill
-            remaining = prompt
-            while len(remaining) > 1:
-                chunk_size = min(prefill_step_size, len(remaining) - 1)
-                self._mlx_model(remaining[:chunk_size][None], cache=cache)
-                mx.eval([c.state for c in cache])
-                remaining = remaining[chunk_size:]
-                mx.clear_cache()
-
-            logits_out = self._mlx_model(remaining[None], cache=cache)
-            mx.eval(logits_out)
-            last_logits = logits_out[:, -1:, :]
-
-            prefill_time = time.time() - prefill_start
-            prefill_tps = prompt_length / prefill_time if prefill_time > 0 else 0
-            logger.info(
-                f"MLX native prefill: {prompt_length} tokens "
-                f"in {prefill_time:.2f}s ({prefill_tps:.1f} tok/s)"
-            )
-
-        # ===== AUTOREGRESSIVE GENERATION LOOP =====
-        all_token_ids = list(input_ids_np[0])
-        new_tokens = []
-        decode_start = time.time()
-
-        pbar = tqdm(total=max_new_tokens, desc=tqdm_desc, unit="tok")
-        for step in range(max_new_tokens):
-            # ---- Combine logits (CFG formula in MLX, lazy) ----
-            if use_cfg:
-                step_logits = last_uncond + cfg_scale * (last_cond - last_uncond)
-            else:
-                step_logits = last_logits
-
-            step_logits = step_logits.reshape(1, -1)  # [1, vocab_size]
-
-            # ---- Native MLX repetition penalty (lazy) ----
-            if use_rep_penalty and len(all_token_ids) > 0:
-                token_indices = mx.array(all_token_ids)
-                selected = step_logits[:, token_indices]
-                modified = mx.where(
-                    selected > 0,
-                    selected / rep_penalty_val,
-                    selected * rep_penalty_val,
-                )
-                step_logits[:, token_indices] = modified
-
-            # ---- Constrained decoding: native MLX fast path vs PyTorch bridge ----
-            if constrained_processor is not None:
-                _cp_state = constrained_processor.state
-
-                if _cp_state == FSMState.CODES_GENERATION:
-                    # === NATIVE MLX FAST PATH (no PyTorch bridge!) ===
-                    # Apply non-audio-code mask (blocks everything except audio codes + EOS)
-                    if _mlx_non_audio_mask is not None:
-                        step_logits = step_logits + _mlx_non_audio_mask
-                    # Duration constraint: block or force EOS
-                    if _target_codes is not None and _mlx_eos_id is not None:
-                        if constrained_processor.codes_count < _target_codes:
-                            # Block EOS until target codes reached
-                            step_logits = mx.concatenate([
-                                step_logits[:, :_mlx_eos_id],
-                                mx.array([[float('-inf')]]),
-                                step_logits[:, _mlx_eos_id + 1:],
-                            ], axis=1)
-                        else:
-                            # Force EOS when target reached
-                            eos_val = step_logits[:, _mlx_eos_id:_mlx_eos_id + 1]
-                            step_logits = mx.full(step_logits.shape, float('-inf'))
-                            step_logits = mx.concatenate([
-                                step_logits[:, :_mlx_eos_id],
-                                eos_val,
-                                step_logits[:, _mlx_eos_id + 1:],
-                            ], axis=1)
-
-                elif _cp_state == FSMState.COMPLETED:
-                    # No-op: COMPLETED state in codes/cot phase is passthrough
-                    pass
-
-                else:
-                    # === PYTORCH BRIDGE (metadata states during CoT phase) ===
-                    step_logits_f32 = step_logits.astype(mx.float32)
-                    np_logits = np.array(step_logits_f32, copy=True)
-                    t_logits = torch.from_numpy(np_logits)
-                    t_ids = torch.tensor([all_token_ids], dtype=torch.long)
-                    t_logits = constrained_processor(t_ids, t_logits)
-                    step_logits = mx.array(t_logits.numpy())
-
-            # ---- Native MLX sampling (temperature + top-k + top-p) ----
-            logprobs = step_logits - mx.logsumexp(step_logits, keepdims=True)
-            token_arr = sampler(logprobs)
-            mx.eval(token_arr)  # SINGLE sync point per token
-            token_id = token_arr.item()
-
-            new_tokens.append(token_id)
-            all_token_ids.append(token_id)
-            pbar.update(1)
-
-            # Update constrained processor FSM state
-            if constrained_processor is not None:
-                constrained_processor.update_state(token_id)
-
-            # Check EOS
-            if token_id == eos_token_id:
-                break
-            if pad_token_id is not None and pad_token_id != eos_token_id and token_id == pad_token_id:
-                break
-
-            # ---- Next forward step in MLX (LAZY - no eval!) ----
-            # By deferring evaluation, the entire pipeline (forward + CFG + mask + sample)
-            # executes as one fused graph when mx.eval(token_arr) is called next iteration.
-            next_input = mx.array([[token_id]])
-            if use_cfg:
-                cond_logits = self._mlx_model(next_input, cache=cond_cache)
-                uncond_logits = self._mlx_model(next_input, cache=uncond_cache)
-                last_cond = cond_logits[:, -1:, :]
-                last_uncond = uncond_logits[:, -1:, :]
-            else:
-                logits_out = self._mlx_model(next_input, cache=cache)
-                last_logits = logits_out[:, -1:, :]
-
-            # Periodic memory cleanup (every 256 tokens, matching mlx-lm pattern)
-            if step % 256 == 0 and step > 0:
-                mx.clear_cache()
-
-        pbar.close()
-
-        # ---- Log generation summary ----
-        decode_time = time.time() - decode_start
-        num_generated = len(new_tokens)
-        decode_tps = num_generated / decode_time if decode_time > 0 else 0
-        total_time = prefill_time + decode_time
-        logger.info(
-            f"MLX native generation complete: {num_generated} tokens in {decode_time:.2f}s "
-            f"({decode_tps:.1f} tok/s) | prefill {prefill_time:.2f}s + decode {decode_time:.2f}s = {total_time:.2f}s total"
-        )
-
-        # Decode new tokens only
-        output_text = self.llm_tokenizer.decode(new_tokens, skip_special_tokens=False)
-        return output_text
-
-    def _run_mlx_single(
-        self,
-        formatted_prompt: str,
-        temperature: float,
-        cfg_scale: float,
-        negative_prompt: str,
-        top_k: Optional[int],
-        top_p: Optional[float],
-        repetition_penalty: float,
-        use_constrained_decoding: bool,
-        constrained_decoding_debug: bool,
-        target_duration: Optional[float],
-        user_metadata: Optional[Dict[str, Optional[str]]],
-        stop_at_reasoning: bool,
-        skip_genres: bool,
-        skip_caption: bool,
-        skip_language: bool,
-        generation_phase: str,
-        caption: str,
-        lyrics: str,
-        cot_text: str,
-    ) -> str:
-        """
-        MLX-accelerated single-item generation.
-
-        Tries optimized native MLX generation first (using mlx-lm infrastructure
-        for sampling, repetition penalty, and chunked prefill). Falls back to
-        hybrid MLX/PyTorch approach if native generation fails.
-        """
-        # ---- Try optimized native MLX generation ----
-        try:
-            return self._run_mlx_single_native(
-                formatted_prompt=formatted_prompt,
-                temperature=temperature,
-                cfg_scale=cfg_scale,
-                negative_prompt=negative_prompt,
-                top_k=top_k,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-                use_constrained_decoding=use_constrained_decoding,
-                constrained_decoding_debug=constrained_decoding_debug,
-                target_duration=target_duration,
-                user_metadata=user_metadata,
-                stop_at_reasoning=stop_at_reasoning,
-                skip_genres=skip_genres,
-                skip_caption=skip_caption,
-                skip_language=skip_language,
-                generation_phase=generation_phase,
-                caption=caption,
-                lyrics=lyrics,
-                cot_text=cot_text,
-            )
-        except Exception as _native_err:
-            logger.warning(
-                f"Native MLX generation failed ({type(_native_err).__name__}: {_native_err}), "
-                f"falling back to hybrid mode"
-            )
-
-        # ---- Fallback: Legacy hybrid MLX/PyTorch generation ----
-        import mlx.core as mx
-        import numpy as np
-
-        # Tokenize prompt
-        inputs = self.llm_tokenizer(
-            formatted_prompt,
-            return_tensors="np",
-            padding=False,
-            truncation=True,
-        )
-        input_ids_np = inputs["input_ids"]  # [1, seq_len]
-        prompt_length = input_ids_np.shape[1]
-        prompt = mx.array(input_ids_np)
-
-        # Setup constrained processor
-        constrained_processor = self._setup_constrained_processor(
-            use_constrained_decoding=use_constrained_decoding,
-            constrained_decoding_debug=constrained_decoding_debug,
-            target_duration=target_duration,
-            user_metadata=user_metadata,
-            stop_at_reasoning=stop_at_reasoning,
-            skip_genres=skip_genres,
-            skip_caption=skip_caption,
-            skip_language=skip_language,
-            generation_phase=generation_phase,
-            is_batch=False,
-        )
-
-        # Calculate max_new_tokens
-        max_new_tokens = self._compute_max_new_tokens(
-            target_duration=target_duration,
-            generation_phase=generation_phase,
-        )
-
-        # EOS token
-        eos_token_id = self.llm_tokenizer.eos_token_id
-        pad_token_id = self.llm_tokenizer.pad_token_id or eos_token_id
-
-        use_cfg = cfg_scale > 1.0
-        cfg_label = "CFG " if use_cfg else ""
-        tqdm_desc = f"MLX {cfg_label}Generation"
-
-        # ---- Prefill phase ----
-        prefill_start = time.time()
-        if use_cfg:
-            # Build unconditional prompt
-            uncond_text = self._build_unconditional_prompt(
-                caption=caption,
-                lyrics=lyrics,
-                cot_text=cot_text,
-                negative_prompt=negative_prompt,
-                generation_phase=generation_phase,
-                is_batch=False,
-            )
-            uncond_inputs = self.llm_tokenizer(
-                uncond_text,
-                return_tensors="np",
-                padding=False,
-                truncation=True,
-            )
-            uncond_prompt = mx.array(uncond_inputs["input_ids"])
-            uncond_length = uncond_prompt.shape[1]
-
-            # Create separate caches for conditional and unconditional
-            cond_cache = self._make_mlx_cache()
-            uncond_cache = self._make_mlx_cache()
-
-            # Prefill both prompts
-            cond_logits = self._mlx_model(prompt, cache=cond_cache)
-            uncond_logits = self._mlx_model(uncond_prompt, cache=uncond_cache)
-            mx.eval(cond_logits, uncond_logits)
-
-            last_cond = cond_logits[:, -1:, :]
-            last_uncond = uncond_logits[:, -1:, :]
-
-            prefill_time = time.time() - prefill_start
-            total_prefill_tokens = prompt_length + uncond_length
-            prefill_tps = total_prefill_tokens / prefill_time if prefill_time > 0 else 0
-            logger.info(
-                f"MLX prefill: {total_prefill_tokens} tokens "
-                f"(cond={prompt_length}, uncond={uncond_length}) "
-                f"in {prefill_time:.2f}s ({prefill_tps:.1f} tok/s)"
-            )
-        else:
-            cache = self._make_mlx_cache()
-            logits_out = self._mlx_model(prompt, cache=cache)
-            mx.eval(logits_out)
-            last_logits = logits_out[:, -1:, :]
-
-            prefill_time = time.time() - prefill_start
-            prefill_tps = prompt_length / prefill_time if prefill_time > 0 else 0
-            logger.info(
-                f"MLX prefill: {prompt_length} tokens "
-                f"in {prefill_time:.2f}s ({prefill_tps:.1f} tok/s)"
-            )
-
-        # ---- Autoregressive generation loop ----
-        # Track all token IDs for constrained processor context
-        all_token_ids = list(input_ids_np[0])
-        new_tokens = []
-        decode_start = time.time()
-
-        pbar = tqdm(total=max_new_tokens, desc=tqdm_desc, unit="tok")
-        for step in range(max_new_tokens):
-            # Apply CFG formula in MLX
-            if use_cfg:
-                step_logits = last_uncond + cfg_scale * (last_cond - last_uncond)
-            else:
-                step_logits = last_logits
-
-            step_logits = step_logits.reshape(1, -1)  # [1, vocab_size]
-
-            # Bridge to PyTorch for logits processing and sampling
-            # This reuses all existing tested code (constrained decoding, top-k/p, etc.)
-            # Cast to float32 in MLX first: numpy doesn't support bfloat16
-            step_logits_f32 = step_logits.astype(mx.float32)
-            np_logits = np.array(step_logits_f32, copy=True)
-            t_logits = torch.from_numpy(np_logits)
-            t_ids = torch.tensor([all_token_ids], dtype=torch.long)
-
-            # Apply constrained processor
-            if constrained_processor is not None:
-                t_logits = constrained_processor(t_ids, t_logits)
-
-            # Apply repetition penalty
-            if repetition_penalty != 1.0:
-                from transformers.generation.logits_process import RepetitionPenaltyLogitsProcessor
-                rep_proc = RepetitionPenaltyLogitsProcessor(penalty=repetition_penalty)
-                t_logits = rep_proc(t_ids, t_logits)
-
-            # Apply top-k and top-p filtering (reuse existing methods)
-            t_logits = self._apply_top_k_filter(t_logits, top_k)
-            t_logits = self._apply_top_p_filter(t_logits, top_p)
-
-            # Sample token (reuse existing method)
-            t_token = self._sample_tokens(t_logits, temperature)
-            token_id = t_token.item()
-
-            new_tokens.append(token_id)
-            all_token_ids.append(token_id)
-            pbar.update(1)
-
-            # Update constrained processor state
-            if constrained_processor is not None:
-                constrained_processor.update_state(token_id)
-
-            # Check EOS
-            if token_id == eos_token_id:
-                break
-            if pad_token_id is not None and pad_token_id != eos_token_id and token_id == pad_token_id:
-                break
-
-            # Next forward step in MLX (fast)
-            next_input = mx.array([[token_id]])
-            if use_cfg:
-                cond_logits = self._mlx_model(next_input, cache=cond_cache)
-                uncond_logits = self._mlx_model(next_input, cache=uncond_cache)
-                mx.eval(cond_logits, uncond_logits)
-                last_cond = cond_logits[:, -1:, :]
-                last_uncond = uncond_logits[:, -1:, :]
-            else:
-                logits_out = self._mlx_model(next_input, cache=cache)
-                mx.eval(logits_out)
-                last_logits = logits_out[:, -1:, :]
-
-        pbar.close()
-
-        # Log generation summary
-        decode_time = time.time() - decode_start
-        num_generated = len(new_tokens)
-        decode_tps = num_generated / decode_time if decode_time > 0 else 0
-        total_time = prefill_time + decode_time
-        logger.info(
-            f"MLX generation complete: {num_generated} tokens in {decode_time:.2f}s "
-            f"({decode_tps:.1f} tok/s) | prefill {prefill_time:.2f}s + decode {decode_time:.2f}s = {total_time:.2f}s total"
-        )
-
-        # Decode new tokens only
-        output_text = self.llm_tokenizer.decode(new_tokens, skip_special_tokens=False)
-        return output_text
-
-    def _run_mlx(
-        self,
-        formatted_prompts: Union[str, List[str]],
-        temperature: float,
-        cfg_scale: float,
-        negative_prompt: str,
-        top_k: Optional[int],
-        top_p: Optional[float],
-        repetition_penalty: float,
-        use_constrained_decoding: bool = True,
-        constrained_decoding_debug: bool = False,
-        target_duration: Optional[float] = None,
-        user_metadata: Optional[Dict[str, Optional[str]]] = None,
-        stop_at_reasoning: bool = False,
-        skip_genres: bool = True,
-        skip_caption: bool = False,
-        skip_language: bool = False,
-        generation_phase: str = "cot",
-        caption: str = "",
-        lyrics: str = "",
-        cot_text: str = "",
-        seeds: Optional[List[int]] = None,
-    ) -> Union[str, List[str]]:
-        """
-        Unified MLX generation function supporting both single and batch modes.
-
-        For batch mode in codes generation phase, uses optimized batch native path
-        that shares prefill across all items (saving ~50% prefill time).
-        Falls back to sequential processing if batch native fails.
-        """
-        import mlx.core as mx
-
-        # Normalize input
-        formatted_prompt_list, is_batch = self._normalize_batch_input(formatted_prompts)
-
-        if is_batch:
-            batch_size = len(formatted_prompt_list)
-
-            # ---- Try optimized batch native path ----
-            # Conditions: codes generation phase + all prompts identical (which they are in batch codes phase)
-            all_prompts_identical = len(set(formatted_prompt_list)) == 1
-            can_use_batch_native = (
-                generation_phase == "codes"
-                and all_prompts_identical
-                and batch_size > 1
-                and hasattr(self, '_mlx_model')
-                and self._mlx_model is not None
-            )
-
-            if can_use_batch_native:
-                try:
-                    logger.info(
-                        f"MLX batch: using optimized batch native path "
-                        f"(batch_size={batch_size}, shared prefill)"
-                    )
-                    return self._run_mlx_batch_native(
-                        formatted_prompt=formatted_prompt_list[0],
-                        batch_size=batch_size,
-                        temperature=temperature,
-                        cfg_scale=cfg_scale,
-                        negative_prompt=negative_prompt,
-                        top_k=top_k,
-                        top_p=top_p,
-                        repetition_penalty=repetition_penalty,
-                        use_constrained_decoding=use_constrained_decoding,
-                        constrained_decoding_debug=constrained_decoding_debug,
-                        target_duration=target_duration,
-                        caption=caption,
-                        lyrics=lyrics,
-                        cot_text=cot_text,
-                        seeds=seeds,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"MLX batch native failed ({type(e).__name__}: {e}), "
-                        f"falling back to sequential mode"
-                    )
-
-            # ---- Fallback: sequential processing ----
-            logger.info(f"MLX batch: using sequential mode (batch_size={batch_size})")
-            output_texts = []
-            for i, formatted_prompt in enumerate(formatted_prompt_list):
-                # Set MLX seed for reproducibility
-                if seeds and i < len(seeds):
-                    mx.random.seed(seeds[i])
-
-                output_text = self._run_mlx_single(
-                    formatted_prompt=formatted_prompt,
-                    temperature=temperature,
-                    cfg_scale=cfg_scale,
-                    negative_prompt=negative_prompt,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    use_constrained_decoding=use_constrained_decoding,
-                    constrained_decoding_debug=constrained_decoding_debug,
-                    target_duration=target_duration,
-                    user_metadata=None,
-                    stop_at_reasoning=False,
-                    skip_genres=True,
-                    skip_caption=True,
-                    skip_language=True,
-                    generation_phase=generation_phase,
-                    caption=caption,
-                    lyrics=lyrics,
-                    cot_text=cot_text,
-                )
-                output_texts.append(output_text)
-            return output_texts
-
-        # Single mode
-        formatted_prompt = formatted_prompt_list[0]
-        return self._run_mlx_single(
-            formatted_prompt=formatted_prompt,
-            temperature=temperature,
-            cfg_scale=cfg_scale,
-            negative_prompt=negative_prompt,
-            top_k=top_k,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
-            use_constrained_decoding=use_constrained_decoding,
-            constrained_decoding_debug=constrained_decoding_debug,
-            target_duration=target_duration,
-            user_metadata=user_metadata,
-            stop_at_reasoning=stop_at_reasoning,
-            skip_genres=skip_genres,
-            skip_caption=skip_caption,
-            skip_language=skip_language,
-            generation_phase=generation_phase,
-            caption=caption,
-            lyrics=lyrics,
-            cot_text=cot_text,
-        )
-
-    # =========================================================================
-    # End of MLX Backend Methods
-    # =========================================================================
-
-    @contextmanager
-    def _load_model_context(self):
-        """
-        Context manager to load a model to GPU and offload it back to CPU after use.
-        Only used for PyTorch backend when offload_to_cpu is True.
-        """
-        if not self.offload_to_cpu:
-            yield
-            return
-
-        # If using nanovllm or MLX, do not offload (managed differently)
-        if self.llm_backend in ("vllm", "mlx"):
-            yield
-            return
-
-        model = self.llm
-        if model is None:
-            yield
-            return
-
-        # Reentrancy guard: if an outer context already loaded the model
-        # to the target device, skip the inner load/offload to avoid
-        # redundant CPU↔GPU transfers during batch processing.
-        try:
-            current_device = next(model.parameters()).device.type
-        except StopIteration:
-            current_device = None
-        target_device = str(self.device).split(":")[0]
-        if current_device == target_device:
-            yield
-            return
-
-        # Load to GPU
-        logger.info(f"Loading LLM to {self.device}")
-        start_time = time.time()
-        if hasattr(model, "to"):
-            model.to(self.device).to(self.dtype)
-        load_time = time.time() - start_time
-        logger.info(f"Loaded LLM to {self.device} in {load_time:.4f}s")
-
-        try:
-            yield
-        finally:
-            # Offload to CPU
-            logger.info(f"Offloading LLM to CPU")
-            start_time = time.time()
-            if hasattr(model, "to"):
-                model.to("cpu")
-            # Clear accelerator cache after offloading
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            elif hasattr(torch, 'xpu') and torch.xpu.is_available():
-                torch.xpu.empty_cache()
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available() and hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
-                torch.mps.empty_cache()
-            offload_time = time.time() - start_time
-            logger.info(f"Offloaded LLM to CPU in {offload_time:.4f}s")
-
-    def get_hf_model_for_scoring(self):
-        """
-        Get HuggingFace model for perplexity scoring.
-
-        For vllm backend, loads HuggingFace model from disk (weights are cached by transformers).
-        For pt backend, returns the existing model.
-        For mlx backend, loads HuggingFace model from disk (MLX model can't be used for torch scoring).
-
-        Returns:
-            HuggingFace model instance
-        """
-        if self.llm_backend == "pt":
-            # For PyTorch backend, directly return the model
-            return self.llm
-
-        elif self.llm_backend == "vllm":
-            # For vllm backend, load HuggingFace model from disk
-            # Note: transformers caches model weights, so this doesn't duplicate disk I/O
-            if self._hf_model_for_scoring is None:
-                logger.info("Loading HuggingFace model for scoring (from checkpoint)")
-
-                # Get model path from vllm config
-                model_runner = self.llm.model_runner
-                model_path = model_runner.config.model
-
-                # Load HuggingFace model from the same checkpoint
-                # This will load the original unfused weights
-                import time
-                start_time = time.time()
-                self._hf_model_for_scoring = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    trust_remote_code=True,
-                    torch_dtype=self.dtype
-                )
-                load_time = time.time() - start_time
-                logger.info(f"HuggingFace model loaded in {load_time:.2f}s")
-
-                # When offload_to_cpu is enabled, keep the model on CPU to save
-                # VRAM.  The caller (_load_scoring_model_context in
-                # core/scoring/lm_score.py) will move it to the accelerator only
-                # for the duration of the forward pass.
-                if self.offload_to_cpu:
-                    self._hf_model_for_scoring.eval()
-                    logger.info("HuggingFace model for scoring kept on CPU (offload_to_cpu=True)")
-                else:
-                    device = next(model_runner.model.parameters()).device
-                    self._hf_model_for_scoring = self._hf_model_for_scoring.to(device)
-                    self._hf_model_for_scoring.eval()
-                    logger.info(f"HuggingFace model for scoring ready on {device}")
-
-            return self._hf_model_for_scoring
-
-        elif self.llm_backend == "mlx":
-            # For MLX backend, load HuggingFace model from disk for PyTorch scoring
-            if self._hf_model_for_scoring is None:
-                logger.info("Loading HuggingFace model for scoring (MLX backend, need PyTorch model)")
-
-                # Get model path from stored path
-                model_path = getattr(self, '_mlx_model_path', None)
-                if model_path is None:
-                    raise ValueError("MLX model path not stored. Cannot load HuggingFace model for scoring.")
-
-                import time
-                start_time = time.time()
-                self._hf_model_for_scoring = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    trust_remote_code=True,
-                    torch_dtype=self.dtype
-                )
-                load_time = time.time() - start_time
-                logger.info(f"HuggingFace model loaded in {load_time:.2f}s")
-
-                # When offload_to_cpu is enabled, keep on CPU; the scoring
-                # context manager will move it to the accelerator as needed.
-                if self.offload_to_cpu:
-                    self._hf_model_for_scoring.eval()
-                    logger.info("HuggingFace model for scoring kept on CPU (offload_to_cpu=True)")
-                else:
-                    device = "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"
-                    self._hf_model_for_scoring = self._hf_model_for_scoring.to(device)
-                    self._hf_model_for_scoring.eval()
-                    logger.info(f"HuggingFace model for scoring ready on {device}")
-
-            return self._hf_model_for_scoring
-
-        else:
-            raise ValueError(f"Unknown backend: {self.llm_backend}")

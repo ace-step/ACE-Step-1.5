@@ -9,24 +9,8 @@ from types import SimpleNamespace
 from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 
+from acestep.api._test_support import wrap_response as _wrap_response, noop_verify_api_key as _verify_token_from_request
 from acestep.api.http.sample_format_routes import register_sample_format_routes
-
-
-def _wrap_response(data, code=200, error=None):
-    """Return an ``api_server``-compatible response envelope dict."""
-
-    return {"data": data, "code": code, "error": error}
-
-
-def _verify_token_from_request(body: dict, authorization: str | None = None) -> None:
-    """Validate a fixed token from body or Authorization header for unit tests."""
-
-    token = (body or {}).get("ai_token")
-    if token == "test-token":
-        return
-    if authorization == "Bearer test-token":
-        return
-    raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def _get_endpoint(app: FastAPI, path: str, method: str):

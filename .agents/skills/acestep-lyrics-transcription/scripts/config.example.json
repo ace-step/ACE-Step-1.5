@@ -1,0 +1,14 @@
+{
+  "provider": "elevenlabs",
+  "output_format": "lrc",
+  "openai": {
+    "api_key": "",
+    "api_url": "https://api.openai.com/v1",
+    "model": "whisper-1"
+  },
+  "elevenlabs": {
+    "api_key": "",
+    "api_url": "https://api.elevenlabs.io/v1",
+    "model": "scribe_v2"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "acestep-gradio",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "acestep", "--port", "0"],
+      "port": 7860,
+      "autoPort": true
+    },
+    {
+      "name": "acestep-api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "acestep-api"],
+      "port": 8001,
+      "autoPort": true
+    },
+    {
+      "name": "acestep-desktop",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/electron-vite/bin/electron-vite.js", "dev"],
+      "cwd": "desktop",
+      "port": 5173
+    }
+  ]
+}

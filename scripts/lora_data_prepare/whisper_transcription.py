@@ -117,6 +117,50 @@ def transcribe_whisper(
     return words
 
 
+def words_to_lrc(words: List[Dict[str, Any]], line_gap: float = 1.5) -> str:
+    """Convert word-level timestamps to LRC format with [mm:ss.xx] timestamps.
+
+    Uses the same line-breaking logic as words_to_lyrics(), but prefixes each
+    line with an LRC timestamp tag.
+
+    Args:
+        words: List of word dicts with 'word', 'start', 'end' keys.
+        line_gap: Gap threshold (seconds) for inserting line breaks.
+
+    Returns:
+        LRC-formatted string with [mm:ss.xx] timestamps.
+    """
+    if not words:
+        return ""
+
+    def _fmt(seconds: float) -> str:
+        s = max(0.0, seconds)
+        m = int(s // 60)
+        sec = s - m * 60
+        return f"{m:02d}:{sec:05.2f}"
+
+    lines_out: List[str] = []
+    current_line: List[Dict[str, Any]] = []
+
+    for i, w in enumerate(words):
+        current_line.append(w)
+        is_last = i == len(words) - 1
+        has_punct = w["word"].rstrip().endswith(
+            (".", "!", "?", "\u3002", "\uff01", "\uff1f", "\uff0c", ",")
+        )
+        has_gap = not is_last and words[i + 1]["start"] - w["end"] > line_gap
+
+        if is_last or has_punct or has_gap:
+            line_time = current_line[0]["start"]
+            text = smart_join([cw["word"] for cw in current_line])
+            text = text.rstrip("\uff0c\u3002,.")
+            if text:
+                lines_out.append(f"[{_fmt(line_time)}]{text}")
+            current_line = []
+
+    return "\n".join(lines_out) + "\n"
+
+
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".aac", ".aiff"}
 
 

@@ -1,0 +1,14 @@
+{
+  "api_url": "https://api.acemusic.ai",
+  "api_key": "",
+  "api_mode": "completion",
+  "generation": {
+    "thinking": true,
+    "use_format": false,
+    "use_cot_caption": true,
+    "use_cot_language": false,
+    "audio_format": "mp3",
+    "batch_size": 1,
+    "vocal_language": "en"
+  }
+}

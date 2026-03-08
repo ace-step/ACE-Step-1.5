@@ -1,3 +1,32 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/jorda/Music/ACE-Step-1.5 -name \"*.py\" -type f ! -path \"*/.venv/*\" ! -path \"*/__pycache__/*\" ! -path \"*/.git/*\" ! -path \"*/node_modules/*\" ! -path \"*/.pytest_cache/*\" ! -path \"*/.cache/*\" ! -path \"*/.claude/worktrees/*\" ! -path \"*/.agents/*\" ! -path \"*/torchinductor/*\" -exec wc -l {} +)",
+      "Bash(sed 's/.*\\\\.//')",
+      "Bash(grep -r \"except:\" /c/Users/jorda/Music/ACE-Step-1.5/acestep/*.py)",
+      "Bash(grep -r \"except Exception:\" /c/Users/jorda/Music/ACE-Step-1.5/acestep/*.py)",
+      "Bash(grep -r \"^from acestep\" /c/Users/jorda/Music/ACE-Step-1.5/acestep/*.py)",
+      "Bash(python -m pytest acestep/ -x -q --tb=short)",
+      "Bash(pip install loguru -q)",
+      "Bash(pip install soundfile httpx fastapi -q)",
+      "Bash(python -m pytest acestep/api/http/lora_routes_http_test.py --collect-only)",
+      "Bash(python -c \"from acestep.api._test_support import wrap_response, noop_verify_api_key, bearer_verify_api_key; print\\(''_test_support OK''\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(python -m py_compile acestep/api/http/lora_routes_test.py)",
+      "Bash(for f in acestep/api/http/model_service_routes_test.py acestep/api/http/reinitialize_route_test.py acestep/api/http/sample_format_routes_test.py acestep/api/http/query_result_route_test.py acestep/api/train_api_dataset_auto_label_routes_http_test.py acestep/api/train_api_dataset_preprocess_routes_http_test.py acestep/api/train_api_dataset_sample_routes_http_test.py acestep/api/train_api_dataset_scan_load_routes_http_test.py acestep/api/train_api_dataset_service_http_test.py acestep/api/train_api_dataset_status_routes_http_test.py acestep/api/train_api_service_http_test.py acestep/gpu_config.py acestep/inference.py acestep/ui/streamlit/components/audio_player.py)",
+      "Bash(do)",
+      "Bash(python -m py_compile \"$f\")",
+      "Bash(echo \"OK: $f\")",
+      "Bash(echo \"FAIL: $f\")",
+      "Bash(done)",
+      "Bash(python -m py_compile acestep/llm_inference.py)",
+      "Bash(for f in acestep/api/http/lora_routes_http_test.py acestep/api/http/model_service_routes_http_test.py acestep/api/http/reinitialize_route_http_test.py acestep/api/http/sample_format_routes_http_test.py)",
+      "Bash(python -m py_compile acestep/gpu_config.py)",
+      "Bash(python -m py_compile cli.py)",
+      "Bash(python -m py_compile acestep/lm_output_parser.py)",
+      "Bash(python -m py_compile acestep/lm_prompts.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c \":*)"
+    ]
+  },
   "prefersReducedMotion": false
 }

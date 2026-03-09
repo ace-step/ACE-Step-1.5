@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ACE-Step</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/static/style.css?v=v20" />
+</head>
+<body>
+  <div class="wrap">
+
+    
+    <header class="hdr">
+      <div class="hdr-left">
+        <a class="brand" href="https://github.com/ace-step/ACE-Step-1.5" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit;">🎵 ACE‑Step <span class="ver">V1.5</span></a>
+        <div class="sub"></div>
+      </div>
+
+      <div class="hdr-mid" aria-label="Brand logo">
+        <a href="https://github.com/robustini" target="_blank" rel="noopener noreferrer" aria-label="Marcopter GitHub" style="display:inline-flex;align-items:center;"><img class="brand-logo" src="/static/logo-marcopter-white_8k.png" alt="marcopter" loading="lazy" /></a>
+      </div>
+
+      <div class="ui-lang" aria-label="UI language">
+        <label class="lbl-inline" style="margin:0;flex-direction:row;align-items:center;gap:6px;">
+          <span class="ui-lang-label" data-i18n="ui.lang.label"></span>
+          <select id="ui_lang_select" class="ui-lang-select">
+            <option value="auto" data-i18n="ui.lang.auto"></option>
+            <option value="en" data-i18n="ui.lang.en"></option>
+            <option value="it" data-i18n="ui.lang.it"></option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    
+    <section class="card">
+      <div class="ui-brand-hero">AceFlow <span class="ver ver-hero">V1.0</span></div>
+      <h1 data-i18n="title.generate_song"></h1>
+      <p class="muted intro">
+        <span data-i18n="help.queue_info"></span>
+        <br />
+        <span data-i18n="help.queue_ttl"></span>
+      </p>
+
+      
+      <div class="row split" style="margin-top:18px;">
+        <div>
+          <div class="lbl" data-i18n="label.generation_mode"></div>
+          <div class="row">
+            <label class="radio">
+              <input type="radio" name="generation_mode" value="Simple" />
+              <span data-i18n="mode.simple"></span>
+            </label>
+            <label class="radio">
+              <input type="radio" name="generation_mode" value="Custom" checked />
+              <span data-i18n="mode.custom"></span>
+            </label>
+            <label class="radio">
+              <input type="radio" name="generation_mode" value="Cover" />
+              <span data-i18n="mode.cover"></span>
+            </label>
+            <label class="radio">
+              <input type="radio" name="generation_mode" value="Remix" />
+              <span data-i18n="mode.remix"></span>
+            </label>
+          </div>
+          <div class="muted small" style="margin-top:5px;" data-i18n="help.generation_mode"></div>
+        </div>
+        <div class="row right dice-inline">
+          <button id="dice" class="btn dice-btn" type="button" aria-label="Random from archive" data-i18n-aria-label="btn.random_from_archive">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="4" y="4" width="16" height="16" rx="3" ry="3" fill="none" stroke="currentColor" stroke-width="2"></rect>
+              <circle cx="9" cy="9" r="1.4"></circle>
+              <circle cx="15" cy="9" r="1.4"></circle>
+              <circle cx="12" cy="12" r="1.4"></circle>
+              <circle cx="9" cy="15" r="1.4"></circle>
+              <circle cx="15" cy="15" r="1.4"></circle>
+            </svg>
+            <span class="txt" data-i18n="btn.random_from_archive"></span>
+          </button>
+          <div class="muted small dice-help" data-i18n="help.random_from_archive"></div>
+        </div>
+      </div>
+
+      <hr class="sep" />
+
+      
+      <div id="ref_audio_box" class="card subcard hidden">
+        <div class="row split">
+          <div>
+            <div class="lbl" id="ref_audio_label"></div>
+            <div class="muted small" id="ref_audio_help"></div>
+          </div>
+          <div class="row right filepick-inline">
+            <input id="ref_audio" class="filepick-input" type="file" accept="audio/*" />
+            <button id="ref_audio_btn" class="paction filepick-btn" type="button" data-i18n="btn.browse"></button>
+            <span id="ref_audio_name" class="filepick-name muted small" data-i18n="status.no_file_selected"></span>
+          </div>
+        </div>
+        <div id="ref_audio_status" class="muted small" style="margin-top:6px;"></div>
+      </div>
+
+      
+      <div style="margin-top:4px;">
+        <label class="lbl" data-i18n="label.style"></label>
+        <div class="muted small" style="margin-bottom:6px;" data-i18n="help.style"></div>
+        <textarea id="caption" rows="5" data-i18n-placeholder="ph.style"></textarea>
+      </div>
+
+      <div class="gap-md"></div>
+
+      <div>
+        <label class="lbl" data-i18n="label.lyrics"></label>
+        <div class="muted small" style="margin-bottom:6px;" data-i18n="help.lyrics"></div>
+        <textarea id="lyrics" rows="12" data-i18n-placeholder="ph.lyrics"></textarea>
+      </div>
+
+      <div class="gap-md"></div>
+
+      
+      <div class="grid3">
+        <div class="lbl-inline">
+          <label for="duration" class="setting-label" data-i18n="label.duration_seconds" data-i18n-title="label.duration_seconds"></label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input id="duration" type="number" min="10" max="600" value="180" style="flex:1;" />
+            <label class="chk inline"><input id="duration_auto" type="checkbox" checked /> <span data-i18n="opt.auto"></span></label>
+          </div>
+        </div>
+        <div class="lbl-inline">
+          <label for="bpm" class="setting-label" data-i18n="label.bpm" data-i18n-title="label.bpm"></label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input id="bpm" type="number" min="30" max="300" data-i18n-placeholder="ph.auto" style="flex:1;" />
+            <label class="chk inline"><input id="bpm_auto" type="checkbox" checked /> <span data-i18n="opt.auto"></span></label>
+          </div>
+        </div>
+        <div class="lbl-inline">
+          <label for="seed" class="setting-label" data-i18n="label.seed" data-i18n-title="label.seed"></label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input id="seed" type="number" placeholder="-1" style="flex:1;" />
+            <label class="chk inline"><input id="seed_random" type="checkbox" checked /> <span data-i18n="opt.auto"></span></label>
+          </div>
+        </div>
+      </div>
+      <div class="helpgrid grid3" style="margin-top:5px;">
+        <div class="muted small" data-i18n="help.duration"></div>
+        <div class="muted small" data-i18n="help.bpm"></div>
+        <div class="muted small" data-i18n="help.seed_random"></div>
+      </div>
+
+      <div class="gap-md"></div>
+
+      <div class="grid3">
+        <div class="lbl-inline">
+          <label for="key_root" class="setting-label" data-i18n="label.key_scale" data-i18n-title="label.key_scale"></label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;flex:1;">
+              <select id="key_root" style="flex:1;"></select>
+              <select id="key_mode" style="flex:1;"></select>
+              <input id="keyscale" type="hidden" />
+            </div>
+            <label class="chk inline"><input id="key_auto" type="checkbox" checked /> <span data-i18n="opt.auto"></span></label>
+          </div>
+        </div>
+        <div class="lbl-inline">
+          <label for="timesignature" class="setting-label" data-i18n="label.time_signature" data-i18n-title="label.time_signature"></label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="timesignature" class="meta-select meta-select-compact"></select>
+            <label class="chk inline"><input id="timesig_auto" type="checkbox" checked /> <span data-i18n="opt.auto"></span></label>
+          </div>
+        </div>
+        <div class="lbl-inline">
+          <label for="vocal_language" class="setting-label" data-i18n="label.vocal_language" data-i18n-title="label.vocal_language"></label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="vocal_language" class="meta-select meta-select-medium"></select>
+            <label class="chk inline"><input id="language_auto" type="checkbox" checked /> <span data-i18n="opt.auto"></span></label>
+          </div>
+        </div>
+      </div>
+      <div class="helpgrid grid3" style="margin-top:5px;">
+        <div class="muted small" data-i18n="help.keyscale"></div>
+        <div class="muted small" data-i18n="help.timesignature"></div>
+        <div class="muted small" data-i18n="help.vocal_language"></div>
+      </div>
+
+      <div class="param-stack">
+        <div class="param-row">
+          <label class="chk"><input id="instrumental" type="checkbox" /> <span data-i18n="opt.instrumental"></span></label>
+          <div class="muted small" data-i18n="help.instrumental"></div>
+        </div>
+        <div class="param-row">
+          <label class="chk"><input id="thinking" type="checkbox" checked /> <span data-i18n="opt.think_lm"></span></label>
+          <div class="muted small" data-i18n="help.think_lm"></div>
+        </div>
+      </div>
+
+      
+      <div id="below_simple">
+
+        <hr class="sep" />
+
+        
+        <section class="lora">
+          <h3 data-i18n="title.lora_style"></h3>
+          <p class="section-help" data-i18n="help.lora"></p>
+
+          <div class="grid2">
+            <label class="lbl-inline">
+              <span class="setting-label" data-i18n="label.select_lora" data-i18n-title="label.select_lora"></span>
+              <select id="lora_select">
+                <option value="" selected data-i18n="lora.loading"></option>
+              </select>
+            </label>
+
+            <div class="lbl-inline">
+              <div class="row-space">
+                <span class="setting-label" data-i18n="label.lora_weight" data-i18n-title="label.lora_weight"></span>
+                <input id="lora_weight_num" type="number" step="0.05" min="0" max="1" inputmode="decimal" autocomplete="off" spellcheck="false" value="0.5" class="num" />
+              </div>
+              <input id="lora_weight" type="range" min="0" max="1" step="0.05" value="0.5" />
+              <div class="muted small" data-i18n="help.lora_weight"></div>
+            </div>
+          </div>
+        </section>
+
+        <hr class="sep" />
+
+        
+        <details class="lm-details" id="lm_settings_details">
+          <summary data-i18n="title.lm_settings"></summary>
+          <div class="details-body">
+            <p class="section-help" data-i18n="help.lm_settings"></p>
+
+            
+            <div class="lm-inactive-hint hidden" id="lm_inactive_hint">
+              <span>⚠️</span>
+              <span data-i18n="help.lm_inactive_notice"></span>
+            </div>
+
+            <div class="grid2">
+              
+              <div class="lbl-inline lm-dep">
+                <div class="row-space">
+                  <span class="setting-label" data-i18n="label.lm_temperature" data-i18n-title="label.lm_temperature"></span>
+                  <input id="lm_temperature" type="number" step="0.01" min="0" max="2" value="0.85" class="num" />
+                </div>
+                <input id="lm_temperature_range" type="range" min="0" max="2" step="0.01" value="0.85" />
+                <div class="muted small" data-i18n="help.lm_temperature"></div>
+              </div>
+
+              
+              <div class="lbl-inline lm-dep">
+                <div class="row-space">
+                  <span class="setting-label" data-i18n="label.lm_cfg_scale" data-i18n-title="label.lm_cfg_scale"></span>
+                  <input id="lm_cfg_scale" type="number" step="0.1" min="0" max="10" value="2.0" class="num" />
+                </div>
+                <input id="lm_cfg_scale_range" type="range" min="0" max="10" step="0.1" value="2.0" />
+                <div class="muted small" data-i18n="help.lm_cfg_scale"></div>
+              </div>
+
+              
+<div class="lbl-inline lm-dep">
+  <div class="row-space">
+    <span class="setting-label" data-i18n="label.lm_top_k" data-i18n-title="label.lm_top_k"></span>
+    <input id="lm_top_k" type="number" step="1" min="0" max="200" value="0" class="num" />
+  </div>
+  <input id="lm_top_k_range" type="range" min="0" max="200" step="1" value="0" />
+  <div class="muted small" data-i18n="help.lm_top_k"></div>
+</div>
+
+
+              <div class="lbl-inline lm-dep">
+                <div class="row-space">
+                  <span class="setting-label" data-i18n="label.lm_top_p" data-i18n-title="label.lm_top_p"></span>
+                  <input id="lm_top_p" type="number" step="0.01" min="0" max="1" value="0.9" class="num" />
+                </div>
+                <input id="lm_top_p_range" type="range" min="0" max="1" step="0.01" value="0.9" />
+                <div class="muted small" data-i18n="help.lm_top_p"></div>
+              </div>
+
+              
+              <label class="lbl-inline lm-dep" style="grid-column: 1 / -1;">
+                <span class="setting-label" data-i18n="label.lm_negative_prompt" data-i18n-title="label.lm_negative_prompt"></span>
+                <textarea id="lm_negative_prompt" rows="3">NO USER INPUT</textarea>
+                <div class="muted small" data-i18n="help.lm_negative_prompt"></div>
+              </label>
+            </div>
+
+            <div class="divider"></div>
+
+            
+            <div class="param-stack">
+              <div class="param-row">
+                <label class="chk lm-dep"><input id="use_constrained_decoding" type="checkbox" checked />
+                  <span data-i18n="opt.use_constrained_decoding"></span>
+                </label>
+              </div>
+              <div class="param-row">
+                <label class="chk lm-dep"><input id="use_cot_metas" type="checkbox" checked />
+                  <span data-i18n="opt.use_cot_metas"></span>
+                </label>
+                <div class="muted small" data-i18n="help.use_cot_metas"></div>
+              </div>
+              <div class="param-row">
+                <label class="chk lm-dep"><input id="use_cot_caption" type="checkbox" checked />
+                  <span data-i18n="opt.use_cot_caption"></span>
+                </label>
+                <div class="muted small" data-i18n="help.use_cot_caption"></div>
+              </div>
+              <div class="param-row">
+                <label class="chk lm-dep"><input id="use_cot_language" type="checkbox" checked />
+                  <span data-i18n="opt.use_cot_language"></span>
+                </label>
+                <div class="muted small" data-i18n="help.use_cot_language"></div>
+              </div>
+              <div class="param-row">
+                <label class="chk lm-dep"><input id="parallel_thinking" type="checkbox" />
+                  <span data-i18n="opt.parallel_thinking"></span>
+                </label>
+                <div class="muted small" data-i18n="help.parallel_thinking"></div>
+              </div>
+              <div class="param-row">
+                <label class="chk lm-dep"><input id="constrained_decoding_debug" type="checkbox" />
+                  <span data-i18n="opt.constrained_decoding_debug"></span>
+                </label>
+                <div class="muted small" data-i18n="help.constrained_decoding_debug"></div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+
+        
+        <details class="adv chord-details" id="chord_settings_details">
+          <summary data-i18n="title.chord_progression"></summary>
+          <div class="details-body">
+            <p class="section-help" data-i18n="help.chord_progression"></p>
+
+            <div class="grid2 chord-grid">
+              <label class="lbl-inline">
+                <span class="setting-label" data-i18n="label.chord_key" data-i18n-title="label.chord_key"></span>
+                <select id="chord_key">
+                  <option value="C">C</option>
+                  <option value="C#">C#</option>
+                  <option value="D">D</option>
+                  <option value="Eb">Eb</option>
+                  <option value="E">E</option>
+                  <option value="F">F</option>
+                  <option value="F#">F#</option>
+                  <option value="G">G</option>
+                  <option value="Ab">Ab</option>
+                  <option value="A">A</option>
+                  <option value="Bb">Bb</option>
+                  <option value="B">B</option>
+                </select>
+                <div class="muted small" data-i18n="help.chord_key"></div>
+              </label>
+
+              <label class="lbl-inline">
+                <span class="setting-label" data-i18n="label.chord_scale" data-i18n-title="label.chord_scale"></span>
+                <select id="chord_scale">
+                  <option value="major" data-i18n="opt.scale_major"></option>
+                  <option value="minor" data-i18n="opt.scale_minor"></option>
+                </select>
+                <div class="muted small" data-i18n="help.chord_scale"></div>
+              </label>
+
+              <label class="lbl-inline" style="grid-column: 1 / -1;">
+                <span class="setting-label" data-i18n="label.chord_roman" data-i18n-title="label.chord_roman"></span>
+                <textarea id="chord_roman" rows="3" data-i18n-placeholder="ph.chord_roman"></textarea>
+                <div class="muted small" data-i18n="help.chord_roman"></div>
+              </label>
+
+              <label class="lbl-inline" style="grid-column: 1 / -1;">
+                <span class="setting-label" data-i18n="label.chord_section_map" data-i18n-title="label.chord_section_map"></span>
+                <textarea id="chord_section_map" rows="4" data-i18n-placeholder="ph.chord_section_map"></textarea>
+                <div class="muted small" data-i18n="help.chord_section_map"></div>
+              </label>
+            </div>
+
+            <div class="param-stack chord-stack">
+              <div class="param-row">
+                <label class="chk"><input id="chord_apply_keyscale" type="checkbox" checked /> <span data-i18n="opt.chord_apply_keyscale"></span></label>
+                <div class="muted small" data-i18n="help.chord_apply_keyscale"></div>
+              </div>
+              <div class="param-row">
+                <label class="chk"><input id="chord_apply_bpm" type="checkbox" checked /> <span data-i18n="opt.chord_apply_bpm"></span></label>
+                <div class="muted small" data-i18n="help.chord_apply_bpm"></div>
+              </div>
+              <div class="param-row">
+                <label class="chk"><input id="chord_apply_lyrics" type="checkbox" checked /> <span data-i18n="opt.chord_apply_lyrics"></span></label>
+                <div class="muted small" data-i18n="help.chord_apply_lyrics"></div>
+              </div>
+            </div>
+
+            <div class="chord-preview" id="chord_preview_box">
+              <div class="chord-preview-line"><span class="preview-k" data-i18n="label.chord_preview_resolved"></span><span id="chord_resolved_preview" class="preview-v"></span></div>
+              <div class="chord-preview-line"><span class="preview-k" data-i18n="label.chord_preview_caption"></span><span id="chord_caption_preview" class="preview-v"></span></div>
+              <div class="chord-preview-line"><span class="preview-k" data-i18n="label.chord_preview_keyscale"></span><span id="chord_keyscale_preview" class="preview-v"></span></div>
+              <div class="chord-preview-line"><span class="preview-k" data-i18n="label.chord_preview_sections"></span><span id="chord_sections_preview" class="preview-v"></span></div>
+            </div>
+
+            <div class="chord-actions-list">
+              <div class="chord-action-row">
+                <button id="btn_chord_generate" class="btn secondary chord-action-btn" type="button" data-i18n="btn.chord_generate"></button>
+                <div class="muted small chord-action-help" data-i18n="help.chord_generate"></div>
+              </div>
+              <div class="chord-action-row">
+                <button id="btn_chord_auto_sections" class="btn secondary chord-action-btn" type="button" data-i18n="btn.chord_auto_sections"></button>
+                <div class="muted small chord-action-help" data-i18n="help.chord_auto_sections"></div>
+              </div>
+              <div class="chord-action-row">
+                <button id="btn_chord_apply" class="btn secondary chord-action-btn" type="button" data-i18n="btn.chord_apply"></button>
+                <div class="muted small chord-action-help" data-i18n="help.chord_apply"></div>
+              </div>
+              <div class="chord-action-row">
+                <button id="btn_chord_apply_full" class="btn secondary chord-action-btn chord-btn-full" type="button" data-i18n="btn.chord_apply_full"></button>
+                <div class="muted small chord-action-help chord-full-note" data-i18n="help.chord_apply_full_notice"></div>
+              </div>
+              <div class="chord-action-row">
+                <button id="btn_chord_remove" class="btn secondary chord-action-btn" type="button" data-i18n="btn.chord_remove"></button>
+                <div class="muted small chord-action-help" data-i18n="help.chord_remove"></div>
+              </div>
+            </div>
+            <div id="chord_status" class="muted small" style="margin-top:8px;"></div>
+          </div>
+        </details>
+
+        
+        <details class="adv">
+          <summary data-i18n="title.advanced_settings"></summary>
+          <div class="details-body">
+            <p class="section-help" data-i18n="help.advanced_overview"></p>
+
+            <div class="param-stack">
+
+              
+
+              <div class="subhead" data-i18n="sub.sampling.title"></div>
+              
+
+              <div class="param-row">
+                <div class="field-line field-line-compact">
+                  <span class="setting-label" data-i18n="label.batch_size" data-i18n-title="label.batch_size"></span>
+                  <select id="batch_size">
+                    <option value="1" selected>1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                  </select>
+                </div>
+                <div class="muted small" data-i18n="help.batch_size"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <label class="chk"><input id="use_adg" type="checkbox" /> <span data-i18n="opt.use_adg"></span></label>
+                <div class="muted small" data-i18n="help.use_adg"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="field-line field-line-medium">
+                  <span class="setting-label" data-i18n="label.audio_format" data-i18n-title="label.audio_format"></span>
+                  <select id="audio_format">
+                    <option value="flac" selected>FLAC</option>
+                    <option value="wav">WAV</option>
+                    <option value="mp3">MP3</option>
+                    <option value="opus">OPUS</option>
+                    <option value="aac">AAC</option>
+                    <option value="wav32">WAV 32-bit</option>
+                  </select>
+                </div>
+                <div class="muted small" data-i18n="help.audio_format"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.inference_steps" data-i18n-title="label.inference_steps"></span>
+                    <input id="steps" type="number" step="1" min="1" max="200" value="20" class="num" />
+                  </div>
+                  <input id="steps_range" type="range" min="1" max="200" step="1" value="20" />
+                </div>
+                <div class="muted small" data-i18n="help.inference_steps"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="field-line field-line-medium">
+                  <span class="setting-label" data-i18n="label.infer_method" data-i18n-title="label.infer_method"></span>
+                  <select id="infer_method" aria-label="Inference method" data-i18n-aria-label="label.infer_method">
+                    <option value="ode">ODE</option>
+                    <option value="sde">SDE</option>
+                  </select>
+                </div>
+                <div class="muted small" data-i18n="help.infer_method"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.timesteps" data-i18n-title="label.timesteps"></span>
+                  </div>
+                  <textarea id="timesteps" rows="2" data-i18n-placeholder="ph.timesteps" aria-label="Timesteps schedule" data-i18n-aria-label="label.timesteps"></textarea>
+                </div>
+                <div class="muted small" data-i18n="help.timesteps"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.repainting_start" data-i18n-title="label.repainting_start"></span>
+                    <input id="repainting_start" type="number" step="0.1" min="0" max="600" value="0.0" class="num" />
+                  </div>
+                  <input id="repainting_start_range" type="range" min="0" max="600" step="0.1" value="0.0" />
+                </div>
+                <div class="muted small" data-i18n="help.repainting_start"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.repainting_end" data-i18n-title="label.repainting_end"></span>
+                    <input id="repainting_end" type="number" step="0.1" min="-1" max="600" value="-1.0" class="num" />
+                  </div>
+                  <input id="repainting_end_range" type="range" min="-1" max="600" step="0.1" value="-1.0" />
+                </div>
+                <div class="muted small" data-i18n="help.repainting_end"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.guidance_scale" data-i18n-title="label.guidance_scale"></span>
+                    <input id="guidance_scale" type="number" step="0.1" min="0" max="50" value="7.0" class="num" />
+                  </div>
+                  <input id="guidance_scale_range" type="range" min="0" max="50" step="0.1" value="7.0" />
+                </div>
+                <div class="muted small" data-i18n="help.guidance_scale"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.shift" data-i18n-title="label.shift"></span>
+                    <input id="shift" type="number" step="0.1" min="1" max="5" value="3.0" class="num" />
+                  </div>
+                  <input id="shift_range" type="range" min="1" max="5" step="0.1" value="3.0" />
+                </div>
+                <div class="muted small" data-i18n="help.shift"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.cfg_start" data-i18n-title="label.cfg_start"></span>
+                    <input id="cfg_interval_start" type="number" step="0.01" min="0" max="1" value="0.0" class="num" />
+                  </div>
+                  <input id="cfg_interval_start_range" type="range" min="0" max="1" step="0.01" value="0.0" />
+                </div>
+                <div class="muted small" data-i18n="help.cfg_interval_start"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.cfg_end" data-i18n-title="label.cfg_end"></span>
+                    <input id="cfg_interval_end" type="number" step="0.01" min="0" max="1" value="1.0" class="num" />
+                  </div>
+                  <input id="cfg_interval_end_range" type="range" min="0" max="1" step="0.01" value="1.0" />
+                </div>
+                <div class="muted small" data-i18n="help.cfg_interval_end"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <label class="chk"><input id="enable_normalization" type="checkbox" checked /> <span data-i18n="opt.audio_normalization"></span></label>
+                <div class="muted small" data-i18n="help.enable_normalization"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.normalization_db" data-i18n-title="label.normalization_db"></span>
+                    <input id="normalization_db" type="number" step="0.1" min="-10" max="0" value="-1.0" class="num" />
+                  </div>
+                  <input id="normalization_db_range" type="range" min="-10" max="0" step="0.1" value="-1.0" />
+                </div>
+                <div class="muted small" data-i18n="help.normalization_db"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.score_sensitivity" data-i18n-title="label.score_sensitivity"></span>
+                    <input id="score_scale" type="number" step="0.01" min="0.01" max="1" value="0.5" class="num" />
+                  </div>
+                  <input id="score_scale_range" type="range" min="0.01" max="1" step="0.01" value="0.5" />
+                </div>
+                <div class="muted small" data-i18n="help.score_sensitivity"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <label class="chk"><input id="auto_score" type="checkbox" /> <span data-i18n="opt.auto_score"></span></label>
+                <div class="muted small" data-i18n="help.auto_score"></div>
+              </div>
+
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.latent_shift" data-i18n-title="label.latent_shift"></span>
+                    <input id="latent_shift" type="number" step="0.01" min="-0.2" max="0.2" value="0.0" class="num" />
+                  </div>
+                  <input id="latent_shift_range" type="range" min="-0.2" max="0.2" step="0.01" value="0.0" />
+                </div>
+                <div class="muted small" data-i18n="help.latent_shift"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.latent_rescale" data-i18n-title="label.latent_rescale"></span>
+                    <input id="latent_rescale" type="number" step="0.01" min="0.5" max="1.5" value="1.0" class="num" />
+                  </div>
+                  <input id="latent_rescale_range" type="range" min="0.5" max="1.5" step="0.01" value="1.0" />
+                </div>
+                <div class="muted small" data-i18n="help.latent_rescale"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.audio_cover_strength" data-i18n-title="label.audio_cover_strength"></span>
+                    <input id="audio_cover_strength" type="number" step="0.01" min="0" max="1" value="0.0" class="num" />
+                  </div>
+                  <input id="audio_cover_strength_range" type="range" min="0" max="1" step="0.01" value="0.0" />
+                </div>
+                <div class="muted small" data-i18n="help.audio_cover_strength"></div>
+              </div>
+
+              
+              <div class="param-row">
+                <div class="lbl-inline">
+                  <div class="row-space">
+                    <span class="setting-label" data-i18n="label.cover_noise_strength" data-i18n-title="label.cover_noise_strength"></span>
+                    <input id="cover_noise_strength" type="number" step="0.01" min="0" max="1" value="0.0" class="num" />
+                  </div>
+                  <input id="cover_noise_strength_range" type="range" min="0" max="1" step="0.01" value="0.0" />
+                </div>
+                <div class="muted small" data-i18n="help.cover_noise_strength"></div>
+              </div>
+
+            </div>
+          </div>
+        </details>
+
+        
+        <details class="adv" id="lm_hints">
+          <summary data-i18n="title.lm_hints"></summary>
+          <div class="details-body">
+            <div class="grid2">
+              <div class="lbl-inline">
+                <span class="setting-label" data-i18n="label.lm_audio" data-i18n-title="label.lm_audio"></span>
+                <div class="filepick-block">
+                  <input id="lm_audio" class="filepick-input" type="file" accept="audio/*" />
+                  <div class="filepick-row">
+                    <button id="lm_audio_btn" class="paction filepick-btn" type="button" data-i18n="btn.browse"></button>
+                    <span id="lm_audio_name" class="filepick-name muted small" data-i18n="status.no_file_selected"></span>
+                  </div>
+                </div>
+              </div>
+              <label class="lbl-inline">
+                <span class="setting-label" data-i18n="label.audio_codes" data-i18n-title="label.audio_codes"></span>
+                <textarea id="audio_codes" rows="6" data-i18n-placeholder="ph.audio_codes"></textarea>
+              </label>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button id="btn_convert_codes" class="btn secondary" data-i18n="btn.convert_audio_to_codes"></button>
+              <button id="btn_transcribe_codes" class="btn secondary" data-i18n="btn.transcribe_codes"></button>
+              <div class="grow"></div>
+              <div id="lm_status" class="muted small"></div>
+            </div>
+            <p class="section-help" style="margin-top:10px;" data-i18n="help.lm_codes_workflow"></p>
+          </div>
+        </details>
+
+        
+        <details class="adv" id="import_json">
+          <summary data-i18n="title.import_json"></summary>
+          <div class="details-body">
+            <p class="section-help" data-i18n="help.import_json"></p>
+
+            <div class="grid2">
+              <label class="lbl-inline" style="grid-column: 1 / -1;">
+                <span class="setting-label" data-i18n="label.import_paste" data-i18n-title="label.import_paste"></span>
+                <textarea id="import_json_text" rows="7" data-i18n-placeholder="ph.import_json"></textarea>
+                <div class="muted small" data-i18n="help.import_paste"></div>
+              </label>
+
+              <div class="lbl-inline">
+                <span class="setting-label" data-i18n="label.import_file" data-i18n-title="label.import_file"></span>
+                <div class="filepick-block">
+                  <input id="import_json_file" class="filepick-input" type="file" accept="application/json,.json" />
+                  <div class="filepick-row">
+                    <button id="import_json_file_btn" class="paction filepick-btn" type="button" data-i18n="btn.browse"></button>
+                    <span id="import_json_file_name" class="filepick-name muted small" data-i18n="status.no_file_selected"></span>
+                  </div>
+                </div>
+                <div class="muted small" data-i18n="help.import_file"></div>
+              </div>
+
+              <div class="row right" style="align-items:flex-end;">
+                <button id="btn_import_apply" class="btn secondary" data-i18n="btn.import_apply"></button>
+              </div>
+            </div>
+
+            <div id="import_status" class="muted small" style="margin-top:8px;"></div>
+          </div>
+        </details>
+
+      </div>
+
+      
+      <div class="actionbar">
+        <button id="submit" class="btn main-btn" data-i18n="btn.generate"></button>
+        <div class="model-wrap" aria-label="Model selection" data-i18n-aria-label="title.model_select">
+          <div class="model-label" data-i18n="title.model_select"></div>
+          <div class="model-desc" data-i18n="help.model_select_desc"></div>
+          <select id="model_select" aria-label="Model" data-i18n-aria-label="title.model_select">
+            <option value="acestep-v15-base"                  data-i18n="model.base"></option>
+            <option value="acestep-v15-sft"                   data-i18n="model.sft"></option>
+            <option value="acestep-v15-sft-turbo-ta-0.5"      data-i18n="model.sft_turbo_ta_05"></option>
+            <option value="acestep-v15-turbo"                  data-i18n="model.turbo" selected></option>
+            <option value="acestep-v15-turbo-continuous"       data-i18n="model.turbo_continuous"></option>
+            <option value="acestep-v15-turbo-shift1"           data-i18n="model.turbo_shift1"></option>
+            <option value="acestep-v15-turbo-shift3"           data-i18n="model.turbo_shift3"></option>
+          </select>
+          <div class="model-note" data-i18n="help.model_shift_note"></div>
+        </div>
+      </div>
+
+      
+      <div id="status" class="status"></div>
+      <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
+
+      
+      <div id="result" class="result hidden">
+        <h2 data-i18n="title.results"></h2>
+        <div id="results_list"></div>
+        <details id="extra_sections" class="adv">
+          <summary data-i18n="title.details"></summary>
+          <div class="details-body">
+            <pre id="extra_pre" class="pre"></pre>
+          </div>
+        </details>
+      </div>
+
+    </section>
+
+    
+    <footer class="ftr">
+      <span class="muted footer-meta">
+        <span data-i18n="footer.service_offer"></span> <span id="client_ip">…</span><br />
+        <span id="gpu_info" class="footer-gpu" style="display:none;"></span><br />
+        <span data-i18n="footer.songs_generated"></span> <span id="song_counter">0</span>
+      </span>
+    </footer>
+
+  </div>
+
+  <script src="/static/i18n.js?v=v20"></script>
+  <script src="/static/app.js?v=v20"></script>
+</body>
+</html>

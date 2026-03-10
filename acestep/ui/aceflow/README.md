@@ -1,77 +1,117 @@
 # AceFlow UI
 
-AceFlow is a lightweight web UI built on top of the **ACE-Step** backend.
+A lightweight web UI for **ACE-Step** focused on practical music-generation workflows.
 
-It does not replace ACE-Step and does not reimplement the generation engine.  
-Its job is to provide a cleaner interface for the most useful workflows exposed by the backend, including generation modes, LoRA selection, queue-based execution, reference conditioning, and chord-driven harmonic setup.
-
----
-
-## What AceFlow Does
-
-AceFlow is a thin UI layer that sits in front of ACE-Step.
-
-In practice, the workflow is:
-
-1. the browser collects the user inputs
-2. the frontend sends the request to the backend
-3. the backend validates the payload
-4. the request is added to the queue
-5. ACE-Step performs the actual generation
-6. outputs, logs, and metadata are saved
-7. the UI polls job status and updates the page
-
-So the split is simple:
-
-- **ACE-Step** does the generation
-- **AceFlow** manages the workflow
+AceFlow does **not** replace ACE-Step and does **not** reimplement the generation engine.  
+It is a workflow layer built on top of the ACE-Step backend and APIs: the UI collects inputs, the backend validates them, the queue runs the job, and ACE-Step does the actual generation.
 
 ---
 
-## Main Features
+## ✨ What AceFlow Is For
 
-AceFlow exposes the most practical generation controls through a web interface.
+AceFlow exists to make the ACE-Step workflow easier to use from a browser.
 
-Main features include:
+It brings together the most useful controls in one place:
 
-- **Simple, Custom, Cover and Remix workflows**
-- **LoRA selection from a UI catalog**
-- **Chord progression tools**
-- **Reference audio generation from chords**
-- **Audio-code extraction from generated chord references**
-- **Queue-based job execution**
-- **Prompt example loading**
-- **Output and metadata tracking**
+- multiple generation modes
+- LoRA selection from a catalog
+- DiT model selection
+- reference audio upload
+- chord progression tools
+- chord-based reference rendering
+- JSON import/export
+- queue-based execution
+- output, metadata, and log tracking
+
+In plain English:
+
+- **ACE-Step is the engine**
+- **AceFlow is the dashboard**
 
 ---
 
-## Generation Modes
+## 🧭 How the UI Works
 
-AceFlow supports multiple workflows directly from the UI.
+The runtime flow is simple:
+
+1. You fill in the UI
+2. AceFlow sends the request to the backend
+3. The backend validates the payload
+4. The request is added to the in-process queue
+5. ACE-Step executes the job
+6. Audio, metadata, and logs are written to disk
+7. The frontend polls the job status and updates the page
+
+Jobs are serialized through a queue, so AceFlow behaves more like a controlled remote frontend than a raw "run everything instantly" page.
+
+---
+
+## 🎛️ Generation Modes
+
+AceFlow exposes four main workflows:
 
 ### Simple
-
-A quick workflow for straightforward generation.
+A faster and lighter workflow for straightforward prompts.
 
 ### Custom
-
-The most flexible mode.  
-This is also the mode where full chord conditioning can inject generated harmonic reference as **audio codes**.
+The most flexible mode. This is also the mode where full chord conditioning can inject generated harmonic reference as **audio codes**.
 
 ### Cover
-
-Reference-based workflow.  
-When full chord conditioning is used in Cover mode, the generated harmonic reference is used as **reference WAV audio**, not as audio codes.
+Reference-based workflow. When full chord conditioning is used here, the generated harmonic reference is used as **reference WAV audio** rather than audio codes.
 
 ### Remix
-
-A variation workflow for transforming or reworking existing material.
+A variation / repaint-style workflow for transforming or reworking existing material.
 
 ---
 
-## LoRA Management
+## 🎚️ DiT Model Behavior in the UI
 
-### Where to Place LoRAs
+AceFlow lets you choose the DiT model directly from the UI.
+
+There is also some **automatic UI behavior** tied to the selected model name:
+
+- when the selected model name contains `sft`, the UI automatically sets:
+  - **Shift = 1**
+  - **Inference steps = 50**
+- for non-SFT models, the UI automatically sets:
+  - **Shift = 3**
+  - **Inference steps = 20**
+
+This is a UI convenience rule triggered when the model selector changes.
+
+### Important note
+
+AceFlow applies model-dependent defaults at both frontend and backend level.
+
+In the frontend:
+
+- selecting an **SFT** model automatically sets:
+  - **Shift = 1**
+  - **Inference steps = 50**
+- selecting other models automatically sets:
+  - **Shift = 3**
+  - **Inference steps = 20**
+
+In the backend, if `inference_steps` is missing from the request, fallback defaults are:
+
+- **8** for turbo models
+- **50** for SFT models
+- **32** for other non-turbo models
+
+After that, the backend clamps the value to the allowed range.
+
+So there are two separate layers:
+
+1. the **frontend auto-fills** values for convenience
+2. the **backend normalizes and clamps** the final value before generation
+
+This behavior is specific to AceFlow and does not exactly match the Gradio UI, which generally uses **8** for turbo models and **32** for non-turbo models.
+
+---
+
+## 🎸 LoRA Management
+
+### Where to place LoRAs
 
 The `lora` folder must be created in the **root of ACE-Step**.
 
@@ -86,15 +126,15 @@ Example:
     ├─ outputs/
     └─ ...
 
-Each LoRA must live inside `ACE-Step/lora`, and each subfolder name must match the corresponding catalog entry `id`.
+Each LoRA must live inside `ACE-Step/lora`, and each subfolder name must match the matching catalog entry `id`.
 
-### How the LoRA Dropdown Works
+### How the LoRA dropdown works
 
-The UI loads the available LoRAs from:
+The UI loads LoRA entries from:
 
     aceflow/lora_catalog.json
 
-Each entry uses this structure:
+Each entry uses a structure like this:
 
     {
       "id": "marcocoldplay",
@@ -102,11 +142,10 @@ Each entry uses this structure:
       "label": "Coldplay"
     }
 
-### Field Meaning
+### Field meaning
 
 - `id`  
-  Internal identifier used by the backend.  
-  This must match the LoRA folder name inside `ACE-Step/lora`.
+  Internal identifier used by the backend. It must match the LoRA folder name inside `ACE-Step/lora`.
 
 - `trigger`  
   Trigger or style token associated with that LoRA.
@@ -114,7 +153,7 @@ Each entry uses this structure:
 - `label`  
   Human-readable name shown in the UI.
 
-### How to Edit the LoRA Catalog
+### How to edit the LoRA catalog
 
 Open:
 
@@ -137,33 +176,30 @@ Example:
       }
     ]
 
-### Important Notes About LoRAs
+### Practical behavior
 
-- the `id` must exactly match the folder name under `ACE-Step/lora`
-- if the selected LoRA folder does not exist, loading fails
-- the UI is built around a single-LoRA workflow per job
-- the backend also injects the LoRA trigger into the caption when needed
+- the UI supports a **single-LoRA workflow per job**
+- if a LoRA is selected, the backend can also inject the LoRA trigger into the caption when needed
+- if the selected folder does not exist under `ACE-Step/lora`, loading fails
 
 ---
 
-## Chord Progression System
+## 🎼 Chord Progression Workflow
 
-AceFlow includes a dedicated chord progression workflow.
+AceFlow includes a dedicated chord progression system.
 
-This is not just a text helper: the UI can turn a Roman-numeral progression into an actual harmonic reference that can then be used for conditioning.
+This is not just decorative text glue. The chord section can turn a Roman-numeral progression into a real harmonic reference and then use that reference for generation conditioning.
 
-The chord tools are exposed in the **Chord progression** section of the UI.
+### What you can define
 
-### What You Can Enter
-
-The UI lets you define:
+The UI lets you work with:
 
 - **Chord key**
 - **Chord scale** (`major` or `minor`)
 - **Roman progression**
 - **Optional section map**
 
-Example Roman progression:
+Example progression:
 
     I - vi - IV - V
 
@@ -171,75 +207,64 @@ Example section map:
 
     Verse=I - vi - IV - V
     Chorus=vi - IV - I - V
+    Bridge=ii - IV - I - V
 
-This means different lyrics sections can use different harmonic progressions.
+This allows different song sections to follow different harmonic patterns.
 
-### What AceFlow Does With It
+### What AceFlow does with it
 
-The frontend and backend resolve Roman numerals into chord names and use that information in several ways:
+The frontend and backend resolve Roman numerals into concrete chord names and can use them to:
 
-- build a harmonic description for the caption
-- inject chord hints into lyrics sections
-- optionally set key/scale information
+- build harmonic hints for the caption
+- inject chord hints into lyric sections
+- optionally populate key/scale
 - optionally align BPM-related conditioning
-- generate an actual reference WAV from the chord sequence
+- generate a real reference WAV from the chord sequence
 - optionally extract audio codes from that generated reference
 
-This makes the chord workflow useful both as a **semantic hint layer** and as a **real conditioning source**.
+So the chord system is useful in **two ways**:
+
+1. as a **semantic harmonic hint layer**
+2. as a **real conditioning source**
 
 ---
 
-## Chord Progression Actions
+## 🎹 Chord Actions in the UI
 
-The chord section includes several actions.
+The chord section includes multiple actions.
 
 ### Generate
-
-Resolves the Roman progression into concrete chord names and updates the preview.
+Resolves the Roman progression into concrete chords and updates the preview.
 
 ### Auto Sections
-
 Builds section-based overrides from the current lyrics structure when possible.
 
 ### Apply
-
-Applies the chord setup as a clean harmonic layer to style, lyrics, key and BPM fields.
-
-This is the lightweight harmonic workflow.
+Applies the chord setup as a lightweight harmonic layer to the related UI fields.
 
 ### Apply Full
-
 This is the important one.
 
-AceFlow generates a chord-based reference audio file, then uses it as conditioning:
+AceFlow generates a chord-based reference WAV, then uses it as conditioning:
 
 - in **Custom** mode, the generated harmonic reference is converted into **audio codes**
-- in **Cover** mode, the generated harmonic reference is used as **pure WAV reference audio**
-
-That is the full harmonic conditioning path.
+- in **Cover** mode, the generated harmonic reference is used as **reference WAV audio**
 
 ### Remove
-
-Clears the chord setup from the related UI fields and conditioning state.
-
----
-
-## Chord Reference Rendering
-
-When full chord conditioning is used, AceFlow generates a temporary reference WAV from the resolved chord progression.
-
-The backend route responsible for this is the chord reference renderer, which creates a WAV file and stores it under the upload area before optional code extraction.
-
-The rendering pipeline supports two modes:
-
-- **SoundFont (.sf2) renderer**
-- **Internal synth renderer**
+Clears chord-related UI state and removes the generated full-conditioning state.
 
 ---
 
-## Where to Put the `.sf2` SoundFont
+## 🔊 SoundFont (`.sf2`) Support
 
-If you want chord/reference audio to be rendered with a SoundFont instrument, place **one optional General MIDI compatible `.sf2` file** in:
+AceFlow supports two renderers for chord/reference audio:
+
+- **SoundFont (.sf2)**
+- **Internal synth**
+
+### Where to put the `.sf2`
+
+If you want SoundFont-based chord/reference rendering, place **one optional General MIDI compatible `.sf2` file** in:
 
     aceflow/soundfonts/
 
@@ -247,201 +272,332 @@ There is also support for:
 
     aceflow/soundfont/
 
-But the packaged project already includes the `soundfonts` folder, so that is the intended location.
+but `soundfonts/` is the intended location in this project.
 
-### Why the `.sf2` Goes There
+### Why it goes there
 
-AceFlow searches for SoundFonts relative to the **aceflow package directory**, not relative to the ACE-Step root.
+The SoundFont lookup is resolved **relative to the AceFlow package directory**, not relative to the ACE-Step root.
 
-In code terms, the SoundFont lookup starts from the folder where the AceFlow Python package lives and scans:
+That means the `.sf2` is part of the **AceFlow chord-reference renderer**, not part of ACE-Step core model loading.
 
-- `soundfonts`
-- `soundfont`
+### What happens if no `.sf2` is present
 
-So the `.sf2` belongs inside the AceFlow package because it is used by the **AceFlow chord reference renderer**, not by ACE-Step’s core model loader.
+AceFlow automatically falls back to the internal synth renderer.
 
-### What Happens If No `.sf2` Is Present
+Behavior is:
 
-If no compatible `.sf2` file is found, AceFlow automatically falls back to the built-in internal chord renderer.
+- **0 `.sf2` files** → internal synth fallback
+- **1 `.sf2` file** → that file is used
+- **2 or more `.sf2` files** → the first alphabetical match is used
 
-So:
+### Why use a SoundFont at all
 
-- **0 `.sf2` files** -> internal renderer fallback
-- **1 `.sf2` file** -> that file is used
-- **2 or more `.sf2` files** -> the first alphabetical match is used
+The SoundFont renderer produces a more instrument-like harmonic reference before extraction or Cover conditioning. In practice, that can make the reference easier to hear and sometimes more useful than the built-in internal synth.
 
-### Why Use an `.sf2` At All
-
-The SoundFont renderer produces a more instrument-like harmonic reference before extraction or conditioning.
-
-By default, AceFlow uses a simple setup based on:
-
-- piano layer
-- bass layer
-
-This gives a cleaner musical reference than the internal synth in some cases, especially when you want a more recognisable harmonic guide for extraction or Cover conditioning.
-
-### Practical Advice for the SoundFont
+### Practical advice
 
 Use a **small or medium General MIDI `.sf2`** with decent piano and bass sounds.
 
-Do not go wild with giant SoundFonts unless there is a real reason. Huge `.sf2` files tend to make rendering slower with very little practical benefit for this workflow.
+Do not go berserk with gigantic SoundFonts unless you have a real reason. Huge `.sf2` files can make chord reference rendering slower for very little practical gain.
 
 ---
 
-## Chord Reference Renderer Selection
+## 🧪 Full Chord Conditioning Path
 
-The UI exposes a renderer selector for chord/reference audio.
+When full chord conditioning is used, the flow is:
 
-Available choices are:
-
-- **SoundFont (.sf2)**
-- **Internal synth**
-
-If a valid `.sf2` is detected in `aceflow/soundfonts`, the SoundFont option is available and the UI can also show its name.
-
-If no `.sf2` is found, the UI falls back to the internal renderer.
-
----
-
-## How Full Chord Conditioning Works
-
-The full harmonic workflow is:
-
-1. define the Roman progression
+1. define key, scale, and Roman progression
 2. optionally define section overrides
 3. resolve the chord plan
-4. generate a temporary reference WAV from the chord sequence
-5. upload/store that generated WAV
+4. generate a temporary chord reference WAV
+5. store that WAV in the upload area
 6. optionally extract audio codes from it
-7. inject the result into the active generation mode
+7. inject the result into the selected generation mode
 
-Behavior depends on the selected mode:
+Behavior depends on the mode:
 
-### In Custom Mode
+### In Custom mode
+The generated chord reference WAV is converted into **audio codes** and used for conditioning.
 
-The generated chord reference WAV is converted into **audio codes** and those codes are used for conditioning.
-
-### In Cover Mode
-
+### In Cover mode
 The generated chord reference WAV is used directly as **reference audio**.
 
-This distinction matters because the UI is not doing the same thing in both modes, even if the starting chord progression is identical.
+That distinction is important. Same progression, different routing.
 
 ---
 
-## Chord Section Mapping
+## 📦 Output Folder Structure
 
-AceFlow supports optional per-section chord overrides.
+By default, AceFlow writes everything under:
 
-This allows lyrics sections such as Verse, Chorus, Bridge, Outro and similar blocks to follow different progressions.
+    <ACE-Step root>/aceflow_outputs
 
-Example:
+This default can be overridden through:
 
-    Verse=I - vi - IV - V
-    Chorus=vi - IV - I - V
-    Bridge=ii - IV - I - V
+    ACESTEP_REMOTE_RESULTS_DIR
 
-When section rules are present, matching lyrics sections use their own progression instead of the global one.
+### Main folders inside `aceflow_outputs`
 
-This is especially useful for more structured songs where a single repeating loop would be too crude.
+AceFlow creates and uses:
+
+- per-job folders
+- `_uploads/`
+- `_logs/`
+- `_songs_generated.json`
+
+### Per-job folders
+
+Each generation job gets its own folder named with a UUID-style job id.
+
+Example shape:
+
+    aceflow_outputs/
+    ├─ 9b58b2d9-2f0e-4e0f-b7f3-2a1d2f6f8abc/
+    │  └─ metadata.json
+    ├─ _uploads/
+    ├─ _logs/
+    └─ _songs_generated.json
+
+The exact generated audio files are associated with the job result and downloadable from the UI.
+
+### Upload area
+
+Uploaded audio files are stored in:
+
+    aceflow_outputs/_uploads/
+
+These files are saved with a generated safe name based on a UUID.
+
+Chord full-conditioning also writes its generated temporary reference WAV here, using a name like:
+
+    chord_reference_<timestamp>_<id>.wav
+
+### Log area
+
+Job logs are written under:
+
+    aceflow_outputs/_logs/
+
+### Counter file
+
+AceFlow also stores a persistent generation counter in:
+
+    aceflow_outputs/_songs_generated.json
 
 ---
 
-## Examples Catalog
+## 🧾 Metadata and Log Generation
 
-AceFlow can load prompt examples from:
+AceFlow writes structured metadata and captures runtime logs.
+
+### `metadata.json`
+
+Each job folder contains a:
+
+    metadata.json
+
+This file stores the core request and result information, including things like:
+
+- selected model
+- caption and lyrics
+- generation mode
+- LoRA information
+- conditioning values
+- chord-related state
+- inference parameters
+- result audio paths
+- resolved seeds
+- timing information
+
+So `metadata.json` is the backend-side factual record of the job.
+
+### Job log capture
+
+When a job starts, AceFlow opens a temporary live capture file in `_logs` and tees into:
+
+- loguru logs
+- Python logging for uvicorn-related loggers
+- `stdout`
+- `stderr`
+
+During execution, everything is captured into a temporary log file.
+
+When the job ends, that temporary capture is copied into one or more final log files inside `_logs`.
+
+Typical final naming is:
+
+- `<audio_basename>_log.txt`
+- or `<job_id>_log.txt` if no audio basename is available
+
+Then the temporary live capture file is removed.
+
+This is useful for debugging model routing, LoRA loading, conditioning, backend warnings, and the occasional machine-spirit tantrum.
+
+---
+
+## 🧹 Hardcoded Auto-Cleanup (60 minutes)
+
+AceFlow includes **hardcoded cleanup with a TTL of 3600 seconds**, which is **60 minutes**.
+
+This cleanup covers:
+
+- old per-job output folders
+- old uploaded files in `_uploads`
+- old log files in `_logs`
+
+### Important behavior
+
+This cleanup is **not** a separate daemon or scheduled background service.
+
+It is triggered when a new generation request is submitted.
+
+So the practical rule is:
+
+- files older than 60 minutes are eligible for cleanup
+- cleanup actually runs on the **next job submission**
+
+### What gets deleted
+
+- job directories older than 60 minutes, if they look like real AceFlow job folders
+- uploaded audio files older than 60 minutes
+- log files older than 60 minutes
+
+### What this means in practice
+
+AceFlow is intentionally not designed as a permanent archival system.
+
+If you want to keep outputs, logs, or temporary uploads for longer, copy them somewhere else or change the code.
+
+The current 60-minute cleanup window is hardcoded. Tiny goblin with a broom, no mercy.
+
+---
+
+## 📤 JSON Export
+
+AceFlow supports JSON export directly from the result player area.
+
+Each generated result exposes a **Download JSON** action.
+
+### What gets exported
+
+The exported JSON is not just the raw backend `metadata.json`.
+
+The frontend builds a **merged export** that can include:
+
+- backend metadata
+- the original request sent from the UI
+- a frontend UI snapshot (`ui_state`)
+
+That means the exported JSON is designed to be more useful for round-tripping back into the UI.
+
+### File naming
+
+Generated audio files use the backend-generated output name, typically something like:
+
+    bba5aef8-43c6-5e1d-b736-c7b0db74550e.flac
+
+When downloading the JSON export, AceFlow uses the same basename as the generated audio file and only changes the extension:
+
+    bba5aef8-43c6-5e1d-b736-c7b0db74550e.json
+
+---
+
+## 📥 JSON Import
+
+AceFlow also supports JSON import from the dedicated **Import JSON** section in the UI.
+
+You can import either by:
+
+- pasting JSON text
+- selecting a `.json` file
+
+### What import does
+
+The importer tries to reconstruct UI state from multiple possible JSON shapes, including:
+
+- exported merged JSONs from AceFlow
+- backend metadata-style JSONs
+- request/payload-centered JSONs
+
+When successful, it restores the relevant UI fields such as:
+
+- generation mode
+- selected model
+- caption and lyrics
+- LoRA id and weight
+- inference values
+- conditioning values
+- chord settings
+- imported reference paths and chord-derived state
+
+This makes it practical to reload a previous setup, tweak it, and run it again without manually rebuilding the whole prompt state by hand like a medieval scribe.
+
+---
+
+## 🧠 Prompt Examples
+
+AceFlow can load example prompts from:
 
     aceflow/examples.json
 
-This file is meant to provide ready-made examples or preset ideas in the UI.
+This file powers the example / random-example workflow in the UI.
 
-You can edit it to add your own internal prompt templates or preferred starting points.
+You can edit it to provide:
 
----
+- internal presets
+- preferred prompt starters
+- demo examples
+- house-style templates
 
-## Queue and Job System
-
-AceFlow uses a queued job system instead of running every request directly in the HTTP request thread.
-
-This improves:
-
-- stability
-- multi-job handling
-- remote use
-- status tracking
-
-Each request becomes a job, gets processed by the backend, and then reports its outputs back to the UI.
+So if you want the UI to stop suggesting generic stuff and start suggesting your own flavor of chaos, this is where you do it.
 
 ---
 
-## Outputs
+## ⚙️ Queue, Limits, and Practical Behavior
 
-Generated results are written to the configured output area.
+AceFlow uses an in-process single-worker queue.
 
-Typical saved data includes:
+That gives you:
 
-- generated audio
-- metadata
-- logs
-- request snapshot information
+- serialized execution
+- predictable job tracking
+- safer remote usage
+- less chaos when multiple requests pile up
 
-This makes debugging and reproducibility easier.
+### Built-in limits visible in the code
 
-For chord full-conditioning, the generated temporary reference WAV is also created during the workflow and used before the final generation step.
+Some relevant practical limits are:
 
----
+- maximum duration: **600 seconds**
+- minimum duration in the UI: **10 seconds**
+- queue active cap: **30 jobs**
+- basic per-IP request interval guard: **5 seconds**
 
-## Editing Summary
-
-### To add a new LoRA
-
-1. create or copy the LoRA folder into `ACE-Step/lora`
-2. add the matching entry in `aceflow/lora_catalog.json`
-
-### To use SoundFont-based chord rendering
-
-1. place one compatible `.sf2` file into `aceflow/soundfonts`
-2. use the chord/reference renderer selector in the UI
-3. choose **SoundFont (.sf2)**
-
-### To use chord full conditioning
-
-1. define key, scale and Roman progression
-2. optionally define section overrides
-3. click the full chord apply action
-4. let AceFlow generate the harmonic reference
-5. let the backend extract audio codes when needed
-6. run generation in the selected mode
-
-### To edit example presets
-
-1. update `aceflow/examples.json`
+So yes, it is a web UI, but it still keeps a club bouncer at the door.
 
 ---
 
-## Notes
+## 📝 Notes
 
-AceFlow is intentionally a UI and workflow layer, not a fork of ACE-Step internals.
+AceFlow is intentionally a UI/workflow layer, not a fork of ACE-Step internals.
 
-If the UI loads correctly but generation fails, the issue is usually in the backend environment, configuration, model paths, runtime state, or missing assets.
-
-Typical causes include:
+If the page loads correctly but generation fails, the problem is usually in one of these areas:
 
 - missing dependencies
-- invalid paths
+- invalid model/config paths
 - missing LoRA folders
-- missing or invalid reference files
-- no valid `.sf2` file when SoundFont rendering is expected
-- runtime or GPU issues
+- invalid reference audio paths
+- no valid `.sf2` when SoundFont rendering is expected
+- backend runtime issues
+- GPU or memory problems
 
 In other words:
 
-- AceFlow is the dashboard
-- ACE-Step is the engine
+- if the dashboard lights up, the UI is alive
+- if the engine coughs blood, that is usually somewhere deeper
 
 ---
 
 ## License
 
-Follow the same license and usage terms as the ACE-Step environment, models, LoRAs, and assets used behind this UI.
+Follow the same license and usage terms as the ACE-Step environment, models, LoRAs, and other assets used behind this UI.

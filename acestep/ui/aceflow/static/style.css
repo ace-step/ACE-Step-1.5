@@ -686,3 +686,17 @@ input[type="number"].num{
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+
+
+.abCompareBridge { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: rgba(255,255,255,.03); }
+.abCompareTitle { font-weight: 700; }
+.abCompareControls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.abFadeWrap { display: grid; gap: 8px; flex: 0 0 360px; width: 360px; min-width: 360px; }
+.abFadeLabels { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--acc2); }
+.abFadeSlider { width: 100%; min-width: 100%; }
+
+
+@media (max-width: 860px) {
+  .abCompareControls { align-items: stretch; }
+  .abFadeWrap { flex: 1 1 100%; width: 100%; min-width: 0; }
+}

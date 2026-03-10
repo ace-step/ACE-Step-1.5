@@ -70,6 +70,16 @@
       'lora.loading': 'Loading…',
       'lora.none': '(No LoRA)',
       'lora.none_short': 'none',
+      'opt.ab_compare': 'Generate Audio 1 / Audio 2 compare (without LoRA vs with LoRA)',
+      'help.ab_compare': 'Generates two songs with the same seed and parameters. Batch size is ignored and treated as 1 while compare mode is active.',
+      'ab.compare_title': 'Audio 1 / Audio 2 Controls',
+      'ab.compare_desc': 'The normal players stay untouched. These controls act on both together.',
+      'ab.audio1': 'Audio 1',
+      'ab.audio2': 'Audio 2',
+      'ab.play_pause': 'Play/Pause both',
+      'ab.stop': 'Stop both',
+      'ab.crossfade': 'Crossfade',
+      'ab.batch_locked': 'Batch size is locked to 1 while compare mode is active.',
 
       
       'title.chord_progression': '🎼 Chord progression',
@@ -394,6 +404,16 @@
       'lora.loading': 'Caricamento…',
       'lora.none': '(Nessun LoRA)',
       'lora.none_short': 'nessuna',
+      'opt.ab_compare': 'Genera confronto Audio 1 / Audio 2 (senza LoRA vs con LoRA)',
+      'help.ab_compare': 'Genera due canzoni con lo stesso seed e gli stessi parametri. Il batch size viene ignorato e trattato come 1 quando il confronto A/B è attivo.',
+      'ab.compare_title': 'Controlli Audio 1 / Audio 2',
+      'ab.compare_desc': 'I player normali restano intatti. Questi controlli agiscono su entrambi insieme.',
+      'ab.audio1': 'Audio 1',
+      'ab.audio2': 'Audio 2',
+      'ab.play_pause': 'Play/Pausa entrambi',
+      'ab.stop': 'Stop entrambi',
+      'ab.crossfade': 'Crossfade',
+      'ab.batch_locked': 'Il batch size è bloccato a 1 mentre la modalità confronto è attiva.',
 
       
       'title.chord_progression': '🎼 Progressione accordi',

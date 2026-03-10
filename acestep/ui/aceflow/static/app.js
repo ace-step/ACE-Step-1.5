@@ -2248,6 +2248,58 @@ function clamp01(v) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
 }
+function isAbCompareEnabled() {
+  return !!el('ab_compare_enabled')?.checked;
+}
+
+function updateAbCompareBatchUi() {
+  const batchSel = el('batch_size');
+  const abToggle = el('ab_compare_enabled');
+  if (!batchSel || !abToggle) return;
+
+  if (!batchSel.dataset.abPrevValue) {
+    batchSel.dataset.abPrevValue = String(batchSel.value || '1');
+  }
+
+  if (abToggle.checked) {
+    if (String(batchSel.value || '1') !== '1') {
+      batchSel.dataset.abPrevValue = String(batchSel.value || '1');
+    }
+    batchSel.value = '1';
+    batchSel.disabled = true;
+    batchSel.classList.add('ro');
+    batchSel.setAttribute('aria-disabled', 'true');
+    batchSel.title = __tr('ab.batch_locked', 'Batch size is locked to 1 while compare mode is active.', 'Il batch size è bloccato a 1 mentre la modalità confronto è attiva.');
+    return;
+  }
+
+  batchSel.disabled = false;
+  batchSel.classList.remove('ro');
+  batchSel.removeAttribute('aria-disabled');
+  batchSel.title = '';
+  const prev = String(batchSel.dataset.abPrevValue || '').trim();
+  if (prev && prev !== '1' && String(batchSel.value || '1') === '1') {
+    batchSel.value = prev;
+  }
+}
+
+function __makeStableAbSeed(seedRandom, seedRaw) {
+  if (!seedRandom) {
+    const parsed = Number(seedRaw);
+    return Number.isFinite(parsed) ? parsed : -1;
+  }
+  const max = 2147483646;
+  return 1 + Math.floor(Math.random() * max);
+}
+
+function __setPlayerVolume(player, value) {
+  if (!player || !player.audio || !player.vol) return;
+  const v = Math.max(0, Math.min(1, Number(value) || 0));
+  player.audio.volume = v;
+  player.audio.muted = (v === 0);
+  player.vol.value = String(v);
+  if (typeof player._syncMuteIcon === 'function') player._syncMuteIcon();
+}
 function formatLoraWeight(v) {
   const n = clamp01(v);
   return n.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
@@ -2954,6 +3006,39 @@ class GradioLikePlayer {
     this.seedSpan.textContent = __tr('player.resolved_seed', 'Resolved seed', 'Seed risolto') + ': ' + seedVal;
   }
 
+  updateLang() {
+    this.labels.a = __tr('ab.audio1', 'Audio 1', 'Audio 1');
+    this.labels.b = __tr('ab.audio2', 'Audio 2', 'Audio 2');
+    if (this.titleNode) this.titleNode.textContent = __tr('ab.compare_title', 'Audio 1 / Audio 2 Controls', 'Controlli Audio 1 / Audio 2');
+    if (this.descNode) this.descNode.textContent = __tr('ab.compare_desc', 'The normal players stay untouched. These controls act on both together.', 'I player normali restano intatti. Questi controlli agiscono su entrambi insieme.');
+    if (this.playBtn) this.playBtn.setAttribute('aria-label', __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi'));
+    if (this.stopBtn) this.stopBtn.setAttribute('aria-label', __tr('ab.stop', 'Stop both', 'Stop entrambi'));
+    if (this.fade) this.fade.setAttribute('aria-label', __tr('ab.crossfade', 'Crossfade', 'Crossfade'));
+    if (this.leftLabel) this.leftLabel.textContent = this.labels.a;
+    if (this.rightLabel) this.rightLabel.textContent = this.labels.b;
+  }
+
+  updateLang() {
+    this.labels.a = __tr('ab.audio1', 'Audio 1', 'Audio 1');
+    this.labels.b = __tr('ab.audio2', 'Audio 2', 'Audio 2');
+    if (this.titleNode) this.titleNode.textContent = __tr('ab.compare_title', 'Audio 1 / Audio 2 Controls', 'Controlli Audio 1 / Audio 2');
+    if (this.descNode) this.descNode.textContent = __tr('ab.compare_desc', 'The normal players stay untouched. These controls act on both together.', 'I player normali restano intatti. Questi controlli agiscono su entrambi insieme.');
+    if (this.leftLabel) this.leftLabel.textContent = this.labels.a;
+    if (this.rightLabel) this.rightLabel.textContent = this.labels.b;
+    if (this.playBtn) {
+      this.playBtn.title = __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi');
+      this.playBtn.setAttribute('aria-label', __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi'));
+    }
+    if (this.stopBtn) {
+      this.stopBtn.title = __tr('ab.stop', 'Stop both', 'Stop entrambi');
+      this.stopBtn.setAttribute('aria-label', __tr('ab.stop', 'Stop both', 'Stop entrambi'));
+    }
+    if (this.fade) {
+      this.fade.title = __tr('ab.crossfade', 'Crossfade', 'Crossfade');
+      this.fade.setAttribute('aria-label', __tr('ab.crossfade', 'Crossfade', 'Crossfade'));
+    }
+  }
+
   _wire() {
     
     this.audio.addEventListener('loadedmetadata', () => {
@@ -3323,6 +3408,159 @@ class GradioLikePlayer {
   }
 }
 
+class AbCompareBridge {
+  constructor(aPlayer, bPlayer, labels = {}) {
+    this.a = aPlayer;
+    this.b = bPlayer;
+    this.labels = {
+      a: String(labels.a || __tr('ab.audio1', 'Audio 1', 'Audio 1')),
+      b: String(labels.b || __tr('ab.audio2', 'Audio 2', 'Audio 2')),
+    };
+    this.syncing = false;
+    this.root = document.createElement('div');
+    this.root.className = 'abCompareBridge';
+
+    const title = document.createElement('div');
+    title.className = 'abCompareTitle';
+    title.textContent = __tr('ab.compare_title', 'Audio 1 / Audio 2 Controls', 'Controlli Audio 1 / Audio 2');
+    this.titleNode = title;
+
+    const desc = document.createElement('div');
+    desc.className = 'abCompareDesc muted';
+    desc.textContent = __tr('ab.compare_desc', 'The normal players stay untouched. These controls act on both together.', 'I player normali restano intatti. Questi controlli agiscono su entrambi insieme.');
+    this.descNode = desc;
+
+    const controls = document.createElement('div');
+    controls.className = 'abCompareControls';
+
+    const leftControls = document.createElement('div');
+    leftControls.className = 'abCompareControlsLeft';
+
+    this.playBtn = __makeBtn('▶', __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi'), () => this.togglePlayBoth());
+    this.stopBtn = __makeBtn('⏹', __tr('ab.stop', 'Stop both', 'Stop entrambi'), () => this.stopBoth());
+
+    this.timeLbl = document.createElement('div');
+    this.timeLbl.className = 'ptime';
+    this.timeLbl.textContent = '0:00 / --:--';
+
+    leftControls.appendChild(this.playBtn);
+    leftControls.appendChild(this.stopBtn);
+    leftControls.appendChild(this.timeLbl);
+
+    const fadeWrap = document.createElement('div');
+    fadeWrap.className = 'abFadeWrap';
+
+    const labelsRow = document.createElement('div');
+    labelsRow.className = 'abFadeLabels';
+    this.leftLabel = document.createElement('span');
+    this.leftLabel.textContent = this.labels.a;
+    this.rightLabel = document.createElement('span');
+    this.rightLabel.textContent = this.labels.b;
+    labelsRow.appendChild(this.leftLabel);
+    labelsRow.appendChild(this.rightLabel);
+
+    this.fade = document.createElement('input');
+    this.fade.type = 'range';
+    this.fade.min = '0';
+    this.fade.max = '100';
+    this.fade.step = '1';
+    this.fade.value = '0';
+    this.fade.className = 'abFadeSlider';
+    this.fade.setAttribute('aria-label', __tr('ab.crossfade', 'Crossfade', 'Crossfade'));
+
+    fadeWrap.appendChild(labelsRow);
+    fadeWrap.appendChild(this.fade);
+
+    controls.appendChild(leftControls);
+    controls.appendChild(fadeWrap);
+
+    this.root.appendChild(title);
+    this.root.appendChild(desc);
+    this.root.appendChild(controls);
+
+    this._wire();
+    this.applyCrossfade();
+    this._updateTime();
+  }
+
+  mount(parent) {
+    parent.appendChild(this.root);
+    this._langHandler = () => this.updateLang();
+    window.addEventListener('ace_ui_lang_changed', this._langHandler);
+    window.addEventListener('ace:ui_lang_changed', this._langHandler);
+    this.updateLang();
+  }
+
+  _wire() {
+    this.fade.addEventListener('input', () => this.applyCrossfade());
+    const syncTime = (source, target) => {
+      if (this.syncing) return;
+      this.syncing = true;
+      try {
+        const t = Number(source?.audio?.currentTime || 0);
+        if (target?.audio && Number.isFinite(t) && Math.abs((target.audio.currentTime || 0) - t) > 0.12) target.audio.currentTime = t;
+      } catch (e) {}
+      this.syncing = false;
+      this._updateTime();
+    };
+    const syncState = () => {
+      const playing = !this.a.audio.paused || !this.b.audio.paused;
+      this.playBtn.textContent = playing ? '⏸' : '▶';
+      this._updateTime();
+    };
+    [this.a.audio, this.b.audio].forEach((audio) => {
+      audio.addEventListener('timeupdate', () => this._updateTime());
+      audio.addEventListener('play', syncState);
+      audio.addEventListener('pause', syncState);
+      audio.addEventListener('ended', syncState);
+    });
+    this.a.audio.addEventListener('seeked', () => syncTime(this.a, this.b));
+    this.b.audio.addEventListener('seeked', () => syncTime(this.b, this.a));
+  }
+
+  applyCrossfade() {
+    const ratio = Math.max(0, Math.min(1, Number(this.fade.value || 0) / 100));
+    __setPlayerVolume(this.a, 1 - ratio);
+    __setPlayerVolume(this.b, ratio);
+  }
+
+  async togglePlayBoth() {
+    const playing = !this.a.audio.paused || !this.b.audio.paused;
+    if (playing) {
+      this.a.audio.pause();
+      this.b.audio.pause();
+      return;
+    }
+    const targetTime = Math.max(Number(this.a.audio.currentTime || 0), Number(this.b.audio.currentTime || 0));
+    try { this.a.audio.currentTime = targetTime; } catch (e) {}
+    try { this.b.audio.currentTime = targetTime; } catch (e) {}
+    const plays = [];
+    try { plays.push(this.a.audio.play()); } catch (e) {}
+    try { plays.push(this.b.audio.play()); } catch (e) {}
+    try { await Promise.allSettled(plays); } catch (e) {}
+    this._updateTime();
+  }
+
+  stopBoth() {
+    [this.a, this.b].forEach((player) => {
+      try { player.audio.pause(); } catch (e) {}
+      try { player.audio.currentTime = 0; } catch (e) {}
+      if (typeof player._drawOverlay === 'function') player._drawOverlay();
+      if (typeof player._updateTime === 'function') player._updateTime();
+    });
+    this._updateTime();
+  }
+
+  _updateTime() {
+    const cur = Math.max(Number(this.a.audio.currentTime || 0), Number(this.b.audio.currentTime || 0));
+    const durA = Number(this.a.audio.duration || 0);
+    const durB = Number(this.b.audio.duration || 0);
+    const dur = Math.max(durA, durB);
+    const durStr = (Number.isFinite(dur) && dur > 0) ? __fmtTime(dur) : '--:--';
+    this.timeLbl.textContent = `${__fmtTime(cur)} / ${durStr}`;
+  }
+}
+
 function createGradioLikePlayerCard(url, idx, jsonUrl, audioFilename, resolvedSeed) {
   const p = new GradioLikePlayer({ url, index: idx, jsonUrl, audioFilename, resolvedSeed });
   const wrap = document.createElement('div');
@@ -3334,7 +3572,7 @@ function createGradioLikePlayerCard(url, idx, jsonUrl, audioFilename, resolvedSe
 }
 
 
-function showResult(audioUrls, jsonUrl, audioFilenames, resolvedSeeds) {
+function showResult(audioUrls, jsonUrls, audioFilenames, resolvedSeeds, compareMeta = null) {
   
   try { destroyAllPlayers(); } catch (e) {  }
 
@@ -3354,15 +3592,25 @@ function showResult(audioUrls, jsonUrl, audioFilenames, resolvedSeeds) {
 
   const names = Array.isArray(audioFilenames) ? audioFilenames : [];
   const seeds = Array.isArray(resolvedSeeds) ? resolvedSeeds : [];
+  const createdCards = [];
   list.forEach((url, i) => {
+    const jsonUrl = Array.isArray(jsonUrls) ? (jsonUrls[i] || '') : (jsonUrls || '');
     const card = createGradioLikePlayerCard(url, i, jsonUrl, names[i] || "", seeds[i] != null ? seeds[i] : null);
+    createdCards.push(card);
     resultsList.appendChild(card);
   });
+
+  if (compareMeta && createdCards.length >= 2) {
+    const bridge = new AbCompareBridge(createdCards[0].__player, createdCards[1].__player, compareMeta);
+    bridge.mount(resultsList);
+  }
 
   
   (async () => {
     try {
-      const r = await fetch(jsonUrl);
+      const metaUrl = Array.isArray(jsonUrls) ? (jsonUrls[0] || jsonUrls[1] || '') : jsonUrls;
+      if (!metaUrl) return;
+      const r = await fetch(metaUrl);
       if (!r.ok) return;
       const meta = await r.json();
 
@@ -3382,7 +3630,67 @@ function showResult(audioUrls, jsonUrl, audioFilenames, resolvedSeeds) {
   })();
 }
 
-async function postJob() {
+async function __submitSingleJob(payload) {
+  const res = await fetch('/api/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    let detail = null;
+    try {
+      const j = await res.json();
+      detail = (j && (j.detail != null)) ? j.detail : j;
+    } catch (e) {}
+
+    if (detail && typeof detail === 'object' && detail.error_code) {
+      const code = String(detail.error_code || '').trim();
+      if (code === 'rate_limited') {
+        const ra = (detail.retry_after_s != null) ? Number(detail.retry_after_s) : null;
+        const sec = (ra != null && Number.isFinite(ra)) ? Math.max(0.0, ra) : 5.0;
+        setNoticeT('limit.rate_limited', { sec: sec.toFixed(1) });
+        throw new Error(__tr('error.request_failed', 'Request failed', 'Richiesta fallita'));
+      }
+      if (code === 'queue_full') {
+        const cap = (detail.cap != null) ? Number(detail.cap) : 30;
+        const capTxt = (Number.isFinite(cap) ? String(Math.max(0, Math.floor(cap))) : '30');
+        setNoticeT('limit.queue_full', { cap: capTxt });
+        throw new Error(__tr('error.request_failed', 'Request failed', 'Richiesta fallita'));
+      }
+    }
+
+    let txt = '';
+    try { txt = await res.text(); } catch (e) {}
+    throw new Error((txt || '').trim() || t('error.request_failed'));
+  }
+
+  const data = await res.json();
+  const jid = String(data.job_id || '').trim();
+  if (jid) {
+    __jobRequestSnapshots.set(jid, {
+      ui_state: __snapshotUiForExport(payload),
+      request: payload,
+      created_at_ms: Date.now(),
+    });
+  }
+  clearNotice();
+  return data;
+}
+
+async function __waitForJobDone(jobId, onProgress) {
+  while (true) {
+    const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(__tr('status.cant_read_job', 'Cannot read job status', 'Impossibile leggere lo stato del job'));
+    const st = await res.json();
+    if (typeof onProgress === 'function') onProgress(st);
+    if (st.status === 'done') return st;
+    if (st.status === 'error') throw new Error(st.error || t('error.unknown'));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+}
+
+function buildPayloadForCurrentUi() {
   const generation_mode = getGenerationMode();
   const caption = el('caption').value;
   const lyrics = el('lyrics').value;
@@ -3594,82 +3902,34 @@ async function postJob() {
       ...(language_auto ? {} : { vocal_language }),
     };
 
+    return payload;
+}
+
+async function postJob() {
+  const payload = buildPayloadForCurrentUi();
+
     console.log('[aceflow] /api/jobs payload', payload);
     console.log('[aceflow] chord conditioning summary', {
       mode: chordConditioningMode,
-      generation_mode,
-      conditioning_route: conditioningRouteDebug,
-      conditioning_source: conditioningSourceDebug,
-      reference_audio,
-      src_audio,
-      audio_codes_len: String(audio_codes || '').trim().length,
-      audio_cover_strength,
-      cover_noise_strength,
-      cover_conditioning_balance,
-      chord_reference_renderer,
-      reference_only: !!(conditioningRouteDebug === 'reference_audio_wav' && reference_audio && !src_audio && !String(audio_codes || '').trim()),
+      generation_mode: payload.generation_mode,
+      conditioning_route: payload.conditioning_route_debug,
+      conditioning_source: payload.conditioning_source_debug,
+      reference_audio: payload.reference_audio,
+      src_audio: payload.src_audio,
+      audio_codes_len: String(payload.audio_codes || '').trim().length,
+      audio_cover_strength: payload.audio_cover_strength,
+      cover_noise_strength: payload.cover_noise_strength,
+      cover_conditioning_balance: payload.cover_conditioning_balance,
+      chord_reference_renderer: payload.chord_reference_renderer,
+      reference_only: !!(payload.conditioning_route_debug === 'reference_audio_wav' && payload.reference_audio && !payload.src_audio && !String(payload.audio_codes || '').trim()),
       reference_sequence: payload.chord_debug_reference_sequence || '',
       section_plan: payload.chord_debug_section_plan || '',
       target_duration: payload.chord_debug_reference_target_duration,
       bpm: payload.chord_debug_reference_bpm,
     });
     try { console.log('[aceflow] /api/jobs payload json', JSON.stringify(payload)); } catch(e) {}
-	  const res = await fetch('/api/jobs', {
-	    method: 'POST',
-	    headers: { 'Content-Type': 'application/json' },
-	    body: JSON.stringify(payload),
-	  });
-
-  if (!res.ok) {
-    
-    let detail = null;
-    try {
-      const j = await res.json();
-      detail = (j && (j.detail != null)) ? j.detail : j;
-    } catch (e) {
-      
-    }
-
-    
-    if (detail && typeof detail === 'object' && detail.error_code) {
-      const code = String(detail.error_code || '').trim();
-      if (code === 'rate_limited') {
-        const ra = (detail.retry_after_s != null) ? Number(detail.retry_after_s) : null;
-        const sec = (ra != null && Number.isFinite(ra)) ? Math.max(0.0, ra) : 5.0;
-        setNoticeT('limit.rate_limited', { sec: sec.toFixed(1) });
-        return;
-      }
-      if (code === 'queue_full') {
-        const cap = (detail.cap != null) ? Number(detail.cap) : 30;
-        const capTxt = (Number.isFinite(cap) ? String(Math.max(0, Math.floor(cap))) : '30');
-        setNoticeT('limit.queue_full', { cap: capTxt });
-        return;
-      }
-    }
-
-    
-    let txt = '';
-    try { txt = await res.text(); } catch (e) {}
-    throw new Error((txt || '').trim() || t('error.request_failed'));
-  }
-
-  const data = await res.json();
+    const data = await __submitSingleJob(payload);
   currentJobId = data.job_id;
-  
-  
-  try {
-    const jid = String(data.job_id || '').trim();
-    if (jid) {
-      __jobRequestSnapshots.set(jid, {
-        ui_state: __snapshotUiForExport(payload),
-        request: payload,
-        created_at_ms: Date.now(),
-      });
-    }
-  } catch (e) {
-    
-  }
-  clearNotice();
   setStatusT('status.request_queued', { pos: data.position });
   startPolling();
 }
@@ -3743,7 +4003,9 @@ async function pollJob() {
   if (st.status === 'done') {
     const r = st.result;
     setStatusT('status.done_in', { sec: (Math.round((r.seconds || 0) * 10) / 10) });
-    showResult(r.audio_urls || r.audio_url, r.json_url, r.audio_filenames, r.audio_resolved_seeds);
+    const urls = Array.isArray(r.audio_urls) ? r.audio_urls : (r.audio_url ? [r.audio_url] : []);
+    const jsons = urls.map(() => r.json_url || '');
+    showResult(urls, jsons, r.audio_filenames, r.audio_resolved_seeds);
     stopPolling();
     refreshFooterStats();
   }
@@ -3762,7 +4024,68 @@ function stopPolling() {
 
 async function triggerGenerateFromUi() {
   try {
-    await postJob();
+    updateAbCompareBatchUi();
+    if (!isAbCompareEnabled()) {
+      await postJob();
+      return;
+    }
+
+    const loraSel = getSelectedLora();
+    const loraId = String(loraSel.id || '').trim();
+    if (!loraId) throw new Error(__tr('ab.need_lora', 'Select a LoRA before using A/B compare.', 'Seleziona una LoRA prima di usare il confronto A/B.'));
+
+    const seedRandom = !!el('seed_random')?.checked;
+    const seedRaw = el('seed')?.value;
+    const stableSeed = __makeStableAbSeed(seedRandom, seedRaw);
+
+    const basePayload = buildPayloadForCurrentUi();
+    const payloadA = { ...basePayload, seed: stableSeed, batch_size: 1, lora_id: '', lora_trigger: '', lora_weight: basePayload.lora_weight };
+    const payloadB = { ...basePayload, seed: stableSeed, batch_size: 1, lora_id: basePayload.lora_id, lora_trigger: basePayload.lora_trigger, lora_weight: basePayload.lora_weight };
+
+    resultBox.classList.add('hidden');
+    stopPolling();
+    currentJobId = null;
+
+    setStatusT('status.sending_request', { lora: __tr('ab.phase_a', 'A: base model (no LoRA)', 'A: modello base (senza LoRA)') });
+    const first = await __submitSingleJob(payloadA);
+    setStatusT('status.request_queued', { pos: first.position });
+    const stA = await __waitForJobDone(first.job_id, (st) => {
+      if (st.status === 'queued') setStatusT('status.queued_ahead', { pos: st.position });
+      else if (st.status === 'running') setStatusT('status.running');
+    });
+
+    setStatusT('status.sending_request', { lora: __tr('ab.phase_b', 'B: selected LoRA', 'B: LoRA selezionata') });
+    const second = await __submitSingleJob(payloadB);
+    setStatusT('status.request_queued', { pos: second.position });
+    const stB = await __waitForJobDone(second.job_id, (st) => {
+      if (st.status === 'queued') setStatusT('status.queued_ahead', { pos: st.position });
+      else if (st.status === 'running') setStatusT('status.running');
+    });
+
+    const rA = stA.result || {};
+    const rB = stB.result || {};
+    const audioUrls = [];
+    const audioNames = [];
+    const resolvedSeeds = [];
+    const pushOne = (r) => {
+      const urls = Array.isArray(r.audio_urls) ? r.audio_urls : (r.audio_url ? [r.audio_url] : []);
+      const names = Array.isArray(r.audio_filenames) ? r.audio_filenames : [];
+      const seeds = Array.isArray(r.audio_resolved_seeds) ? r.audio_resolved_seeds : [];
+      if (urls[0]) {
+        audioUrls.push(urls[0]);
+        audioNames.push(names[0] || '');
+        resolvedSeeds.push(seeds[0] != null ? seeds[0] : stableSeed);
+      }
+    };
+    pushOne(rA);
+    pushOne(rB);
+
+    setStatusT('status.done_in', { sec: (Math.round((((rA.seconds || 0) + (rB.seconds || 0)) * 10)) / 10) });
+    showResult(audioUrls, [rA.json_url || '', rB.json_url || ''], audioNames, resolvedSeeds, {
+      a: __tr('ab.audio1', 'Audio 1', 'Audio 1'),
+      b: __tr('ab.audio2', 'Audio 2', 'Audio 2'),
+    });
+    refreshFooterStats();
   } catch (e) {
     setStatusT('status.error', { msg: e.message });
   }
@@ -4336,6 +4659,10 @@ function setupImportJson() {
 
     
     if (req.batch_size != null) setVal('batch_size', safeInt(req.batch_size) ?? req.batch_size);
+    try {
+      const batchSel = el('batch_size');
+      if (batchSel && !isAbCompareEnabled()) batchSel.dataset.abPrevValue = String(batchSel.value || '1');
+    } catch (e) {}
     if (req.audio_format != null) setVal('audio_format', req.audio_format);
     if (req.inference_steps != null) setVal('steps', safeInt(req.inference_steps) ?? req.inference_steps);
     if (req.infer_method != null) setVal('infer_method', String(req.infer_method).toLowerCase());
@@ -4548,6 +4875,14 @@ ${el('lyrics')?.value || ''}`;
       if (loraWeightNum) writeNumericInputValue(loraWeightNum, v, { preferValueAsNumber: true });
     }
   } catch (e) {}
+
+  const abCompareToggle = el('ab_compare_enabled');
+  const batchSizeSel = el('batch_size');
+  if (abCompareToggle) abCompareToggle.addEventListener('change', updateAbCompareBatchUi);
+  if (batchSizeSel) batchSizeSel.addEventListener('change', () => {
+    if (!isAbCompareEnabled()) batchSizeSel.dataset.abPrevValue = String(batchSizeSel.value || '1');
+  });
+  updateAbCompareBatchUi();
 
   if (loraWeight) loraWeight.addEventListener('input', () => syncLoraWeight('range'));
   if (loraWeightNum) {

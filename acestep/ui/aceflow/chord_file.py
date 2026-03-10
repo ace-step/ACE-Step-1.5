@@ -14,6 +14,7 @@ def render_reference_wav_file(
     bpm: float = 120.0,
     beats_per_chord: int = 4,
     target_duration_sec: Optional[float] = None,
+    renderer_preference: str = "soundfont",
 ) -> dict:
     """Render a chord-reference WAV to disk and return the render metadata."""
     wav_bytes, meta = synthesize_reference_wav_bytes(
@@ -21,6 +22,7 @@ def render_reference_wav_file(
         bpm=bpm,
         beats_per_chord=beats_per_chord,
         target_duration_sec=target_duration_sec,
+        renderer_preference=renderer_preference,
     )
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)

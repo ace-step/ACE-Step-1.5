@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import io
 import math
+import time
 import wave
 from typing import Optional
 
 import numpy as np
+from loguru import logger
 
 from .chord_parser import ParsedChord, parse_chord_symbol
 from .chord_voicing import choose_voicing
+from .chord_soundfont import render_soundfont_reference_wav_bytes
 
 MAX_RENDER_DURATION_SEC = 600.0
 
@@ -77,6 +80,7 @@ def synthesize_reference_wav_bytes(
     bpm: float = 120.0,
     beats_per_chord: int = 4,
     target_duration_sec: Optional[float] = None,
+    renderer_preference: str = "soundfont",
 ) -> tuple[bytes, dict]:
     """Render a mono chord-reference WAV in memory and return debug metadata."""
     sample_rate = 44100
@@ -98,7 +102,7 @@ def synthesize_reference_wav_bytes(
             warnings.append({'symbol': symbol, 'reason': parsed.warning, 'fallback': parsed.descriptor})
             warning_debug.append(_warning_debug_entry(symbol, parsed, parsed.warning, parsed.descriptor))
         parsed_sequence.append(parsed)
-    return _render_progression(parsed_sequence, requested, safe_bpm, beats_per_chord, beat_sec, chord_sec, target_duration_sec, sample_rate, warnings, warning_debug)
+    return _render_progression(parsed_sequence, requested, safe_bpm, beats_per_chord, beat_sec, chord_sec, target_duration_sec, sample_rate, warnings, warning_debug, renderer_preference)
 
 
 def _render_progression(
@@ -112,6 +116,7 @@ def _render_progression(
     sample_rate: int,
     warnings: list[dict],
     warning_debug: list[dict],
+    renderer_preference: str,
 ) -> tuple[bytes, dict]:
     """Render parsed chord events into a PCM WAV payload and metadata."""
     base_duration = len(parsed_sequence) * chord_sec
@@ -123,7 +128,52 @@ def _render_progression(
     loop_count = max(1, math.ceil(capped_duration / max(base_duration, 0.001)))
     expanded = parsed_sequence * loop_count
     total_duration = max(base_duration, capped_duration)
+
+    renderer_preference = str(renderer_preference or "soundfont").strip().lower() or "soundfont"
+    if renderer_preference not in {"internal", "soundfont"}:
+        renderer_preference = "soundfont"
+
+    logger.info(
+        "[chord-render] start renderer_preference={} chords={} bpm={} beats_per_chord={} base_duration_sec={} target_duration_sec={} total_duration_sec={}",
+        renderer_preference,
+        len(parsed_sequence),
+        round(float(safe_bpm), 3),
+        int(max(1, beats_per_chord or 4)),
+        round(float(base_duration), 3),
+        round(float(target_duration_sec or 0.0), 3),
+        round(float(total_duration), 3),
+    )
+    if renderer_preference == "soundfont":
+        try:
+            wav_bytes, meta = render_soundfont_reference_wav_bytes(
+                parsed_sequence=expanded,
+                requested=requested,
+                safe_bpm=safe_bpm,
+                beats_per_chord=beats_per_chord,
+                beat_sec=beat_sec,
+                chord_sec=chord_sec,
+                total_duration=total_duration,
+            )
+            meta['renderer_preference'] = renderer_preference
+            meta['warnings'] = list(warnings)
+            meta['warning_count'] = len(warning_debug)
+            meta['warning_debug'] = list(warning_debug)
+            logger.info(
+                "[chord-render] completed renderer={} output_duration_sec={} elapsed_sec={}",
+                meta.get('renderer', 'unknown'),
+                meta.get('total_duration_sec', round(float(total_duration), 3)),
+                meta.get('render_elapsed_sec', 'n/a'),
+            )
+            return wav_bytes, meta
+        except Exception as exc:
+            logger.warning("[chord-render] soundfont renderer failed -> fallback to internal renderer. err={!r}", exc)
+            warning = {'symbol': '', 'reason': 'soundfont_fallback', 'fallback': 'internal_renderer'}
+            warnings.append(warning)
+            warning_debug.append({'symbol': '', 'reason': 'soundfont_fallback', 'fallback': 'internal_renderer', 'error': str(exc)})
+
+    fallback_started_at = time.perf_counter()
     total_samples = max(1, int(sample_rate * total_duration))
+    logger.info("[chord-render] internal renderer start total_samples={} sample_rate={}", total_samples, sample_rate)
     pcm = np.zeros(total_samples, dtype=np.float32)
     events = _render_events(pcm, expanded, total_duration, chord_sec, beat_sec, sample_rate)
     _apply_output_gain(pcm, sample_rate, total_samples)
@@ -134,7 +184,9 @@ def _render_progression(
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         wf.writeframes(pcm16.tobytes())
-    return bio.getvalue(), {'sample_rate': sample_rate, 'bpm': safe_bpm, 'beats_per_chord': int(max(1, beats_per_chord or 4)), 'input_chords': requested, 'warnings': warnings, 'warning_count': len(warning_debug), 'warning_debug': warning_debug, 'rendered_events': events, 'total_duration_sec': round(total_duration, 4), 'loop_count': loop_count}
+    fallback_elapsed = time.perf_counter() - fallback_started_at
+    logger.info("[chord-render] internal renderer done events={} elapsed_sec={}", len(events), round(fallback_elapsed, 3))
+    return bio.getvalue(), {'sample_rate': sample_rate, 'bpm': safe_bpm, 'beats_per_chord': int(max(1, beats_per_chord or 4)), 'input_chords': requested, 'warnings': warnings, 'warning_count': len(warning_debug), 'warning_debug': warning_debug, 'rendered_events': events, 'total_duration_sec': round(total_duration, 4), 'loop_count': loop_count, 'renderer': 'internal', 'renderer_preference': renderer_preference, 'render_elapsed_sec': round(fallback_elapsed, 4)}
 
 
 def _render_events(pcm: np.ndarray, expanded: list[ParsedChord], total_duration: float, chord_sec: float, beat_sec: float, sample_rate: int) -> list[dict]:

@@ -108,6 +108,7 @@ from acestep.inference import generate_music, GenerationParams, GenerationConfig
 from acestep.constants import VALID_LANGUAGES
 from .queue import InProcessJobQueue
 from .chord_reference import render_reference_wav_file
+from .chord_soundfont import find_first_soundfont
 import subprocess
 
 def _is_sft_model(model_name: Optional[str]) -> bool:
@@ -155,7 +156,7 @@ _CHORD_NOTE_INDEX = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4,
 _CHORD_NOTE_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 _CHORD_NOTE_NAMES_FLAT = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
 _CHORD_ROMAN_MAP = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7}
-_CHORD_SCALE_INTERVALS = {"major": [0, 2, 4, 5, 7, 9, 11], "minor": [0, 2, 3, 5, 7, 8, 10]}
+_CHORD_ROMAN_BASE_INTERVALS = [0, 2, 4, 5, 7, 9, 11]
 _CHORD_QUALITY_SUFFIX = {"major": "", "minor": "m", "maj7": "maj7", "dom7": "7", "min7": "m7", "dim": "dim", "dim7": "dim7", "aug": "aug", "sus2": "sus2", "sus4": "sus4"}
 
 def _prefer_flats_for_key(key: str, scale: str = "major") -> bool:
@@ -207,8 +208,6 @@ def _parse_roman_chord_token(token: str) -> Optional[dict]:
 def _resolve_chord_progression(roman_str: str, key: str, scale: str) -> list[str]:
     root_key = str(key or 'C').strip()
     root_index = _CHORD_NOTE_INDEX.get(root_key)
-    scale_name = str(scale or 'major').strip().lower()
-    intervals = _CHORD_SCALE_INTERVALS['minor' if scale_name == 'minor' else 'major']
     if root_index is None:
         return []
     tokens = [tok for tok in re.split(r'[\s,\-–—]+', str(roman_str or '')) if tok]
@@ -217,7 +216,10 @@ def _resolve_chord_progression(roman_str: str, key: str, scale: str) -> list[str
         parsed = _parse_roman_chord_token(tok)
         if not parsed:
             continue
-        semitone = (root_index + intervals[(parsed['degree'] - 1) % 7]) % 12
+        # Roman numerals are resolved from the tonic against the diatonic major-degree grid.
+        # Case controls chord quality; accidentals alter the degree itself. This prevents minor-key
+        # patterns like A minor: i - iv - bVII - iv from incorrectly becoming Am - Dm - F# - Dm.
+        semitone = (root_index + _CHORD_ROMAN_BASE_INTERVALS[(parsed['degree'] - 1) % 7]) % 12
         if parsed['modifier'] == '#':
             semitone = (semitone + 1) % 12
         elif parsed['modifier'] == 'b':
@@ -1910,6 +1912,7 @@ def create_app() -> FastAPI:
                 _audio_codes_trim = _audio_codes.strip()
                 _audio_cover_strength = req.get('audio_cover_strength', None)
                 _cover_noise_strength = req.get('cover_noise_strength', None)
+                _cover_conditioning_balance = req.get('cover_conditioning_balance', None)
                 _reference_only = bool(reference_audio_abs and (not src_audio_abs) and (not _audio_codes_trim))
                 logger.info(
                     f"[job {job_id}] summary mode={generation_mode} task_type={task_type} seed={seed} "
@@ -1925,7 +1928,7 @@ def create_app() -> FastAPI:
                 logger.debug(f"[job {job_id}] conditioning reference_present={bool(reference_audio_abs)} reference_audio_raw={reference_audio_abs!r}")
                 logger.debug(f"[job {job_id}] conditioning src_present={bool(src_audio_abs)} src_audio_raw={src_audio_abs!r}")
                 logger.debug(f"[job {job_id}] conditioning audio_codes_present={bool(_audio_codes_trim)} audio_codes_len={len(_audio_codes_trim)}")
-                logger.debug(f"[job {job_id}] conditioning audio_cover_strength={_audio_cover_strength!r} cover_noise_strength={_cover_noise_strength!r}")
+                logger.debug(f"[job {job_id}] conditioning audio_cover_strength={_audio_cover_strength!r} cover_noise_strength={_cover_noise_strength!r} cover_conditioning_balance={_cover_conditioning_balance!r}")
                 logger.debug(f"[job {job_id}] conditioning reference_only={_reference_only}")
                 _conditioning_route, _conditioning_source = _compute_conditioning_route(generation_mode, reference_audio_rel, src_audio_rel, _audio_codes_trim)
                 logger.info(f"[job {job_id}] conditioning_route route={_conditioning_route!r} source={_conditioning_source!r} generation_mode={generation_mode!r} task_type={task_type!r}")
@@ -2113,6 +2116,7 @@ def create_app() -> FastAPI:
                         "audio_codes": req.get("audio_codes", ""),
                         "audio_cover_strength": req.get("audio_cover_strength", None),
                         "cover_noise_strength": req.get("cover_noise_strength", None),
+                        "cover_conditioning_balance": req.get("cover_conditioning_balance", None),
                         "chord_debug_mode": req.get("chord_debug_mode", ""),
                         "chord_debug_reference_only": bool(req.get("chord_debug_reference_only", False)),
                         "chord_debug_reference_sequence": req.get("chord_debug_reference_sequence", ""),
@@ -2287,9 +2291,13 @@ def create_app() -> FastAPI:
 
     def options():
 
+        _sf2_path = find_first_soundfont()
         return {
             "valid_languages": VALID_LANGUAGES,
             "time_signatures": ["", "2/4", "3/4", "4/4", "6/8"],
+            "chord_reference_renderers": ["internal", "soundfont"],
+            "soundfont_available": bool(_sf2_path),
+            "soundfont_name": (_sf2_path.name if _sf2_path else ""),
             "lm_ready": bool(getattr(app.state, "_llm_ready", False)),
             "think_default": True,
             "limits": {
@@ -2313,6 +2321,8 @@ def create_app() -> FastAPI:
                 "normalization_db": -1.0,
                 "audio_cover_strength": 0.0,
                 "cover_noise_strength": 0.0,
+                "cover_conditioning_balance": 0.5,
+                "chord_reference_renderer": "soundfont",
             },
         }
     examples_path = os.path.join(os.path.dirname(__file__), "examples.json").replace("\\", "/")
@@ -2494,6 +2504,17 @@ def create_app() -> FastAPI:
         _ensure_uploads_dir()
         safe_name = f"chord_reference_{int(time.time() * 1000)}_{uuid4().hex[:8]}.wav"
         out_abs = os.path.join(uploads_dir, safe_name).replace("\\", "/")
+        logger.info(
+            "[chords/render-reference] start chords={} bpm={} beats_per_chord={} target_duration_sec={} output={}",
+            len(chords),
+            round(float(bpm), 3),
+            int(max(1, beats_per_chord)),
+            round(float(target_duration), 3),
+            out_abs,
+        )
+        renderer_preference = str(payload.get("chord_reference_renderer") or payload.get("chord_reference_renderer_preference") or "soundfont").strip().lower() or "soundfont"
+        if renderer_preference not in {"internal", "soundfont"}:
+            renderer_preference = "soundfont"
         try:
             meta = render_reference_wav_file(
                 chords=chords,
@@ -2501,14 +2522,23 @@ def create_app() -> FastAPI:
                 bpm=bpm,
                 beats_per_chord=max(1, beats_per_chord),
                 target_duration_sec=target_duration if target_duration > 0 else None,
+                renderer_preference=renderer_preference,
             )
         except Exception as exc:
             logger.exception("[chords/render-reference] render failed err={!r}", exc)
             raise HTTPException(status_code=500, detail="Errore rendering reference WAV.")
+        logger.info(
+            "[chords/render-reference] done renderer={} size_bytes={} wav={} elapsed_sec={}",
+            (meta or {}).get("renderer", "unknown"),
+            (meta or {}).get("size_bytes", 0),
+            out_abs,
+            (meta or {}).get("render_elapsed_sec", "n/a"),
+        )
         return {
             "path": f"_uploads/{safe_name}",
             "filename": safe_name,
             "meta": meta,
+            "renderer_preference": renderer_preference,
         }
 
     @app.post("/api/chords/extract-codes")
@@ -2523,6 +2553,7 @@ def create_app() -> FastAPI:
         handler = getattr(app.state, "dit_handler", None)
         if handler is None:
             raise HTTPException(status_code=503, detail="Handler DiT non disponibile.")
+        logger.info("[chords/extract-codes] start path={} abs={}", rel_path, audio_abs)
         try:
             codes = handler.convert_src_audio_to_codes(audio_abs)
         except Exception as exc:
@@ -2531,10 +2562,12 @@ def create_app() -> FastAPI:
         codes = str(codes or "").strip()
         if not codes:
             raise HTTPException(status_code=500, detail="Nessun codice audio estratto.")
+        code_count = len([tok for tok in codes.split() if tok.strip()])
+        logger.info("[chords/extract-codes] done path={} code_count={}", rel_path, code_count)
         return {
             "path": rel_path,
             "codes": codes,
-            "code_count": len([tok for tok in codes.split() if tok.strip()]),
+            "code_count": code_count,
         }
 
     def _compute_conditioning_route(generation_mode: str, reference_audio: str, src_audio: str, audio_codes: str) -> tuple[str, str]:
@@ -2544,8 +2577,12 @@ def create_app() -> FastAPI:
         src = str(src_audio or "").strip()
         codes = str(audio_codes or "").strip()
         if gm == "Cover":
+            if src and codes:
+                return "hybrid_src_audio_and_audio_codes", "hybrid"
             if src:
                 return "src_audio_wav", "src_audio_wav"
+            if codes:
+                return "audio_codes", "audio_codes"
             route = "reference_audio_wav" if ref else "none"
             return route, route
         if gm == "Remix":
@@ -2710,7 +2747,7 @@ timesignature: {timesignature}
         logger.debug(f"[api/jobs] conditioning reference_audio_present={bool(_reference_audio)} reference_audio_raw={_reference_audio!r}")
         logger.debug(f"[api/jobs] conditioning src_audio_present={bool(_src_audio)} src_audio_raw={_src_audio!r}")
         logger.debug(f"[api/jobs] conditioning audio_codes_present={bool(_audio_codes_trim)} audio_codes_len={len(_audio_codes_trim)}")
-        logger.debug(f"[api/jobs] conditioning audio_cover_strength={payload.get('audio_cover_strength', None)!r} cover_noise_strength={payload.get('cover_noise_strength', None)!r}")
+        logger.debug(f"[api/jobs] conditioning audio_cover_strength={payload.get('audio_cover_strength', None)!r} cover_noise_strength={payload.get('cover_noise_strength', None)!r} cover_conditioning_balance={payload.get('cover_conditioning_balance', None)!r}")
         logger.debug(f"[api/jobs] conditioning reference_only={_reference_only}")
         logger.debug(f"[api/jobs] chord_debug reference_only_raw={payload.get('chord_debug_reference_only', False)!r}")
         logger.debug(f"[api/jobs] chord_debug bpm={payload.get('chord_debug_reference_bpm', None)!r} target_duration={payload.get('chord_debug_reference_target_duration', None)!r}")
@@ -2789,13 +2826,14 @@ timesignature: {timesignature}
         src_audio = str(payload.get("src_audio") or "").strip()
         audio_codes = str(payload.get("audio_codes") or "").strip()
         if task_type == "cover":
-            audio_codes = ""
-            payload["audio_codes"] = ""
-            if not src_audio:
-                raise HTTPException(status_code=400, detail="Per COVER devi caricare un audio sorgente.")
-            _resolve_uploaded_path(src_audio)
+            if src_audio:
+                _resolve_uploaded_path(src_audio)
             if reference_audio:
                 _resolve_uploaded_path(reference_audio)
+            if (not src_audio) and (not audio_codes):
+                raise HTTPException(status_code=400, detail="Per COVER devi fornire un audio sorgente oppure audio codes.")
+            reference_audio = ""
+            payload["reference_audio"] = ""
         elif task_type == "repaint":
             if not src_audio:
                 raise HTTPException(status_code=400, detail="Per REMIX devi caricare un audio sorgente.")
@@ -2898,6 +2936,7 @@ timesignature: {timesignature}
                 "audio_codes": audio_codes,
                 "audio_cover_strength": payload.get("audio_cover_strength", None),
                 "cover_noise_strength": payload.get("cover_noise_strength", None),
+                "cover_conditioning_balance": payload.get("cover_conditioning_balance", None),
                 "chord_debug_mode": payload.get("chord_debug_mode", ""),
                 "chord_debug_reference_only": payload.get("chord_debug_reference_only", False),
                 "chord_debug_reference_sequence": payload.get("chord_debug_reference_sequence", ""),

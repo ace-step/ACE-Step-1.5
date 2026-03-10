@@ -270,7 +270,7 @@ function setupFilePickButton(buttonEl, inputEl, nameEl) {
 const __CHORD_NOTE_INDEX = { C:0, 'B#':0, 'C#':1, Db:1, D:2, 'D#':3, Eb:3, E:4, Fb:4, 'E#':5, F:5, 'F#':6, Gb:6, G:7, 'G#':8, Ab:8, A:9, 'A#':10, Bb:10, B:11, Cb:11 };
 const __CHORD_NOTE_NAMES_SHARP = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const __CHORD_NOTE_NAMES_FLAT = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
-const __CHORD_SCALE_INTERVALS = { major:[0,2,4,5,7,9,11], minor:[0,2,3,5,7,8,10] };
+const __CHORD_ROMAN_BASE_INTERVALS = [0,2,4,5,7,9,11];
 const __CHORD_ROMAN_MAP = { I:1, II:2, III:3, IV:4, V:5, VI:6, VII:7 };
 const __CHORD_QUALITY_SUFFIX = { major:'', minor:'m', dim:'dim', aug:'aug', maj7:'maj7', min7:'m7', dom7:'7', dim7:'dim7', sus2:'sus2', sus4:'sus4' };
 
@@ -485,15 +485,16 @@ function parseRomanChordToken(token) {
 function resolveChordProgression(romanStr, key, scale) {
   const rootKey = String(key || 'C').trim();
   const rootIndex = __CHORD_NOTE_INDEX[rootKey];
-  const scaleName = String(scale || 'major').toLowerCase() === 'minor' ? 'minor' : 'major';
-  const intervals = __CHORD_SCALE_INTERVALS[scaleName];
   if (rootIndex == null) throw new Error(t('error.chord_key_invalid'));
   const tokens = String(romanStr || '').split(/[\s,\-–—]+/).filter(Boolean);
   if (!tokens.length) throw new Error(t('error.chord_empty'));
   return tokens.map((tok) => {
     const parsed = parseRomanChordToken(tok);
     if (!parsed) throw new Error(t('error.chord_token_invalid', { token: tok }));
-    let semitone = (rootIndex + intervals[(parsed.degree - 1) % 7]) % 12;
+    // Resolve roman degrees against the tonic-major degree grid. Lowercase still controls
+    // chord quality, while accidentals alter the degree itself. That keeps minor progressions
+    // like A minor: i - iv - bVII - iv at Am - Dm - G - Dm instead of the nonsense F#.
+    let semitone = (rootIndex + __CHORD_ROMAN_BASE_INTERVALS[(parsed.degree - 1) % 7]) % 12;
     if (parsed.modifier === '#') semitone = (semitone + 1) % 12;
     if (parsed.modifier === 'b') semitone = (semitone + 11) % 12;
     return `${noteNameForSemitone(semitone, rootKey, scale)}${__CHORD_QUALITY_SUFFIX[parsed.quality] || ''}`;
@@ -1230,6 +1231,35 @@ function _scoreSectionPattern(tokens, scale, poolSet, kind = 'verse', profile = 
   return score;
 }
 
+
+function _countIntroducedSectionBases(tokens, poolSet) {
+  const arr = Array.isArray(tokens) ? tokens.map(_baseSectionToken).filter(Boolean) : [];
+  if (!arr.length) return 0;
+  return arr.filter((tok) => !(poolSet && poolSet.has(tok))).length;
+}
+
+function _isConservativeMinorVariant(tokens, poolSet, canonicalKind, profile) {
+  const arr = Array.isArray(tokens) ? tokens.map((tok) => String(tok || '').trim()).filter(Boolean) : [];
+  if (!arr.length) return false;
+  const bases = arr.map(_baseSectionToken);
+  const introduced = bases.filter((tok) => !(poolSet && poolSet.has(tok)));
+  if (!introduced.length) return true;
+  const uniqueIntroduced = Array.from(new Set(introduced));
+  const allowDominantColor = ['dominant', 'cinematic'].includes(String(profile || '').toLowerCase());
+  const allowBridgeColor = /^(bridge|solo|guitar solo|instrumental|interlude)$/i.test(String(canonicalKind || ''));
+  for (const tok of uniqueIntroduced) {
+    if (/^V$/i.test(tok) || /^ii°$/i.test(tok)) {
+      if (!(allowDominantColor || allowBridgeColor)) return false;
+      continue;
+    }
+    if (/^bVI$/i.test(tok) || /^bVII$/i.test(tok) || /^bIII$/i.test(tok) || /^III$/i.test(tok) || /^VII$/i.test(tok)) {
+      return false;
+    }
+    return false;
+  }
+  return uniqueIntroduced.length <= 1;
+}
+
 function chooseNarrativeChordTokens(scale, kind, baseTokens, variantIndex = 0) {
   const pool = filterPlayableChordTokens(baseTokens);
   const canonicalKind = canonicalChordSectionName(kind) || 'verse';
@@ -1254,6 +1284,7 @@ function chooseNarrativeChordTokens(scale, kind, baseTokens, variantIndex = 0) {
 
   const sectionPatterns = _getSectionPatternPool(lowerScale, canonicalKind, minorProfile)
     .slice()
+    .filter((tokens) => lowerScale !== 'minor' || _isConservativeMinorVariant(tokens, poolSet, canonicalKind, minorProfile))
     .sort((left, right) => _scoreSectionPattern(right, lowerScale, poolSet, canonicalKind, minorProfile) - _scoreSectionPattern(left, lowerScale, poolSet, canonicalKind, minorProfile));
   sectionPatterns.forEach(pushVariant);
 
@@ -1308,7 +1339,12 @@ function chooseNarrativeChordTokens(scale, kind, baseTokens, variantIndex = 0) {
       break;
   }
 
-  const scored = variants.slice().sort((left, right) => _scoreSectionPattern(right, lowerScale, poolSet, canonicalKind, minorProfile) - _scoreSectionPattern(left, lowerScale, poolSet, canonicalKind, minorProfile));
+  const scored = variants.slice().sort((left, right) => {
+    const rightIntroduced = _countIntroducedSectionBases(right, poolSet);
+    const leftIntroduced = _countIntroducedSectionBases(left, poolSet);
+    if (rightIntroduced !== leftIntroduced) return leftIntroduced - rightIntroduced;
+    return _scoreSectionPattern(right, lowerScale, poolSet, canonicalKind, minorProfile) - _scoreSectionPattern(left, lowerScale, poolSet, canonicalKind, minorProfile);
+  });
   const top = scored.slice(0, Math.max(1, Math.min(6, scored.length)));
   const ordered = _shuffleDeterministic(top, (variantIndex * 31) + top.length * 7 + canonicalKind.length * 11);
   return ordered[Math.abs(variantIndex) % ordered.length] || scored[0] || base;
@@ -1595,33 +1631,46 @@ function formatChordReferencePlan(plan) {
   return (plan || []).map((item) => `${item.label} [${item.source}] => ${Array.isArray(item.chords) ? item.chords.join(' - ') : ''}`).join(' || ');
 }
 
+let chordStatusLock = false;
+let chordReferenceSoundfontAvailable = false;
+let chordReferenceSoundfontName = '';
+
+function setChordStatusMessage(msg, options = {}) {
+  const status = el('chord_status');
+  if (!status) return;
+  if (chordStatusLock && !options.force) return;
+  status.textContent = String(msg ?? '');
+}
+
 async function applyChordProgressionFullConditioning() {
   const originalLyrics = el('lyrics')?.value || '';
   try {
     syncChordSectionOverridesFromCurrentProgression();
   } catch (err) {
-    const status = el('chord_status');
-    if (status) status.textContent = err && err.message ? err.message : String(err);
+    setChordStatusMessage(err && err.message ? err.message : String(err), { force: true });
     return false;
   }
   const data = refreshChordPreview();
   if (!data) return false;
   const status = el('chord_status');
+  chordStatusLock = true;
   try {
-    if (status) status.textContent = t('status.chord_full_uploading');
+    setChordStatusMessage(__tr('status.chord_full_uploading', 'Reference audio generation in progress…', 'Generazione audio di riferimento in corso…'), { force: true });
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
     const bpmVal = Number(el('bpm')?.value || 120) || 120;
     const targetDuration = Math.max(10, Number(el('duration')?.value || 180) || 180);
     const appliedLyrics = el('chord_apply_lyrics')?.checked
       ? injectChordTagsIntoLyrics(originalLyrics, data.sectionChordTag, data.lyricsTag, data.sectionRules || [])
       : originalLyrics;
     const sectionPlan = buildChordReferencePlan(data, data.sectionRules || [], appliedLyrics);
-    applyChordProgressionToUi();
+    applyChordProgressionToUi({ suppressStatus: true });
     const sequenceChords = sectionPlan.flatMap((item) => Array.isArray(item.chords) ? item.chords : []);
     generatedChordReferenceSequence = sequenceChords.slice();
     generatedChordSectionPlan = sectionPlan.slice();
     generatedChordReferenceBpm = bpmVal;
     generatedChordReferenceTargetDuration = targetDuration;
     console.log('[aceflow] chord full reference plan', { bpm: bpmVal, targetDuration, sectionPlan, sequenceChords });
+    const chordReferenceRenderer = String(el('chord_reference_renderer')?.value || 'soundfont').trim().toLowerCase() || 'soundfont';
     const renderRes = await fetch('/api/chords/render-reference', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1630,6 +1679,7 @@ async function applyChordProgressionFullConditioning() {
         bpm: bpmVal,
         beats_per_chord: 4,
         target_duration: targetDuration,
+        chord_reference_renderer: chordReferenceRenderer,
       }),
     });
     if (!renderRes.ok) {
@@ -1643,6 +1693,7 @@ async function applyChordProgressionFullConditioning() {
     }
     generatedChordConditioningPath = up.path;
     generatedChordConditioningName = up.filename || `chord_progression_${Date.now()}.wav`;
+    setChordStatusMessage(__tr('status.chord_full_extracting', 'Extracting audio codes from reference…', 'Estrazione codici audio dal reference…'), { force: true });
     const codesRes = await fetch('/api/chords/extract-codes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1664,7 +1715,7 @@ async function applyChordProgressionFullConditioning() {
     if (el('audio_codes')) el('audio_codes').value = generatedChordAudioCodes;
     if (el('cover_noise_strength')) el('cover_noise_strength').value = '0';
     if (el('cover_noise_strength_range')) el('cover_noise_strength_range').value = '0';
-    if (status) status.textContent = t('status.chord_full_ready', { duration: String(Math.round(targetDuration)) });
+    setChordStatusMessage(t('status.chord_full_ready', { duration: String(Math.round(targetDuration)) }), { force: true });
     return true;
   } catch (err) {
     chordConditioningMode = 'none';
@@ -1676,8 +1727,10 @@ async function applyChordProgressionFullConditioning() {
     generatedChordReferenceTargetDuration = null;
     generatedChordAudioCodes = '';
     generatedChordReferenceMeta = null;
-    if (status) status.textContent = t('error.chord_full_failed', { msg: err && err.message ? err.message : String(err) });
+    setChordStatusMessage(t('error.chord_full_failed', { msg: err && err.message ? err.message : String(err) }), { force: true });
     return false;
+  } finally {
+    chordStatusLock = false;
   }
 }
 
@@ -1780,24 +1833,23 @@ function refreshChordPreview() {
     if (capEl) capEl.textContent = data.styleTag;
     if (keyEl) keyEl.textContent = data.keyScaleTag;
     if (sectionsEl) sectionsEl.textContent = data.sectionSummary;
-    if (status) status.textContent = '';
+    setChordStatusMessage('');
     return data;
   } catch (err) {
     if (resolvedEl) resolvedEl.textContent = '—';
     if (capEl) capEl.textContent = '—';
     if (keyEl) keyEl.textContent = '—';
     if (sectionsEl) sectionsEl.textContent = '—';
-    if (status) status.textContent = err && err.message ? err.message : String(err);
+    setChordStatusMessage(err && err.message ? err.message : String(err), { force: true });
     return null;
   }
 }
 
-function applyChordProgressionToUi() {
+function applyChordProgressionToUi(options = {}) {
   try {
     syncChordSectionOverridesFromCurrentProgression();
   } catch (err) {
-    const status = el('chord_status');
-    if (status) status.textContent = err && err.message ? err.message : String(err);
+    setChordStatusMessage(err && err.message ? err.message : String(err), { force: true });
     return false;
   }
   const data = refreshChordPreview();
@@ -1826,7 +1878,9 @@ function applyChordProgressionToUi() {
       bpmEl.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }
-  if (chordStatus) chordStatus.textContent = t('status.chord_applied', { desc: data.description }) + ((data.sectionRules && data.sectionRules.length) ? (' ' + t('status.chord_sections_applied', { count: String(data.sectionRules.length) })) : '');
+  if (!options || !options.suppressStatus) {
+    setChordStatusMessage(t('status.chord_applied', { desc: data.description }) + ((data.sectionRules && data.sectionRules.length) ? (' ' + t('status.chord_sections_applied', { count: String(data.sectionRules.length) })) : ''));
+  }
   return true;
 }
 
@@ -1905,6 +1959,8 @@ function __snapshotUiForExport(payload) {
     audio_codes: payload?.audio_codes ?? (el('audio_codes') ? el('audio_codes').value : null),
     audio_cover_strength: (payload?.audio_cover_strength != null) ? payload.audio_cover_strength : (el('audio_cover_strength') ? Number(el('audio_cover_strength').value || '') : null),
     cover_noise_strength: (payload?.cover_noise_strength != null) ? payload.cover_noise_strength : (el('cover_noise_strength') ? Number(el('cover_noise_strength').value || '') : null),
+    cover_conditioning_balance: (payload?.cover_conditioning_balance != null) ? payload.cover_conditioning_balance : (el('cover_conditioning_balance') ? Number(el('cover_conditioning_balance').value || '') : null),
+    chord_reference_renderer: payload?.chord_reference_renderer ?? (el('chord_reference_renderer') ? el('chord_reference_renderer').value : 'soundfont'),
     reference_audio: payload?.reference_audio ?? null,
     src_audio: payload?.src_audio ?? null,
     batch_size: payload?.batch_size ?? (el('batch_size') ? Number(el('batch_size').value || '') : null),
@@ -2248,8 +2304,12 @@ function setGenerationMode(mode) {
 function updateModeVisibility() {
   const mode = getGenerationMode();
   const needsAudio = (mode === 'Cover' || mode === 'Remix');
+  const coverBalanceRow = el('cover_conditioning_balance_row');
   if (refAudioBox) {
     refAudioBox.classList.toggle('hidden', !needsAudio);
+  }
+  if (coverBalanceRow) {
+    coverBalanceRow.classList.toggle('hidden', mode !== 'Cover');
   }
 
   
@@ -3340,6 +3400,8 @@ async function postJob() {
 
   const audio_cover_strength = numOrNull(el('audio_cover_strength')?.value);
   const cover_noise_strength = numOrNull(el('cover_noise_strength')?.value);
+  const cover_conditioning_balance = numOrNull(el('cover_conditioning_balance')?.value);
+  const chord_reference_renderer = String(el('chord_reference_renderer')?.value || 'soundfont').trim().toLowerCase() || 'soundfont';
 
   
   const generatedReferencePath = generatedChordConditioningPath || '';
@@ -3350,11 +3412,32 @@ async function postJob() {
   let conditioningRouteDebug = 'none';
   let conditioningSourceDebug = 'none';
   if (generation_mode === 'Cover') {
-    src_audio = uploadedReferencePath || generatedReferencePath;
+    const coverSourcePath = uploadedReferencePath || generatedReferencePath;
+    const coverCodesRaw = String(audio_codes || '').trim();
+    const coverBalanceRaw = (cover_conditioning_balance == null) ? 0.5 : cover_conditioning_balance;
+    const coverBalance = Math.max(0, Math.min(1, coverBalanceRaw));
+    const preferCodesOnly = (coverBalance <= 0.001);
+    const preferSrcOnly = (coverBalance >= 0.999);
+    const hasSource = !!String(coverSourcePath || '').trim();
+    const hasCodes = !!coverCodesRaw;
     reference_audio = '';
-    audio_codes = '';
-    conditioningRouteDebug = src_audio ? 'src_audio_wav' : 'none';
-    conditioningSourceDebug = uploadedReferencePath ? 'uploaded_source_audio' : (generatedReferencePath ? 'generated_chord_reference' : 'none');
+    src_audio = hasSource ? coverSourcePath : '';
+    audio_codes = coverCodesRaw;
+    if (preferCodesOnly) {
+      src_audio = '';
+    } else if (preferSrcOnly) {
+      audio_codes = '';
+    }
+    if (src_audio && audio_codes) {
+      conditioningRouteDebug = 'hybrid_src_audio_and_audio_codes';
+      conditioningSourceDebug = uploadedReferencePath ? 'uploaded_source_audio+audio_codes' : (generatedReferencePath ? 'generated_chord_reference+audio_codes' : 'hybrid');
+    } else if (src_audio) {
+      conditioningRouteDebug = 'src_audio_wav';
+      conditioningSourceDebug = uploadedReferencePath ? 'uploaded_source_audio' : (generatedReferencePath ? 'generated_chord_reference_wav' : 'src_audio_wav');
+    } else if (audio_codes) {
+      conditioningRouteDebug = 'audio_codes';
+      conditioningSourceDebug = 'audio_codes';
+    }
   } else if (generation_mode === 'Remix') {
     src_audio = uploadedReferencePath;
     audio_codes = '';
@@ -3440,6 +3523,8 @@ async function postJob() {
       audio_codes,
       audio_cover_strength,
       cover_noise_strength,
+      cover_conditioning_balance,
+      chord_reference_renderer,
       conditioning_route_debug: conditioningRouteDebug,
       conditioning_source_debug: conditioningSourceDebug,
       chord_debug_mode: chordConditioningMode,
@@ -3448,6 +3533,7 @@ async function postJob() {
       chord_debug_section_plan: formatChordReferencePlan(generatedChordSectionPlan || []),
       chord_debug_reference_bpm: generatedChordReferenceBpm,
       chord_debug_reference_target_duration: generatedChordReferenceTargetDuration,
+      chord_reference_renderer,
 
       batch_size,
       audio_format,
@@ -3487,6 +3573,8 @@ async function postJob() {
       audio_codes_len: String(audio_codes || '').trim().length,
       audio_cover_strength,
       cover_noise_strength,
+      cover_conditioning_balance,
+      chord_reference_renderer,
       reference_only: !!(conditioningRouteDebug === 'reference_audio_wav' && reference_audio && !src_audio && !String(audio_codes || '').trim()),
       reference_sequence: payload.chord_debug_reference_sequence || '',
       section_plan: payload.chord_debug_section_plan || '',
@@ -3804,6 +3892,10 @@ if (btnTranscribe) {
         sel.value = langs.includes('it') ? 'it' : (langs.includes('unknown') ? 'unknown' : langs[0]);
       }
 
+      chordReferenceSoundfontAvailable = !!opt.soundfont_available;
+      chordReferenceSoundfontName = String(opt.soundfont_name || '');
+      updateChordReferenceRendererUi();
+
       const tsSel = el('timesignature');
       const tss = Array.isArray(opt.time_signatures) ? opt.time_signatures : ['','2/4','3/4','4/4','6/8'];
       if (tsSel) {
@@ -3971,6 +4063,9 @@ async function loadOptions() {
     const r = await fetch("/api/options");
     const data = await r.json();
     const langs = (data && data.valid_languages) ? data.valid_languages : ["unknown","it","en","es","fr","de","pt","ja","ko","zh","ru"];
+    chordReferenceSoundfontAvailable = !!(data && data.soundfont_available);
+    chordReferenceSoundfontName = String((data && data.soundfont_name) || '');
+    updateChordReferenceRendererUi();
     const sel = document.getElementById("vocal_language");
     if (sel && sel.options.length === 0) {
       langs.forEach((l) => {
@@ -4252,6 +4347,8 @@ function setupImportJson() {
     if (req.latent_rescale != null) setVal('latent_rescale', safeNum(req.latent_rescale) ?? req.latent_rescale);
     if (req.audio_cover_strength != null) setVal('audio_cover_strength', safeNum(req.audio_cover_strength) ?? req.audio_cover_strength);
     if (req.cover_noise_strength != null) setVal('cover_noise_strength', safeNum(req.cover_noise_strength) ?? req.cover_noise_strength);
+    if (req.cover_conditioning_balance != null) setVal('cover_conditioning_balance', safeNum(req.cover_conditioning_balance) ?? req.cover_conditioning_balance);
+    if (req.chord_reference_renderer != null) setVal('chord_reference_renderer', String(req.chord_reference_renderer));
     if (req.audio_codes != null) setVal('audio_codes', req.audio_codes);
 
     
@@ -4304,6 +4401,8 @@ function setupImportJson() {
       try { syncRangeNumber('shift_range', 'shift', { decimals: 1 }); } catch (e) {}
       try { syncRangeNumber('audio_cover_strength_range', 'audio_cover_strength', { decimals: 2 }); } catch (e) {}
       try { syncRangeNumber('cover_noise_strength_range', 'cover_noise_strength', { decimals: 2 }); } catch (e) {}
+      try { syncRangeNumber('cover_conditioning_balance_range', 'cover_conditioning_balance', { decimals: 2 }); } catch (e) {}
+      try { updateChordReferenceRendererUi(); } catch (e) {}
       try { syncRangeNumber('score_scale_range', 'score_scale', { decimals: 2 }); } catch (e) {}
       try { syncRangeNumber('latent_shift_range', 'latent_shift', { decimals: 2 }); } catch (e) {}
       try { syncRangeNumber('latent_rescale_range', 'latent_rescale', { decimals: 2 }); } catch (e) {}
@@ -4408,7 +4507,7 @@ ${el('lyrics')?.value || ''}`;
     const roman = generateSensibleRomanProgression(el('chord_scale')?.value || 'major', chordContext);
     if (el('chord_roman')) el('chord_roman').value = roman;
     refreshChordPreview();
-    if (el('chord_status')) el('chord_status').textContent = t('status.chord_generated', { roman });
+    setChordStatusMessage(t('status.chord_generated', { roman }));
   });
   if (el('btn_chord_auto_sections')) el('btn_chord_auto_sections').addEventListener('click', autoGenerateChordSectionOverrides);
   if (el('btn_chord_apply')) el('btn_chord_apply').addEventListener('click', applyChordProgressionToUi);
@@ -4417,6 +4516,8 @@ ${el('lyrics')?.value || ''}`;
   refreshChordPreview();
   syncRangeNumber('audio_cover_strength_range', 'audio_cover_strength', { decimals: 2 });
   syncRangeNumber('cover_noise_strength_range', 'cover_noise_strength', { decimals: 2 });
+  syncRangeNumber('cover_conditioning_balance_range', 'cover_conditioning_balance', { decimals: 2 });
+  updateChordReferenceRendererUi();
 
   
   try {
@@ -4457,6 +4558,33 @@ ${el('lyrics')?.value || ''}`;
 });
 
 
+
+function updateChordReferenceRendererUi() {
+  const sel = el('chord_reference_renderer');
+  const help = el('chord_reference_renderer_help');
+  if (!sel || !help) return;
+  const soundfontOpt = sel.querySelector('option[value="soundfont"]');
+  if (soundfontOpt) {
+    soundfontOpt.disabled = !chordReferenceSoundfontAvailable;
+    if (chordReferenceSoundfontAvailable) {
+      soundfontOpt.textContent = chordReferenceSoundfontName
+        ? t('opt.chord_reference_renderer_soundfont_named', { name: chordReferenceSoundfontName })
+        : t('opt.chord_reference_renderer_soundfont');
+    } else {
+      soundfontOpt.textContent = t('opt.chord_reference_renderer_soundfont_unavailable');
+    }
+  }
+  const preferred = String(sel.value || 'soundfont').trim().toLowerCase();
+  if ((!chordReferenceSoundfontAvailable && preferred === 'soundfont') || (preferred !== 'soundfont' && preferred !== 'internal')) {
+    sel.value = chordReferenceSoundfontAvailable ? 'soundfont' : 'internal';
+  }
+  help.textContent = chordReferenceSoundfontAvailable
+    ? (chordReferenceSoundfontName
+        ? t('help.chord_reference_renderer_available_named', { name: chordReferenceSoundfontName })
+        : t('help.chord_reference_renderer_available'))
+    : t('help.chord_reference_renderer_unavailable');
+}
+
 function refreshDynamicI18n() {
   try {
     
@@ -4477,6 +4605,7 @@ function refreshDynamicI18n() {
 
 window.addEventListener('ace_ui_lang_changed', () => {
   refreshDynamicI18n();
+  updateChordReferenceRendererUi();
   rerenderStatusForLangChange();
   rerenderNoticeForLangChange();
 });

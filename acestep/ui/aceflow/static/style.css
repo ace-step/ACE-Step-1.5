@@ -409,6 +409,8 @@ details > .details-body { padding: 14px 16px 16px; }
 .gplayerMsg.muted { color: var(--muted2); }
 .gplayerMsg.warn { color: rgba(255,220,140,.95); }
 .gplayerMsg.err { color: rgba(255,140,140,.95); }
+.gplayerMeta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--acc2); min-width: 0; }
+.gplayerMetaItem { min-width: 0; word-break: break-all; overflow-wrap: anywhere; }
 .waveWrap { position: relative; height: 84px; }
 .waveScroller {
   position: relative; height: 84px; overflow-x: auto; overflow-y: hidden;
@@ -475,10 +477,8 @@ details > .details-body { padding: 14px 16px 16px; }
 
 .param-row .setting-label{
   display:inline-block;
-  max-width: 220px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
   vertical-align: bottom;
 }
 
@@ -594,7 +594,7 @@ details > .details-body { padding: 14px 16px 16px; }
 
 #lora_weight_num{ width: 5.6em; min-width: 5.6em; }
 
-  .param-row .setting-label{ max-width: 220px; }
+  .param-row .setting-label{ white-space: normal; }
 }
 
 

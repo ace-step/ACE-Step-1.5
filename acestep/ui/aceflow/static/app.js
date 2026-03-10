@@ -2701,7 +2701,8 @@ function __getDecodeCtx() {
 }
 
 function __tr(key, fallbackEn, fallbackIt) {
-  const r = t(key);
+  const _t = (typeof window.t === "function") ? window.t : t;
+  const r = _t(key);
   if (r && r !== key) return r;
   const lang = (typeof window.getUiLang === "function") ? window.getUiLang() : (document.documentElement.lang || "en");
   if (lang === "it") return (fallbackIt != null) ? fallbackIt : (fallbackEn != null ? fallbackEn : key);
@@ -2770,11 +2771,12 @@ function destroyAllPlayers() {
 }
 
 class GradioLikePlayer {
-  constructor({ url, index, jsonUrl, audioFilename }) {
+  constructor({ url, index, jsonUrl, audioFilename, resolvedSeed }) {
     this.url = url;
     this.index = index;
     this.jsonUrl = jsonUrl;
     this.audioFilename = String(audioFilename || "").trim();
+    this.resolvedSeed = (resolvedSeed != null) ? resolvedSeed : null;
 
     this.abort = new AbortController();
     this.raf = 0;
@@ -2801,6 +2803,20 @@ class GradioLikePlayer {
 
     head.appendChild(title);
     head.appendChild(this.msg);
+
+    const meta = document.createElement('div');
+    meta.className = 'gplayerMeta';
+    this.fileSpan = null;
+    if (this.audioFilename) {
+      const fSpan = document.createElement('span');
+      fSpan.className = 'gplayerMetaItem';
+      this.fileSpan = fSpan;
+      meta.appendChild(fSpan);
+    }
+    this.seedSpan = document.createElement('span');
+    this.seedSpan.className = 'gplayerMetaItem';
+    meta.appendChild(this.seedSpan);
+    this._metaEl = meta;
 
     
     const waveWrap = document.createElement('div');
@@ -2912,6 +2928,7 @@ class GradioLikePlayer {
 
     
     this.root.appendChild(head);
+    this.root.appendChild(meta);
     this.root.appendChild(waveWrap);
     this.root.appendChild(controls);
     this.root.appendChild(this.audio);
@@ -2924,7 +2941,17 @@ class GradioLikePlayer {
 
   mount(parent) {
     parent.appendChild(this.root);
+    this._updateMetaLang();
+    this._langHandler = () => this._updateMetaLang();
+    window.addEventListener('ace_ui_lang_changed', this._langHandler);
+    window.addEventListener('ace:ui_lang_changed', this._langHandler);
     this.init();
+  }
+
+  _updateMetaLang() {
+    const seedVal = (this.resolvedSeed != null && this.resolvedSeed >= 0) ? String(this.resolvedSeed) : '—';
+    if (this.fileSpan) this.fileSpan.textContent = __tr('player.file', 'File', 'File') + ': ' + this.audioFilename;
+    this.seedSpan.textContent = __tr('player.resolved_seed', 'Resolved seed', 'Seed risolto') + ': ' + seedVal;
   }
 
   _wire() {
@@ -3288,12 +3315,16 @@ class GradioLikePlayer {
       this.audioBlobUrl = null;
     }
     __activePlayers.delete(this);
+    if (this._langHandler) {
+      window.removeEventListener('ace_ui_lang_changed', this._langHandler);
+      window.removeEventListener('ace:ui_lang_changed', this._langHandler);
+    }
     if (this.root && this.root.parentNode) this.root.parentNode.removeChild(this.root);
   }
 }
 
-function createGradioLikePlayerCard(url, idx, jsonUrl, audioFilename) {
-  const p = new GradioLikePlayer({ url, index: idx, jsonUrl, audioFilename });
+function createGradioLikePlayerCard(url, idx, jsonUrl, audioFilename, resolvedSeed) {
+  const p = new GradioLikePlayer({ url, index: idx, jsonUrl, audioFilename, resolvedSeed });
   const wrap = document.createElement('div');
   wrap.className = 'resultItem';
   p.mount(wrap);
@@ -3303,7 +3334,7 @@ function createGradioLikePlayerCard(url, idx, jsonUrl, audioFilename) {
 }
 
 
-function showResult(audioUrls, jsonUrl, audioFilenames) {
+function showResult(audioUrls, jsonUrl, audioFilenames, resolvedSeeds) {
   
   try { destroyAllPlayers(); } catch (e) {  }
 
@@ -3322,8 +3353,9 @@ function showResult(audioUrls, jsonUrl, audioFilenames) {
   }
 
   const names = Array.isArray(audioFilenames) ? audioFilenames : [];
+  const seeds = Array.isArray(resolvedSeeds) ? resolvedSeeds : [];
   list.forEach((url, i) => {
-    const card = createGradioLikePlayerCard(url, i, jsonUrl, names[i] || "");
+    const card = createGradioLikePlayerCard(url, i, jsonUrl, names[i] || "", seeds[i] != null ? seeds[i] : null);
     resultsList.appendChild(card);
   });
 
@@ -3711,7 +3743,7 @@ async function pollJob() {
   if (st.status === 'done') {
     const r = st.result;
     setStatusT('status.done_in', { sec: (Math.round((r.seconds || 0) * 10) / 10) });
-    showResult(r.audio_urls || r.audio_url, r.json_url, r.audio_filenames);
+    showResult(r.audio_urls || r.audio_url, r.json_url, r.audio_filenames, r.audio_resolved_seeds);
     stopPolling();
     refreshFooterStats();
   }
@@ -3995,30 +4027,6 @@ think.addEventListener('change', () => {
   
   
   
-  try {
-    const v = String(modelSelect.value || '').toLowerCase();
-    const isSft = v.startsWith('sft') || v.includes('sft');
-    const target = isSft ? 50 : 20;
-    const gs = el('guidance_scale') || el('cfg');
-    const gsR = el('guidance_scale_range') || el('cfg_range');
-    if (gs) {
-      
-      const maxAttr = (gs.max !== '') ? Number(gs.max) : null;
-      const val = (maxAttr && Number.isFinite(maxAttr)) ? Math.min(target, maxAttr) : target;
-      gs.value = String(val);
-      gs.dispatchEvent(new Event('input', { bubbles: true }));
-      gs.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    if (gsR) {
-      const maxAttrR = (gsR.max !== '') ? Number(gsR.max) : null;
-      const valR = (maxAttrR && Number.isFinite(maxAttrR)) ? Math.min(target, maxAttrR) : target;
-      gsR.value = String(valR);
-      gsR.dispatchEvent(new Event('input', { bubbles: true }));
-      gsR.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  } catch (e) {}
-  
-
   try {
     const v = String(modelSelect.value || '').toLowerCase();
     const isSft = v.startsWith('sft') || v.includes('sft');

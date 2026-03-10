@@ -2045,6 +2045,19 @@ def create_app() -> FastAPI:
                     except Exception as _score_exc:
                         logger.warning(f"[score] auto_score failed: {_score_exc}")
                 meta_path = os.path.join(save_dir, "metadata.json").replace("\\", "/")
+                _resolved_seeds = []
+                for i, a in enumerate(result.audios or []):
+                    _audio_seed = a.get("seed") if isinstance(a, dict) else None
+                    if _audio_seed is None and isinstance(a, dict) and isinstance(a.get("params"), dict):
+                        _audio_seed = a["params"].get("seed")
+                    if _audio_seed is None and seed >= 0 and batch_size == 1:
+                        _audio_seed = seed
+                    if _audio_seed is None:
+                        _audio_seed = -1
+                    try:
+                        _resolved_seeds.append(int(_audio_seed))
+                    except Exception:
+                        _resolved_seeds.append(-1)
                 result_block = {
                     "success": bool(getattr(result, "success", True)),
                     "error": getattr(result, "error", None),
@@ -2055,13 +2068,16 @@ def create_app() -> FastAPI:
                     "audios": [
                         {
                             "path": p,
+                            "filename": os.path.basename(str(p or "")),
                             "format": audio_format,
+                            "resolved_seed": (_resolved_seeds[i] if i < len(_resolved_seeds) else -1),
                             **(
                                 (score_entries[i] if (score_entries and i < len(score_entries)) else {})
                             ),
                         }
                         for i, p in enumerate(audio_paths or [])
                     ],
+                    "resolved_seeds": _resolved_seeds,
                     "extra_outputs": _json_safe(getattr(result, "extra_outputs", {})),
                 }
                 job_log_paths = _finalize_job_cli_capture(job_id, audio_paths)
@@ -2991,10 +3007,36 @@ timesignature: {timesignature}
         if st.status == "done" and st.result:
             audio_paths = st.result.get("audio_paths") or []
             audio_count = max(1, int(st.result.get("audio_count", 1)))
+            _rseeds = []
+            _json_path = st.result.get("json_path", "")
+            if _json_path and os.path.exists(_json_path):
+                try:
+                    import json as _json
+                    with open(_json_path, "r", encoding="utf-8") as _jf:
+                        _jdata = _json.load(_jf)
+                    _rseeds = (_jdata.get("result") or {}).get("resolved_seeds") or []
+                except Exception:
+                    pass
+            if not _rseeds:
+                _req_seed = -1
+                _req_batch = 1
+                try:
+                    _req_seed = int((st.result.get("request") or {}).get("seed", -1) or -1)
+                except Exception:
+                    pass
+                try:
+                    _req_batch = int((st.result.get("request") or {}).get("batch_size", 1) or 1)
+                except Exception:
+                    pass
+                if _req_seed >= 0 and _req_batch == 1:
+                    _rseeds = [_req_seed] * audio_count
+                else:
+                    _rseeds = [-1] * audio_count
             out["result"] = {
                 "seconds": st.result.get("seconds"),
                 "audio_urls": [f"/download/{job_id}/audio/{i}" for i in range(audio_count)],
                 "audio_filenames": [os.path.basename(str(p or "")) for p in audio_paths[:audio_count]],
+                "audio_resolved_seeds": _rseeds[:audio_count],
                 "json_url": f"/download/{job_id}/json",
             }
         return out

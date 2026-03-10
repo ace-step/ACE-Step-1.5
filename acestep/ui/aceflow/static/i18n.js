@@ -275,7 +275,8 @@
       'player.json': 'Download JSON',
       'player.mute': 'Mute',
       'player.unmute': 'Unmute',
-    
+      'player.file': 'File',
+      'player.resolved_seed': 'Resolved seed',
       'help.generation_mode': 'Choose how to generate: Simple hides advanced controls; Custom exposes everything; Cover uses a reference song; Remix repaints a source song.',
       'help.random_from_archive': 'Fills the fields with a random example without changing the selected mode.',
       'label.ref_song_cover': 'Source song (Cover)',
@@ -598,6 +599,8 @@
       'player.json': 'Scarica JSON',
       'player.mute': 'Mute',
       'player.unmute': 'Unmute',
+      'player.file': 'File',
+      'player.resolved_seed': 'Seed risolto',
     
       'help.generation_mode': 'Scegli come generare: Simple nasconde i controlli avanzati; Custom mostra tutto; Cover usa una canzone di riferimento; Remix “repaint” una canzone sorgente.',
       'help.random_from_archive': 'Compila i campi con un esempio casuale senza cambiare la modalità selezionata.',

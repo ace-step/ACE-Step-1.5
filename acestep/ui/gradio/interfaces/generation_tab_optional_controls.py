@@ -39,7 +39,7 @@ def build_optional_parameter_controls(
                 step=1,
                 info=t("generation.bpm_info"),
                 elem_classes=["has-info-container"],
-                interactive=not service_mode,
+                interactive=False,
             )
             key_scale = gr.Textbox(
                 label=t("generation.keyscale_label"),
@@ -47,7 +47,7 @@ def build_optional_parameter_controls(
                 value="",
                 info=t("generation.keyscale_info"),
                 elem_classes=["has-info-container"],
-                interactive=not service_mode,
+                interactive=False,
             )
             time_signature = gr.Dropdown(
                 choices=["", "2", "3", "4", "6", "N/A"],
@@ -56,7 +56,7 @@ def build_optional_parameter_controls(
                 allow_custom_value=True,
                 info=t("generation.timesig_info"),
                 elem_classes=["has-info-container"],
-                interactive=not service_mode,
+                interactive=False,
             )
             vocal_language = gr.Dropdown(
                 choices=[(lang if lang != "unknown" else "Instrumental / auto", lang) for lang in VALID_LANGUAGES],
@@ -65,7 +65,7 @@ def build_optional_parameter_controls(
                 info=t("generation.vocal_language_info"),
                 allow_custom_value=True,
                 elem_classes=["has-info-container"],
-                interactive=not service_mode,
+                interactive=False,
             )
         with gr.Row(elem_classes=["auto-toggles-row"]):
             bpm_auto = gr.Checkbox(
@@ -102,7 +102,7 @@ def build_optional_parameter_controls(
                 info=t("generation.duration_info")
                 + f" (Max: {max_duration}s / {max_duration // 60} min)",
                 elem_classes=["has-info-container"],
-                interactive=not service_mode,
+                interactive=False,
             )
             batch_size_input = gr.Number(
                 label=t("generation.batch_size_label"),

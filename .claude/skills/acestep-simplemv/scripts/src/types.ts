@@ -19,6 +19,8 @@ export interface MVInputProps extends Record<string, unknown> {
   durationInSeconds: number;
   /** Lyric timing offset in seconds (positive = delay, negative = advance) */
   lyricOffset: number;
+  /** Background image filename (relative to public/ or absolute URL). If empty, uses animated gradient. */
+  backgroundImage: string;
 }
 
 export const defaultProps: MVInputProps = {
@@ -29,4 +31,5 @@ export const defaultProps: MVInputProps = {
   creditText: 'Powered by Claude Code + ACE-Step',
   durationInSeconds: 150,
   lyricOffset: -0.5,
+  backgroundImage: '',
 };

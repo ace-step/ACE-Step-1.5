@@ -243,3 +243,18 @@ gradio_outputs/
 acestep/third_parts/vllm/
 test_lora_scale_fix.py
 lokr_output/
+.claude/skills/acestep/scripts/config.json
+.claude/skills/acestep/scripts/.first_gen_done
+.claude/skills/acestep-simplemv/scripts/public/
+config.json
+
+acestep_output/
+# macOS
+.DS_Store
+
+# VitePress / Node
+node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/en/awesome.md
+package-lock.json

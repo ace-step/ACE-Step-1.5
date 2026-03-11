@@ -138,11 +138,11 @@ echo Server will be available at: http://%SERVER_NAME%:%PORT%
 echo.
 
 REM Auto-detect Python environment
-if exist "%~dp0python_embeded\python.exe" (
+if exist "%~dp0python_embedded\python.exe" (
     echo [Environment] Using embedded Python...
 
     REM Build command with optional parameters
-    set "PYTHON_EXE=%~dp0python_embeded\python.exe"
+    set "PYTHON_EXE=%~dp0python_embedded\python.exe"
     set "SCRIPT_PATH=%~dp0acestep\acestep_v15_pipeline.py"
     set "CMD=--port %PORT% --server-name %SERVER_NAME% --language %LANGUAGE%"
     if not "%SHARE%"=="" set "CMD=!CMD! %SHARE%"
@@ -171,7 +171,7 @@ if exist "%~dp0python_embeded\python.exe" (
         echo ========================================
         echo.
         echo ACE-Step requires either:
-        echo   1. python_embeded directory ^(portable package^)
+        echo   1. python_embedded directory ^(portable package^)
         echo   2. uv package manager
         echo.
         echo Would you like to install uv now? ^(Recommended^)

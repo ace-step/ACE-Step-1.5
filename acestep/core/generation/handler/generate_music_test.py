@@ -11,6 +11,7 @@ import types
 import unittest
 from pathlib import Path
 from typing import Any, Dict
+from unittest.mock import patch
 
 import torch
 
@@ -63,12 +64,13 @@ class _Host(GenerateMusicMixin):
     payloads so tests can assert orchestration sequencing and return behavior.
     """
 
-    def __init__(self):
+    def __init__(self, offload_to_cpu: bool = False):
         """Initialize deterministic state and stub payloads for orchestration tests."""
         self.model = object()
         self.vae = object()
         self.text_tokenizer = object()
         self.text_encoder = object()
+        self.offload_to_cpu = offload_to_cpu
         self.calls: Dict[str, Any] = {}
         self._final_payload = {"audios": [{"tensor": torch.zeros(1, 4), "sample_rate": 48000}], "success": True}
         self._readiness_error = {
@@ -191,6 +193,68 @@ class GenerateMusicMixinTests(unittest.TestCase):
         self.assertFalse(out["success"])
         self.assertEqual(out["error"], "boom")
         self.assertIn("Error: boom", out["status_message"])
+
+
+class VramPreflightCheckTests(unittest.TestCase):
+    """Verify ``_vram_preflight_check`` respects CPU offload mode."""
+
+    _GM_MOD = GENERATE_MUSIC_MODULE
+
+    @patch.object(_GM_MOD, "torch")
+    def test_preflight_skips_when_offload_to_cpu_enabled(self, mock_torch):
+        """It returns None (pass) when offload_to_cpu is True, regardless of free VRAM."""
+        mock_torch.cuda.is_available.return_value = True
+        host = _Host(offload_to_cpu=True)
+        result = host._vram_preflight_check(
+            actual_batch_size=2,
+            audio_duration=246.0,
+            guidance_scale=7.0,
+        )
+        self.assertIsNone(result)
+
+    @patch.object(_GM_MOD, "get_effective_free_vram_gb", return_value=3.4)
+    @patch.object(_GM_MOD, "torch")
+    def test_preflight_blocks_when_offload_disabled_and_vram_low(
+        self, mock_torch, _mock_free_vram
+    ):
+        """It returns error payload when offload is off and free VRAM is insufficient."""
+        mock_torch.cuda.is_available.return_value = True
+        host = _Host(offload_to_cpu=False)
+        result = host._vram_preflight_check(
+            actual_batch_size=2,
+            audio_duration=246.0,
+            guidance_scale=7.0,
+        )
+        self.assertIsNotNone(result)
+        self.assertFalse(result["success"])
+        self.assertIn("Insufficient free VRAM", result["error"])
+
+    @patch.object(_GM_MOD, "get_effective_free_vram_gb", return_value=24.0)
+    @patch.object(_GM_MOD, "torch")
+    def test_preflight_passes_when_offload_disabled_and_vram_sufficient(
+        self, mock_torch, _mock_free_vram
+    ):
+        """It returns None when offload is off but free VRAM exceeds estimate."""
+        mock_torch.cuda.is_available.return_value = True
+        host = _Host(offload_to_cpu=False)
+        result = host._vram_preflight_check(
+            actual_batch_size=2,
+            audio_duration=246.0,
+            guidance_scale=7.0,
+        )
+        self.assertIsNone(result)
+
+    @patch.object(_GM_MOD, "torch")
+    def test_preflight_passes_on_non_cuda_device(self, mock_torch):
+        """It returns None when CUDA is not available (CPU/MPS/XPU)."""
+        mock_torch.cuda.is_available.return_value = False
+        host = _Host(offload_to_cpu=False)
+        result = host._vram_preflight_check(
+            actual_batch_size=2,
+            audio_duration=246.0,
+            guidance_scale=7.0,
+        )
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

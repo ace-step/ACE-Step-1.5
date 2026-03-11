@@ -282,7 +282,7 @@ merge_config.bat                    ./merge_config.sh
 For Windows users, we provide a portable package with pre-installed dependencies:
 
 1. Download and extract: [ACE-Step-1.5.7z](https://files.acemusic.ai/acemusic/win/ACE-Step-1.5.7z)
-2. The package includes `python_embeded` with all dependencies pre-installed
+2. The package includes `python_embedded` with all dependencies pre-installed
 3. **Requirements:** CUDA 12.8
 
 ### Quick Start Scripts
@@ -350,7 +350,7 @@ Features: 10s timeout protection, smart conflict detection & backup, automatic r
 
 ### Environment Detection Priority
 
-1. `python_embeded\python.exe` (if exists)
+1. `python_embedded\python.exe` (if exists)
 2. `uv run acestep` (if uv is installed)
 3. Auto-install uv via winget or PowerShell
 

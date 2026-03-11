@@ -78,9 +78,9 @@ Authorization: Bearer <your-api-key>
 | `time_signature` | string | `null` | 拍号（如 `"4/4"`） |
 
 > **messages 文本含义取决于模式：**
-> - 设置了 `lyrics` → messages 文本 = prompt（音乐描述）
+> - 设置了 `lyrics` → messages 文本 = caption
 > - 设置了 `sample_mode: true` → messages 文本 = sample_query（交给 LLM 生成一切）
-> - 均未设置 → 自动检测：有标签走标签模式，像歌词走歌词模式，否则走 sample 模式
+> - 均未设置 → 自动检测：有标签走标签模式，像歌词走歌词模式，否则作为 caption 直接传入生成
 
 #### messages 格式
 

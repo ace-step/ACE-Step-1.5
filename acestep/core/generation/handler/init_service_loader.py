@@ -57,7 +57,7 @@ class InitServiceLoaderMixin:
                     model_checkpoint_path,
                     trust_remote_code=True,
                     attn_implementation=candidate,
-                    torch_dtype=self.dtype,
+                    dtype=self.dtype,
                 )
                 attn_implementation = candidate
                 break

@@ -1,14 +1,50 @@
 """Unit tests for generation_info module."""
 
+import importlib.util
 import os
+from pathlib import Path
+import sys
+import types
 import unittest
+import builtins
+from unittest.mock import patch
 
-from acestep.ui.gradio.events.results.generation_info import (
-    DEFAULT_RESULTS_DIR,
-    PROJECT_ROOT,
-    clear_audio_outputs_for_new_generation,
-    _build_generation_info,
-)
+
+def _load_module():
+    """Load target module directly by file path for isolated testing."""
+    # Stub i18n package path so importing generation_info.py does not require
+    # importing the full Gradio UI package in headless test environments.
+    # Keep these stubs scoped to module loading to avoid leaking into other tests.
+    acestep_pkg = types.ModuleType("acestep")
+    ui_pkg = types.ModuleType("acestep.ui")
+    gradio_pkg = types.ModuleType("acestep.ui.gradio")
+    i18n_mod = types.ModuleType("acestep.ui.gradio.i18n")
+    i18n_mod.t = lambda key, **_kwargs: key
+    acestep_pkg.ui = ui_pkg
+    ui_pkg.gradio = gradio_pkg
+    gradio_pkg.i18n = i18n_mod
+
+    module_path = Path(__file__).with_name("generation_info.py")
+    spec = importlib.util.spec_from_file_location("generation_info", module_path)
+    module = importlib.util.module_from_spec(spec)
+    with patch.dict(
+        "sys.modules",
+        {
+            "acestep": acestep_pkg,
+            "acestep.ui": ui_pkg,
+            "acestep.ui.gradio": gradio_pkg,
+            "acestep.ui.gradio.i18n": i18n_mod,
+        },
+    ):
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
+_MODULE = _load_module()
+DEFAULT_RESULTS_DIR = _MODULE.DEFAULT_RESULTS_DIR
+PROJECT_ROOT = _MODULE.PROJECT_ROOT
+clear_audio_outputs_for_new_generation = _MODULE.clear_audio_outputs_for_new_generation
+_build_generation_info = _MODULE._build_generation_info
 
 
 class ConstantsTests(unittest.TestCase):
@@ -31,12 +67,30 @@ class ClearAudioOutputsTests(unittest.TestCase):
     """Tests for clear_audio_outputs_for_new_generation."""
 
     def test_returns_nine_nones(self):
-        """Should return a tuple of 9 None values."""
-        result = clear_audio_outputs_for_new_generation()
+        """Should return a tuple of 9 None values when Gradio import fails."""
+        real_import = builtins.__import__
+
+        def _mocked_import(name, *args, **kwargs):
+            """Raise ImportError for gradio while delegating all other imports."""
+            if name == "gradio":
+                raise ImportError("simulated missing gradio")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_mocked_import):
+            result = clear_audio_outputs_for_new_generation()
         self.assertIsInstance(result, tuple)
         self.assertEqual(len(result), 9)
         for item in result:
             self.assertIsNone(item)
+
+    def test_gradio_runtime_rewinds_audio_but_clears_batch_files(self):
+        """With Gradio available, audio outputs should rewind without remounting."""
+        fake_gradio = types.SimpleNamespace(update=lambda **kwargs: kwargs)
+        with patch.dict("sys.modules", {"gradio": fake_gradio}):
+            result = clear_audio_outputs_for_new_generation()
+        self.assertEqual(len(result), 9)
+        self.assertEqual(result[:8], ({"playback_position": 0},) * 8)
+        self.assertIsNone(result[8])
 
 
 class BuildGenerationInfoTests(unittest.TestCase):

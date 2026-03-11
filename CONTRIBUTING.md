@@ -1,12 +1,12 @@
 Hopefully this will provide a simple, easy to understand guide to making safe contributions to the project, happy coding!
----
+
 
 ## Why This Matters
 
 This project supports **many hardware and runtime combinations**.
 A change that works perfectly on one setup can unintentionally break another if scope is not tightly controlled.
 
-The project has kind of gone viral, and has thousands of users, amature, semi professional and professional, technical and none technical, it is important that Ace-Step has reliable builds to maintain user trust and engagement.
+The project has kind of gone viral, and has thousands of users, amateur, semi professional and professional, technical and none technical, it is important that Ace-Step has reliable builds to maintain user trust and engagement.
 
 Recent PR patterns have shown avoidable regressions, for example:
 

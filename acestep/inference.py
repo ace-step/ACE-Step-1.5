@@ -103,6 +103,7 @@ class GenerationParams:
 
     # Text Inputs
     caption: str = ""
+    global_caption: str = ""  # Global/song-level caption for SFT-stems lego tasks
     lyrics: str = ""
     instrumental: bool = False
 
@@ -580,6 +581,7 @@ def generate_music(
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation
         result = dit_handler.generate_music(
             captions=dit_input_caption,
+            global_caption=params.global_caption,
             lyrics=dit_input_lyrics,
             bpm=bpm,
             key_scale=key_scale,

@@ -16,8 +16,7 @@ from typing import Any, Generator, Optional, Tuple
 import torch
 import torch.nn as nn
 
-from acestep.training.lora_utils import (
-    _unwrap_decoder,
+from acestep.training.lora_checkpoint import (
     load_training_checkpoint,
     save_lora_weights,
 )
@@ -33,6 +32,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Module introspection
 # ---------------------------------------------------------------------------
+
 
 def iter_module_wrappers(module: nn.Module) -> list:
     """Collect wrapper-chain modules (Fabric/PEFT/compile wrappers).
@@ -63,6 +63,7 @@ def iter_module_wrappers(module: nn.Module) -> list:
 # ---------------------------------------------------------------------------
 # Memory configuration
 # ---------------------------------------------------------------------------
+
 
 def configure_memory_features(decoder: nn.Module) -> tuple:
     """Enable gradient checkpointing, disable use_cache, and enable
@@ -120,8 +121,15 @@ def configure_memory_features(decoder: nn.Module) -> tuple:
 def offload_non_decoder(model: nn.Module) -> int:
     """Move encoder/VAE/non-decoder submodules to CPU. Returns count offloaded."""
     count = 0
-    for name in ("music_encoder", "lyric_encoder", "timbre_encoder",
-                  "condition_projection", "vae", "text_encoder", "attention_pooler"):
+    for name in (
+        "music_encoder",
+        "lyric_encoder",
+        "timbre_encoder",
+        "condition_projection",
+        "vae",
+        "text_encoder",
+        "attention_pooler",
+    ):
         sub = getattr(model, name, None)
         if sub is not None and isinstance(sub, nn.Module):
             sub.to("cpu")
@@ -132,6 +140,7 @@ def offload_non_decoder(model: nn.Module) -> int:
 # ---------------------------------------------------------------------------
 # Adapter-aware save helpers
 # ---------------------------------------------------------------------------
+
 
 def save_adapter_flat(trainer: Any, output_dir: str) -> None:
     """Save adapter weights directly into *output_dir* (no nesting).
@@ -158,9 +167,17 @@ def save_adapter_flat(trainer: Any, output_dir: str) -> None:
         lokr_meta = {"lokr_config": module.adapter_config.to_dict()}
         save_lokr_weights(module.lycoris_net, output_dir, metadata=lokr_meta)
     else:
-        decoder = _unwrap_decoder(module.model)
-        if hasattr(decoder, "save_pretrained"):
-            decoder.save_pretrained(output_dir)
+        # Access the decoder directly (PeftModel after LoRA injection,
+        # possibly wrapped by Fabric's _FabricModule after setup).
+        # Do NOT use _unwrap_decoder here -- that function strips the PEFT
+        # wrapper and returns the base DiT model, causing save_pretrained()
+        # to write the full model instead of the adapter-only files.
+        raw_decoder = module.model.decoder
+        # Strip Fabric wrappers only (_forward_module chain).
+        while hasattr(raw_decoder, "_forward_module"):
+            raw_decoder = raw_decoder._forward_module
+        if hasattr(raw_decoder, "save_pretrained"):
+            raw_decoder.save_pretrained(output_dir)
             logger.info("[OK] LoRA adapter saved to %s", output_dir)
         else:
             # Fallback for non-PEFT models
@@ -168,8 +185,12 @@ def save_adapter_flat(trainer: Any, output_dir: str) -> None:
 
 
 def save_checkpoint(
-    trainer: Any, optimizer: Any, scheduler: Any,
-    epoch: int, global_step: int, ckpt_dir: str,
+    trainer: Any,
+    optimizer: Any,
+    scheduler: Any,
+    epoch: int,
+    global_step: int,
+    ckpt_dir: str,
 ) -> None:
     """Save a resumable checkpoint that is also inference-ready.
 
@@ -195,6 +216,7 @@ def save_checkpoint(
     # training progress metadata.
     try:
         from safetensors.torch import save_file as _save_safetensors
+
         meta_tensors = {
             "epoch": torch.tensor([epoch], dtype=torch.int64),
             "global_step": torch.tensor([global_step], dtype=torch.int64),
@@ -206,7 +228,9 @@ def save_checkpoint(
 
     logger.info(
         "Training checkpoint saved to %s (epoch %d, step %d)",
-        ckpt_dir, epoch, global_step,
+        ckpt_dir,
+        epoch,
+        global_step,
     )
 
 
@@ -260,9 +284,11 @@ def verify_saved_adapter(output_dir: str) -> None:
         else:
             pct = 100.0 * nonzero_params / max(total_params, 1)
             logger.info(
-                "[OK] Adapter verified: %s params, %s non-zero (%.1f%%), "
-                "max|w|=%.6f",
-                f"{total_params:,}", f"{nonzero_params:,}", pct, max_abs,
+                "[OK] Adapter verified: %s params, %s non-zero (%.1f%%), max|w|=%.6f",
+                f"{total_params:,}",
+                f"{nonzero_params:,}",
+                pct,
+                max_abs,
             )
 
         if not os.path.exists(config_path):
@@ -276,7 +302,10 @@ def verify_saved_adapter(output_dir: str) -> None:
 
 
 def resume_checkpoint(
-    trainer: Any, resume_path: str, optimizer: Any, scheduler: Any,
+    trainer: Any,
+    resume_path: str,
+    optimizer: Any,
+    scheduler: Any,
 ) -> Generator[TrainingUpdate, None, Optional[Tuple[int, int]]]:
     """Resume from a checkpoint directory. Returns (start_epoch, global_step) or None."""
     module = trainer.module
@@ -288,7 +317,8 @@ def resume_checkpoint(
     if ckpt_dir.is_file():
         logger.info(
             "resume_from points to a file (%s) -- using parent directory %s",
-            ckpt_dir.name, ckpt_dir.parent,
+            ckpt_dir.name,
+            ckpt_dir.parent,
         )
         ckpt_dir = ckpt_dir.parent
 
@@ -306,16 +336,25 @@ def resume_checkpoint(
             )
         load_lokr_weights(module.lycoris_net, str(lokr_weights_path))
         if state_path.exists():
-            state = torch.load(str(state_path), map_location=module.device, weights_only=False)
+            state = torch.load(
+                str(state_path), map_location=module.device, weights_only=False
+            )
             epoch = state.get("epoch", 0)
             step = state.get("global_step", 0)
             if "optimizer_state_dict" in state:
                 optimizer.load_state_dict(state["optimizer_state_dict"])
             if "scheduler_state_dict" in state:
                 scheduler.load_state_dict(state["scheduler_state_dict"])
-            yield TrainingUpdate(0, 0.0, f"[OK] Resumed LoKR from epoch {epoch}, step {step}", kind="info")
+            yield TrainingUpdate(
+                0,
+                0.0,
+                f"[OK] Resumed LoKR from epoch {epoch}, step {step}",
+                kind="info",
+            )
             return (epoch, step)
-        yield TrainingUpdate(0, 0.0, "[OK] LoKR weights loaded (no training state)", kind="info")
+        yield TrainingUpdate(
+            0, 0.0, "[OK] LoKR weights loaded (no training state)", kind="info"
+        )
         return None
 
     # Warn if LoKR was expected but checkpoint is LoRA-format
@@ -349,7 +388,8 @@ def resume_checkpoint(
             from safetensors.torch import load_file
 
             state_dict = (
-                load_file(aw_path) if aw_path.endswith(".safetensors")
+                load_file(aw_path)
+                if aw_path.endswith(".safetensors")
                 else torch.load(aw_path, map_location=module.device, weights_only=True)
             )
             decoder = module.model.decoder
@@ -366,7 +406,11 @@ def resume_checkpoint(
                 parts.append("scheduler OK")
             yield TrainingUpdate(0, 0.0, ", ".join(parts), kind="info")
             return (start_epoch, g_step)
-        yield TrainingUpdate(0, 0.0, f"[WARN] Adapter weights not found in {adapter_path}", kind="warn")
+        yield TrainingUpdate(
+            0, 0.0, f"[WARN] Adapter weights not found in {adapter_path}", kind="warn"
+        )
         return None
-    yield TrainingUpdate(0, 0.0, f"[WARN] No valid checkpoint in {ckpt_dir}", kind="warn")
+    yield TrainingUpdate(
+        0, 0.0, f"[WARN] No valid checkpoint in {ckpt_dir}", kind="warn"
+    )
     return None

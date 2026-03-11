@@ -18,6 +18,7 @@ class _FakeDitHandler:
     """Minimal DiT handler stub for analyze-src-audio tests."""
 
     def __init__(self, convert_result):
+        """Store a configurable conversion return value for test scenarios."""
         self._convert_result = convert_result
         self.model = MagicMock()  # Required by analyze_src_audio guard
 
@@ -30,8 +31,8 @@ class _FakeDitHandler:
 class GenerationHandlersTests(unittest.TestCase):
     """Tests for source-audio analysis validation behavior."""
 
-    @patch("acestep.ui.gradio.events.generation.llm_actions.gr.Warning")
-    @patch("acestep.ui.gradio.events.generation.llm_actions.understand_music")
+    @patch("acestep.ui.gradio.events.generation.llm_analysis_actions.gr.Warning")
+    @patch("acestep.ui.gradio.events.generation.llm_analysis_actions.understand_music")
     def test_analyze_src_audio_rejects_non_audio_code_output(
         self,
         understand_music_mock,
@@ -59,8 +60,8 @@ class GenerationHandlersTests(unittest.TestCase):
         understand_music_mock.assert_not_called()
         warning_mock.assert_called_once()
 
-    @patch("acestep.ui.gradio.events.generation.llm_actions.gr.Warning")
-    @patch("acestep.ui.gradio.events.generation.llm_actions.understand_music")
+    @patch("acestep.ui.gradio.events.generation.llm_analysis_actions.gr.Warning")
+    @patch("acestep.ui.gradio.events.generation.llm_analysis_actions.understand_music")
     def test_analyze_src_audio_allows_valid_audio_code_output(
         self,
         understand_music_mock,
@@ -247,6 +248,148 @@ class GenerationHandlersTests(unittest.TestCase):
         warning_mock.assert_called_once_with(
             expected_message
         )
+
+    @patch("acestep.ui.gradio.events.generation.llm_sample_actions.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.llm_sample_actions.create_sample")
+    def test_handle_create_sample_success_path(
+        self,
+        create_sample_mock,
+        info_mock,
+    ):
+        """Successful sample creation should populate generation fields and mode switch."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        create_sample_mock.return_value = SimpleNamespace(
+            success=True,
+            caption="new caption",
+            lyrics="new lyrics",
+            bpm=120,
+            duration=42.0,
+            keyscale="C major",
+            language="en",
+            timesignature="4",
+            instrumental=False,
+            status_message="ok",
+        )
+
+        result = generation_handlers.handle_create_sample(
+            llm_handler=llm_handler,
+            query="test prompt",
+            instrumental=False,
+            vocal_language="en",
+            lm_temperature=0.85,
+            lm_top_k=20,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(result[0], "new caption")
+        self.assertEqual(result[1], "new lyrics")
+        self.assertEqual(result[3], 42.0)
+        self.assertEqual(result[5], "en")
+        self.assertEqual(result[6], "en")
+        self.assertEqual(len(result), 15)
+        self.assertTrue(result[10])
+        self.assertEqual(result[13], "ok")
+        self.assertEqual(result[14]["value"], "Custom")
+        create_sample_mock.assert_called_once()
+        info_mock.assert_called_once()
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Warning")
+    def test_handle_format_caption_lm_not_initialized_regression(self, warning_mock):
+        """Caption formatting should return lm-not-initialized status when LM is unavailable."""
+        llm_handler = SimpleNamespace(llm_initialized=False)
+
+        result = generation_handlers.handle_format_caption(
+            llm_handler=llm_handler,
+            caption="caption",
+            lyrics="lyrics",
+            bpm=120,
+            audio_duration=30.0,
+            key_scale="C major",
+            time_signature="4",
+            lm_temperature=0.85,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(result[-1], _t("messages.lm_not_initialized"))
+        warning_mock.assert_called_once_with(_t("messages.lm_not_initialized"))
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.format_sample")
+    def test_handle_format_lyrics_strips_quotes(self, format_sample_mock, info_mock):
+        """Lyrics-only formatting should strip wrapper quotes from returned lyrics."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        format_sample_mock.return_value = SimpleNamespace(
+            success=True,
+            caption="unused",
+            lyrics="'quoted lyrics'",
+            bpm=100,
+            duration=10.0,
+            keyscale="D minor",
+            language="en",
+            timesignature="4",
+            status_message="formatted",
+        )
+
+        result = generation_handlers.handle_format_lyrics(
+            llm_handler=llm_handler,
+            caption="caption",
+            lyrics="lyrics",
+            bpm=100,
+            audio_duration=10.0,
+            key_scale="D minor",
+            time_signature="4",
+            lm_temperature=0.85,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(result[0], "quoted lyrics")
+        self.assertEqual(result[4], "en")
+        self.assertEqual(len(result), 8)
+        self.assertEqual(result[-1], "formatted")
+        format_sample_mock.assert_called_once()
+        info_mock.assert_called_once()
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.format_sample")
+    def test_handle_format_sample_preserves_output_contract(self, format_sample_mock, info_mock):
+        """Full sample formatting should return 9 outputs with language at index 5."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        format_sample_mock.return_value = SimpleNamespace(
+            success=True,
+            caption="caption out",
+            lyrics="lyrics out",
+            bpm=112,
+            duration=12.0,
+            keyscale="G major",
+            language="en",
+            timesignature="3/4",
+            status_message="formatted",
+        )
+
+        result = generation_handlers.handle_format_sample(
+            llm_handler=llm_handler,
+            caption="caption in",
+            lyrics="lyrics in",
+            bpm=112,
+            audio_duration=12.0,
+            key_scale="G major",
+            time_signature="3/4",
+            lm_temperature=0.85,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(len(result), 9)
+        self.assertEqual(result[5], "en")
+        self.assertEqual(result[8], "formatted")
+        format_sample_mock.assert_called_once()
+        info_mock.assert_called_once()
 
 
 @unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")

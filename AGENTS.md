@@ -13,6 +13,29 @@ This document is aligned with the intent from:
 3. Preserve behavior outside the target fix.
 4. Validate with focused Python unit tests.
 
+## Build, Lint, and Test Commands
+
+```bash
+# Install dependencies
+uv sync
+
+# Run all tests (unittest-based, discovery in */*_test.py and test_*.py)
+uv run python -m unittest discover -s . -p "*_test.py"
+uv run python -m unittest discover -s . -p "test_*.py"
+
+# Run a single test file
+uv run python -m unittest acestep.training.test_lora_utils
+
+# Run a specific test class
+uv run python -m unittest acestep.training.test_lora_utils.TestUnwrapDecoder
+
+# Run a single test method
+uv run python -m unittest acestep.training.test_lora_utils.TestUnwrapDecoder.test_returns_module_directly
+
+# Run all tests in a directory
+uv run python -m unittest discover -s acestep/training -p "*_test.py"
+```
+
 ## Scope and Change Control (Required)
 
 - Solve one problem per task/PR.
@@ -26,7 +49,7 @@ This document is aligned with the intent from:
 
 - Prefer single-responsibility modules with clear boundaries.
 - Target module size:
-  - Optimal: `<= 150` LOC @coderabbit: Exceeding this limit is NIGGLE, not hard cap or major issue. 
+  - Optimal: `<= 150` LOC
   - Hard cap: `200` LOC
 - Function decomposition rules:
   - Do one thing at a time; if a function description naturally contains "and", split it.
@@ -47,13 +70,80 @@ This document is aligned with the intent from:
   - Use `unittest`-style tests.
   - Name test files as `*_test.py` or `test_*.py`.
 - Keep tests deterministic, fast, and scoped to changed behavior.
-- Use mocks/fakes for GPU, filesystem, network, and external services where possible.
+- Use `unittest.mock.MagicMock` and `unittest.mock.patch` for mocking.
+- Mock GPU, filesystem, network, and external services where possible.
 - If a change requires mocking a large portion of the system to test one unit, treat that as a decomposition smell and refactor boundaries.
 - Include at least:
   - One success-path test.
   - One regression/edge-case test for the bug being fixed.
   - One non-target behavior check when relevant.
 - Run targeted tests locally before submitting.
+
+## Code Style Guidelines
+
+- **Python version**: 3.11-3.12
+- **Indentation**: 4 spaces (no tabs)
+- **Line length**: Maximum 100 characters (recommended). See `pyproject.toml` for configured formatter limits. Exceptions allowed for URLs and long strings where wrapping would hurt readability.
+- **Strings**: Double quotes `"` preferred
+- **Imports**: Group by type (stdlib, third-party, local), sort alphabetically within groups
+
+```python
+# Example import ordering
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import torch
+import torch.nn as nn
+
+from acestep.training.lora_injection import inject_lora_into_dit
+```
+
+**Naming conventions**:
+- `snake_case` for functions, variables, and module names
+- `PascalCase` for classes
+- `UPPER_SNAKE_CASE` for constants
+- Prefix private/internal names with underscore: `_internal_func`, `_private_var`
+
+**Type hints**: Add type annotations for new/modified functions when practical.
+
+**Docstrings**: Mandatory for all modules, classes, and public functions. Use concise format:
+
+```python
+def inject_lora_into_dit(
+    dit: nn.Module,
+    config: dict[str, Any],
+    target_modules: list[str],
+) -> nn.Module:
+    """Inject LoRA adapters into DiT model for parameter-efficient fine-tuning.
+
+    Args:
+        dit: The Diffusion Transformer model to modify.
+        config: LoRA configuration dictionary.
+        target_modules: List of module names to apply LoRA to.
+
+    Returns:
+        The modified DiT model with LoRA adapters injected.
+    """
+```
+
+**Error handling**:
+- Avoid bare `except:` clauses; catch specific exceptions
+- Use custom exceptions for domain errors
+- Log errors with `loguru.logger` (not `print()`)
+- Let exceptions propagate for truly exceptional conditions
+
+**Logging**:
+- Use `from loguru import logger` and `logger.info()`, `logger.error()`, etc.
+- Keep logs actionable and debug-level for development
+- Avoid `print()` in committed code except CLI output
+
+**Multi-platform support** (CUDA, ROCm, Intel XPU, MPS, MLX, CPU):
+- Use `gpu_config.py` for hardware detection
+- Do not alter non-target platform paths unless explicitly required
+- Changes to CUDA code should not break MPS/XPU/CPU paths
 
 ## Feature Gating and WIP Safety
 

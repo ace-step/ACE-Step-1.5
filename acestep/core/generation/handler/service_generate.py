@@ -21,7 +21,8 @@ class ServiceGenerateMixin:
     def service_generate(
         self,
         captions: Union[str, List[str]],
-        lyrics: Union[str, List[str]],
+        global_captions: Optional[List[str]] = None,
+        lyrics: Union[str, List[str]] = "",
         keys: Optional[Union[str, List[str]]] = None,
         target_wavs: Optional[torch.Tensor] = None,
         refer_audios: Optional[List[List[torch.Tensor]]] = None,
@@ -95,6 +96,7 @@ class ServiceGenerateMixin:
         )
         batch = self._prepare_batch(
             captions=normalized["captions"],
+            global_captions=global_captions,
             lyrics=normalized["lyrics"],
             keys=normalized["keys"],
             target_wavs=target_wavs,

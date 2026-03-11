@@ -21,7 +21,8 @@ class ConditioningBatchMixin:
     def _prepare_batch(
         self,
         captions: List[str],
-        lyrics: List[str],
+        global_captions: Optional[List[str]] = None,
+        lyrics: List[str] = None,
         keys: Optional[List[str]] = None,
         target_wavs: Optional[torch.Tensor] = None,
         refer_audios: Optional[List[List[torch.Tensor]]] = None,
@@ -54,6 +55,8 @@ class ConditioningBatchMixin:
             Batch dictionary containing padded tensors and conditioning metadata
             consumed by ``preprocess_batch`` and downstream generation.
         """
+        if lyrics is None:
+            lyrics = [""] * len(captions)
         batch_size = len(captions)
         audio_code_hints = self._normalize_audio_code_hints(audio_code_hints, batch_size)
 
@@ -106,6 +109,7 @@ class ConditioningBatchMixin:
             parsed_metas,
             vocal_languages,
             audio_cover_strength,
+            global_captions=global_captions,
         )
 
         batch = {

@@ -3,6 +3,9 @@
 Verifies that compute_mode_ui_updates correctly clears stale
 text2music_audio_code_string and src_audio values when switching
 between modes, preventing the state-leakage noise bug.
+
+Also verifies that think_checkbox is restored to True when switching
+back to Custom/Simple modes after Remix/Repaint forced it off.
 """
 
 import unittest
@@ -18,7 +21,13 @@ except Exception as exc:  # pragma: no cover - environment dependency guard
 # Output indices for the two new state-clearing outputs
 _IDX_AUDIO_CODES = 42
 _IDX_SRC_AUDIO = 43
+_IDX_THINK_CHECKBOX = 14
 _EXPECTED_TUPLE_LENGTH = 44
+_IDX_BPM = 21
+_IDX_KEY = 22
+_IDX_TIMESIG = 23
+_IDX_VOCAL_LANG = 24
+_IDX_DURATION = 25
 
 
 @unittest.skipIf(compute_mode_ui_updates is None,
@@ -84,20 +93,104 @@ class ModeUiStateClearingTests(unittest.TestCase):
         self.assertNotIn("value", src_update)
 
     def test_round_trip_remix_to_custom_clears_both(self):
-        """Switching Remix -> Custom should clear both codes and src_audio."""
+        """Switching Remix -> Custom should clear both audio_codes and src_audio.
+
+        analyze_btn in Remix mode writes codes to text2music_audio_code_string.
+        These must be cleared when entering Custom mode so stale codes are not
+        passed to the DiT (the root cause of garbled audio after tab-switching).
+        """
         result = compute_mode_ui_updates("Custom", previous_mode="Remix")
         codes_update = result[_IDX_AUDIO_CODES]
         src_update = result[_IDX_SRC_AUDIO]
-        # Custom mode should not clear codes (it uses them)
+        # Codes from analyze_btn in Remix must be cleared
+        self.assertEqual(codes_update.get("value"), "")
         self.assertTrue(codes_update.get("visible"))
-        # But src_audio should be cleared
+        # src_audio should also be cleared
         self.assertIsNone(src_update.get("value"))
+
+    def test_repaint_to_custom_clears_audio_codes(self):
+        """Switching Repaint -> Custom should clear audio codes (analyze_btn contaminates them)."""
+        result = compute_mode_ui_updates("Custom", previous_mode="Repaint")
+        codes_update = result[_IDX_AUDIO_CODES]
+        self.assertEqual(codes_update.get("value"), "")
+        self.assertTrue(codes_update.get("visible"))
+
+    def test_simple_to_custom_preserves_audio_codes(self):
+        """Switching Simple -> Custom should NOT clear audio codes (Simple has no analyze_btn)."""
+        result = compute_mode_ui_updates("Custom", previous_mode="Simple")
+        codes_update = result[_IDX_AUDIO_CODES]
+        self.assertNotIn("value", codes_update)
+        self.assertTrue(codes_update.get("visible"))
 
     def test_round_trip_custom_to_remix_clears_codes(self):
         """Switching Custom -> Remix should clear stale audio codes."""
         result = compute_mode_ui_updates("Remix", previous_mode="Custom")
         codes_update = result[_IDX_AUDIO_CODES]
         self.assertEqual(codes_update.get("value"), "")
+
+    def test_remix_mode_forces_think_checkbox_off(self):
+        """Remix mode should force think_checkbox to False and non-interactive."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        result = compute_mode_ui_updates("Remix", llm_handler=llm_handler, previous_mode="Custom")
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertFalse(think_update.get("value"))
+        self.assertFalse(think_update.get("interactive"))
+
+    def test_repaint_mode_forces_think_checkbox_off(self):
+        """Repaint mode should force think_checkbox to False and non-interactive."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        result = compute_mode_ui_updates("Repaint", llm_handler=llm_handler, previous_mode="Custom")
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertFalse(think_update.get("value"))
+        self.assertFalse(think_update.get("interactive"))
+
+    def test_remix_to_custom_restores_think_checkbox(self):
+        """Switching Remix -> Custom should restore think_checkbox to True when LM is initialized.
+
+        This is the core regression test for the tab-switch noise bug:
+        think_checkbox was stuck at False after returning from Remix mode,
+        causing the LLM to be skipped and producing garbled audio.
+        """
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        result = compute_mode_ui_updates("Custom", llm_handler=llm_handler, previous_mode="Remix")
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertTrue(think_update.get("value"),
+                        "think_checkbox must be restored to True when switching back to Custom mode")
+        self.assertTrue(think_update.get("interactive"))
+
+    def test_repaint_to_custom_restores_think_checkbox(self):
+        """Switching Repaint -> Custom should restore think_checkbox to True."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        result = compute_mode_ui_updates("Custom", llm_handler=llm_handler, previous_mode="Repaint")
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertTrue(think_update.get("value"))
+
+    def test_remix_to_simple_restores_think_checkbox(self):
+        """Switching Remix -> Simple should restore think_checkbox to True when LM is initialized."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        result = compute_mode_ui_updates("Simple", llm_handler=llm_handler, previous_mode="Remix")
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertTrue(think_update.get("value"))
+
+    def test_no_lm_keeps_think_checkbox_off(self):
+        """Without LM initialized, think_checkbox should remain False even in Custom mode."""
+        llm_handler = SimpleNamespace(llm_initialized=False)
+        result = compute_mode_ui_updates("Custom", llm_handler=llm_handler, previous_mode="Remix")
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertFalse(think_update.get("value"))
+        self.assertFalse(think_update.get("interactive"))
+
+    def test_non_extract_modes_do_not_force_auto_fields_interactive(self):
+        """Mode switches should not re-enable auto-managed metadata fields."""
+        result = compute_mode_ui_updates("Remix", previous_mode="Custom")
+        for idx in (_IDX_BPM, _IDX_KEY, _IDX_TIMESIG, _IDX_VOCAL_LANG, _IDX_DURATION):
+            self.assertNotIn("interactive", result[idx])
+
+    def test_leaving_extract_sets_auto_fields_non_interactive(self):
+        """Leaving Extract should reset optional fields in locked auto state."""
+        result = compute_mode_ui_updates("Custom", previous_mode="Extract")
+        for idx in (_IDX_BPM, _IDX_KEY, _IDX_TIMESIG, _IDX_VOCAL_LANG, _IDX_DURATION):
+            self.assertFalse(result[idx].get("interactive"))
 
 
 if __name__ == "__main__":

@@ -78,9 +78,9 @@ API 키가 설정되지 않은 경우 인증이 필요하지 않습니다.
 | `time_signature` | string | `null` | 박자 (예: `"4/4"`) |
 
 > **messages 텍스트의 의미는 모드에 따라 다릅니다:**
-> - `lyrics` 설정 시 → messages 텍스트 = prompt (음악 설명)
+> - `lyrics` 설정 시 → messages 텍스트 = caption
 > - `sample_mode: true` 설정 시 → messages 텍스트 = sample_query (LLM에게 모든 것을 생성하도록 함)
-> - 둘 다 미설정 → 자동 감지: 태그가 있으면 태그 모드, 가사처럼 보이면 가사 모드, 그 외 sample 모드
+> - 둘 다 미설정 → 자동 감지: 태그가 있으면 태그 모드, 가사처럼 보이면 가사 모드, 그 외 caption 로 직접 생성에 사용
 
 #### messages 형식
 

@@ -6,7 +6,7 @@ from typing import Optional
 import torch
 from loguru import logger
 
-from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config
+from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config, is_rocm_available
 
 
 class MemoryUtilsMixin:
@@ -158,6 +158,10 @@ class MemoryUtilsMixin:
         """Get VAE dtype based on target device and GPU tier."""
         target_device = device or self.device
         if target_device in ["cuda", "xpu"]:
+            if target_device == "cuda" and is_rocm_available():
+                # On ROCm, defer to self.dtype which is already set to a safe
+                # value (float32 by default, or ACESTEP_ROCM_DTYPE override).
+                return getattr(self, "dtype", torch.float32)
             return torch.bfloat16
         if target_device == "mps":
             return torch.float16

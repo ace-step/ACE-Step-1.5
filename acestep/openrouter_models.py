@@ -101,6 +101,14 @@ class ChatCompletionRequest(BaseModel):
     repainting_end: Optional[float] = Field(default=None, description="Repainting region end (seconds)")
     audio_cover_strength: float = Field(default=1.0, description="Audio cover strength (0.0~1.0)")
 
+    # Extended fields for ComfyUI node compatibility
+    audio_codes: str = Field(default="", description="Pre-computed audio codes (bypass auto-conversion)")
+    cover_noise_strength: float = Field(default=0.0, description="Cover noise strength (0=pure noise, 1=closest to src)")
+    inference_steps: int = Field(default=8, description="Number of diffusion inference steps")
+    infer_method: str = Field(default="ode", description="Diffusion inference method: 'ode' or 'sde'")
+    lm_cfg_scale: float = Field(default=2.0, description="LM classifier-free guidance scale")
+    use_cot_metas: Optional[bool] = Field(default=None, description="Use CoT for metadata generation (auto if None)")
+
     class Config:
         extra = "allow"  # Allow additional fields for forward compatibility
 
@@ -125,6 +133,7 @@ class AssistantMessage(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: Optional[str] = Field(default=None, description="Text content")
     audio: Optional[List[AudioOutput]] = Field(default=None, description="Generated audio files")
+    audio_codes: Optional[str] = Field(default=None, description="Generated audio codes")
 
 
 class Choice(BaseModel):

@@ -94,6 +94,7 @@ torchaudio = [
 acestep = "acestep.acestep_v15_pipeline:main"
 acestep-api = "acestep.api_server:main"
 acestep-download = "acestep.model_downloader:main"
+acestep-openrouter = "openrouter.openrouter_api_server:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -103,4 +104,7 @@ build-backend = "hatchling.build"
 dev = []
 
 [tool.hatch.build.targets.wheel]
-packages = ["acestep"]
+packages = ["acestep", "openrouter"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"acestep/ui/gradio/interfaces/audio_player_preferences.js" = "acestep/ui/gradio/interfaces/audio_player_preferences.js"

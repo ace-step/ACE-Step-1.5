@@ -78,9 +78,9 @@ Generates music from chat messages and returns audio data along with LM-generate
 | `time_signature` | string | `null` | Time signature (e.g. `"4/4"`) |
 
 > **Messages text meaning depends on the mode:**
-> - If `lyrics` is set → messages text = prompt (music description)
+> - If `lyrics` is set → messages text = caption
 > - If `sample_mode: true` is set → messages text = sample_query (let LLM generate everything)
-> - Neither set → auto-detect: tags → tag mode, lyrics-like → lyrics mode, otherwise → sample mode
+> - Neither set → auto-detect: tags → tag mode, lyrics-like → lyrics mode, otherwise used as caption directly for generation
 
 #### messages Format
 

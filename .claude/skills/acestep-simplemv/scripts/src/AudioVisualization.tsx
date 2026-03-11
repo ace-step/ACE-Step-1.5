@@ -2,6 +2,7 @@ import React from 'react';
 import {
   AbsoluteFill,
   Audio,
+  Img,
   useCurrentFrame,
   useVideoConfig,
   interpolate,
@@ -18,6 +19,7 @@ export const AudioVisualization: React.FC<MVInputProps> = ({
   subtitle,
   creditText,
   lyricOffset,
+  backgroundImage,
 }) => {
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
@@ -71,14 +73,43 @@ export const AudioVisualization: React.FC<MVInputProps> = ({
   const avgAmplitude =
     visualization.reduce((sum, val) => sum + val, 0) / visualization.length;
 
+  const bgSrc = backgroundImage
+    ? backgroundImage.startsWith('http')
+      ? backgroundImage
+      : staticFile(backgroundImage)
+    : '';
+
   return (
     <AbsoluteFill>
-      {/* Animated gradient background */}
-      <AbsoluteFill
-        style={{
-          background: `linear-gradient(135deg, hsl(${hue}, 80%, 12%) 0%, hsl(${hue + 80}, 70%, 8%) 100%)`,
-        }}
-      />
+      {/* Background: image or animated gradient */}
+      {bgSrc ? (
+        <>
+          <AbsoluteFill>
+            <Img
+              src={bgSrc}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+              }}
+            />
+          </AbsoluteFill>
+          {/* Dark overlay for readability */}
+          <AbsoluteFill
+            style={{
+              background: `rgba(0, 0, 0, 0.45)`,
+            }}
+          />
+        </>
+      ) : (
+        <>
+          <AbsoluteFill
+            style={{
+              background: `linear-gradient(135deg, hsl(${hue}, 80%, 12%) 0%, hsl(${hue + 80}, 70%, 8%) 100%)`,
+            }}
+          />
+        </>
+      )}
 
       {/* Radial glow effect */}
       <AbsoluteFill
@@ -230,7 +261,7 @@ export const AudioVisualization: React.FC<MVInputProps> = ({
               opacity: titleOpacity,
               transform: `translateY(${titleY}px)`,
               textShadow: `0 0 40px hsla(${hue}, 100%, 70%, 0.8), 0 4px 20px rgba(0,0,0,0.5)`,
-              fontFamily: '"Noto Sans CJK JP", "Noto Sans CJK SC", Arial, sans-serif',
+              fontFamily: '"Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK TC", "Noto Sans CJK KR", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Droid Sans Fallback", "Source Han Sans SC", "Microsoft YaHei", "SimHei", "Hiragino Sans GB", Arial, Helvetica, sans-serif',
               marginBottom: 10,
             }}
           >
@@ -244,7 +275,7 @@ export const AudioVisualization: React.FC<MVInputProps> = ({
               opacity: titleOpacity,
               transform: `translateY(${titleY}px)`,
               textShadow: `0 0 30px hsla(${hue + 60}, 100%, 70%, 0.6), 0 2px 10px rgba(0,0,0,0.5)`,
-              fontFamily: '"Noto Sans CJK JP", "Noto Sans CJK SC", Arial, sans-serif',
+              fontFamily: '"Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK TC", "Noto Sans CJK KR", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Droid Sans Fallback", "Source Han Sans SC", "Microsoft YaHei", "SimHei", "Hiragino Sans GB", Arial, Helvetica, sans-serif',
               letterSpacing: '4px',
             }}
           >
@@ -272,7 +303,7 @@ export const AudioVisualization: React.FC<MVInputProps> = ({
               opacity: lyricProgress,
               transform: `translateY(${(1 - lyricProgress) * 30}px)`,
               textShadow: `0 0 40px hsla(${hue}, 100%, 70%, 0.8), 0 4px 30px rgba(0,0,0,0.9)`,
-              fontFamily: '"Noto Sans CJK JP", "Noto Sans CJK SC", Arial, sans-serif',
+              fontFamily: '"Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK TC", "Noto Sans CJK KR", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Droid Sans Fallback", "Source Han Sans SC", "Microsoft YaHei", "SimHei", "Hiragino Sans GB", Arial, Helvetica, sans-serif',
               lineHeight: 1.5,
               padding: '25px 50px',
               background: `linear-gradient(135deg, rgba(0,0,0,0.4), rgba(0,0,0,0.2))`,
@@ -303,7 +334,7 @@ export const AudioVisualization: React.FC<MVInputProps> = ({
             opacity: 0.8,
             textAlign: 'center',
             textShadow: `0 0 20px hsla(${hue}, 100%, 70%, 0.6), 0 2px 10px rgba(0,0,0,0.7)`,
-            fontFamily: '"Noto Sans CJK JP", "Noto Sans CJK SC", Arial, sans-serif',
+            fontFamily: '"Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK TC", "Noto Sans CJK KR", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Droid Sans Fallback", "Source Han Sans SC", "Microsoft YaHei", "SimHei", "Hiragino Sans GB", Arial, Helvetica, sans-serif',
           }}
         >
           {creditText}

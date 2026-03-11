@@ -7,6 +7,14 @@ assignees: ''
 
 ---
 
+> **📚 Before submitting:** Have you tried [DeepWiki AI Assistant](https://deepwiki.com/ace-step/ACE-Step-1.5)?
+> DeepWiki can instantly help with installation, troubleshooting, and common issues!
+> See pinned issue #791 for more info.
+
+**Did you check DeepWiki?**
+- [ ] Yes, I checked DeepWiki but couldn't find a solution
+- [ ] No, this is a new bug not covered in the docs
+
 **Describe the bug**
 A clear and concise description of what the bug is.
 

@@ -200,11 +200,11 @@ _startup_update_check() {
     echo "  Current: $commit  ->  Latest: $remote_commit"
     echo
     echo "  Recent changes:"
-    git --no-pager log --oneline "HEAD..origin/$branch" 2>/dev/null | head -10
+    git --no-pager log --oneline -10 "HEAD..origin/$branch" 2>/dev/null
     echo
 
     read -rp "Update now before starting? (Y/N): " update_choice
-    if [[ "${update_choice^^}" == "Y" ]]; then
+    if [[ "$(echo "$update_choice" | tr '[:lower:]' '[:upper:]')" == "Y" ]]; then
         if [[ -f "$SCRIPT_DIR/check_update.sh" ]]; then
             bash "$SCRIPT_DIR/check_update.sh"
         else
@@ -227,6 +227,73 @@ echo
 echo "Server will be available at: http://${SERVER_NAME}:${PORT}"
 echo
 
+# ==================== Auto-detect Python environment ====================
+# Priority: python_embedded (portable package) > uv
+if [[ -f "$SCRIPT_DIR/python_embedded/bin/python3.11" ]]; then
+    echo "[Environment] Found embedded Python, verifying..."
+
+    # Proactively fix permissions and Gatekeeper BEFORE any execution attempt.
+    # On macOS Sequoia, running a quarantined binary triggers a blocking popup,
+    # so we must strip attributes and re-sign first.
+    chmod +x "$SCRIPT_DIR/python_embedded/bin/"* 2>/dev/null || true
+    echo "[Setup] Removing quarantine attributes..."
+    xattr -cr "$SCRIPT_DIR/python_embedded" 2>/dev/null || true
+    echo "[Setup] Re-signing binaries (ad-hoc)..."
+    find "$SCRIPT_DIR/python_embedded" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) \
+        -exec codesign --force --sign - {} \; 2>/dev/null || true
+
+    if "$SCRIPT_DIR/python_embedded/bin/python3.11" -c "pass" 2>/dev/null; then
+        echo "[Environment] Using embedded Python."
+        PYTHON_EXE="$SCRIPT_DIR/python_embedded/bin/python3.11"
+        SCRIPT_PATH="$SCRIPT_DIR/acestep/acestep_v15_pipeline.py"
+
+        # On Apple Silicon, verify MLX packages work with this macOS version.
+        # python_embedded may ship wheels built for a different macOS; pip
+        # reinstall fetches the correct platform wheel automatically.
+        if [[ "$ARCH" == "arm64" ]]; then
+            _need_mlx_fix=0
+            if ! "$PYTHON_EXE" -c "import mlx.core" 2>/dev/null; then
+                echo "[Setup] MLX incompatible with this macOS — will reinstall."
+                _need_mlx_fix=1
+            elif ! "$PYTHON_EXE" -c "from mlx_lm.utils import load" 2>/dev/null; then
+                echo "[Setup] mlx-lm outdated — will upgrade."
+                _need_mlx_fix=1
+            fi
+            if [[ $_need_mlx_fix -eq 1 ]]; then
+                echo "[Setup] Fixing MLX packages (this only runs once)..."
+                "$PYTHON_EXE" -m pip install --upgrade mlx mlx-lm 'transformers>=4.51.0,<4.58.0' 'vector-quantize-pytorch>=1.27.15,<1.28.0' 2>&1 | tail -1
+            fi
+        fi
+
+        echo "Starting ACE-Step Gradio UI..."
+        echo
+
+        # Build command with optional parameters
+        CMD="--port $PORT --server-name $SERVER_NAME --language $LANGUAGE"
+        [[ -n "$SHARE" ]] && CMD="$CMD $SHARE"
+        [[ -n "$CONFIG_PATH" ]] && CMD="$CMD $CONFIG_PATH"
+        [[ -n "$LM_MODEL_PATH" ]] && CMD="$CMD $LM_MODEL_PATH"
+        [[ -n "$OFFLOAD_TO_CPU" ]] && CMD="$CMD $OFFLOAD_TO_CPU"
+        [[ -n "$INIT_LLM" ]] && CMD="$CMD $INIT_LLM"
+        [[ -n "$DOWNLOAD_SOURCE" ]] && CMD="$CMD $DOWNLOAD_SOURCE"
+        [[ -n "$INIT_SERVICE" ]] && CMD="$CMD $INIT_SERVICE"
+        [[ -n "${BATCH_SIZE:-}" ]] && CMD="$CMD $BATCH_SIZE"
+        [[ -n "$BACKEND" ]] && CMD="$CMD $BACKEND"
+        [[ -n "$ENABLE_API" ]] && CMD="$CMD $ENABLE_API"
+        [[ -n "$API_KEY" ]] && CMD="$CMD $API_KEY"
+        [[ -n "$AUTH_USERNAME" ]] && CMD="$CMD $AUTH_USERNAME"
+        [[ -n "$AUTH_PASSWORD" ]] && CMD="$CMD $AUTH_PASSWORD"
+
+        cd "$SCRIPT_DIR" && exec "$PYTHON_EXE" "$SCRIPT_PATH" $CMD
+    else
+        echo "[Setup] WARNING: Embedded Python cannot run on this machine."
+        echo "[Setup] This may be a CPU architecture mismatch (e.g., arm64 binary on x86_64)."
+        echo "[Setup] Falling back to uv..."
+        echo
+    fi
+fi
+
+# ==================== Fallback: uv package manager ====================
 # Check if uv is installed
 if ! command -v uv &>/dev/null; then
     if [[ -x "$HOME/.local/bin/uv" ]]; then
@@ -246,7 +313,7 @@ if ! command -v uv &>/dev/null; then
     echo
     read -rp "Install uv now? (Y/N): " INSTALL_UV
 
-    if [[ "${INSTALL_UV^^}" == "Y" ]]; then
+    if [[ "$(echo "$INSTALL_UV" | tr '[:lower:]' '[:upper:]')" == "Y" ]]; then
         echo
         bash "$SCRIPT_DIR/install_uv.sh" --silent
         INSTALL_RESULT=$?

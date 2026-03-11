@@ -1,0 +1,37 @@
+name: Close inactive issues
+
+on:
+  schedule:
+    # Cron is UTC
+    - cron: "15 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark stale and close
+        uses: actions/stale@v10
+        with:
+          repo-token: ${{ github.token }}
+
+          # "No activity for 28 days" -> mark stale at 21 days,
+          # then close 7 days after being marked stale
+          days-before-issue-stale: 21
+          days-before-issue-close: 7
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+
+          stale-issue-label: stale
+          close-issue-message: >
+            Closing due to 28 days of inactivity. If this is still relevant,
+            please comment to reopen.
+          stale-issue-message: >
+            No activity for 28 days. Closing automatically unless updated.
+
+          # Prevent closing important issues
+          exempt-issue-labels: "keep-open,pinned,security"
+          exempt-all-milestones: true

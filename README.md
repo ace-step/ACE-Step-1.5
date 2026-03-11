@@ -6,11 +6,12 @@
     <a href="https://modelscope.cn/models/ACE-Step/Ace-Step1.5">ModelScope</a> |
     <a href="https://huggingface.co/spaces/ACE-Step/Ace-Step-v1.5">Space Demo</a> |
     <a href="https://discord.gg/PeWDxrkdj7">Discord</a> |
-    <a href="https://arxiv.org/abs/2602.00744">Technical Report</a>
+    <a href="https://arxiv.org/abs/2602.00744">Technical Report</a> |
+    <a href="https://github.com/ace-step/awesome-ace-step">Awesome ACE-Step</a>
 </p>
 
 <p align="center">
-    <img src="./assets/orgnization_logos.png" width="100%" alt="StepFun Logo">
+    <img src="./assets/organization_logos.png" width="100%" alt="StepFun Logo">
 </p>
 
 ## Table of Contents
@@ -66,10 +67,18 @@
 | ✅ LoRA Training | One-click annotation & training in Gradio. 8 songs, 1 hour on 3090 (12GB VRAM) |
 | ✅ Quality Scoring | Automatic quality assessment for generated audio |
 
-## Staying ahead
------------------
+## 🔔 Staying ahead
 Star ACE-Step on GitHub and be instantly notified of new releases
 ![](assets/star.gif)
+
+## 🤝 Partners
+
+<p align="center">
+    <a href="https://www.comfy.org/"><img src="https://registry.comfy.org/_next/static/media/logo_blue.9ac227d3.png" alt="ComfyUI" height="40" style="margin: 5px;"></a>
+    <a href="https://zilliz.com/"><img src="https://avatars.githubusercontent.com/u/18416694" alt="Zilliz" height="40" style="margin: 5px;"></a>
+    <a href="https://milvus.io/"><img src="https://miro.medium.com/v2/resize:fit:2400/1*-VEGyAgcIBD62XtZWavy8w.png" alt="Milvus" height="40" style="margin: 5px;"></a>
+    <a href="https://zeabur.com/"><img src="https://zeabur.notion.site/image/attachment%3A43bc244b-9a2d-4b96-9646-8392aa6fc862%3Alogo-dark_1.svg?table=block&id=318a221c-948e-8056-b3c0-f9c39ce543ba&spaceId=ba37aeb9-0937-401d-aa41-ce1d3b6ff778&userId=&cache=v2" alt="Zeabur" height="40" width="40" style="margin: 5px;"></a>
+</p>
 
 ## ⚡ Quick Start
 
@@ -263,6 +272,10 @@ The only official website for the ACE-Step project is our GitHub Pages site.
 🚫 Fake domains include but are not limited to:
 ac\*\*p.com, a\*\*p.org, a\*\*\*c.org  
 ⚠️ Please be cautious. Do not visit, trust, or make payments on any of those sites.
+
+## 🌐 Community & Ecosystem
+
+Check out **[Awesome ACE-Step](https://github.com/ace-step/awesome-ace-step)** — a curated list of community projects, alternative UIs, ComfyUI nodes, cloud deployments, training tools, and more built around ACE-Step.
 
 ## 🙏 Acknowledgements
 

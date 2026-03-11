@@ -112,5 +112,31 @@ class GenerateMusicRequestMixinTests(unittest.TestCase):
         self.assertEqual(error["error"], "Invalid source audio")
 
 
+    def test_should_return_intermediate_always_true(self):
+        """Intermediate tensors must always be returned for LRC generation support."""
+        host = _Host()
+        for task in ("text2music", "cover", "repaint"):
+            inputs = host._prepare_generate_music_service_inputs(
+                actual_batch_size=1,
+                processed_src_audio=None,
+                audio_duration=60.0,
+                captions="test",
+                lyrics="test",
+                vocal_language="en",
+                instruction="inst",
+                bpm=120,
+                key_scale="C major",
+                time_signature="4/4",
+                task_type=task,
+                audio_code_string="",
+                repainting_start=0.0,
+                repainting_end=1.0,
+            )
+            self.assertTrue(
+                inputs["should_return_intermediate"],
+                f"should_return_intermediate must be True for task_type={task!r}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

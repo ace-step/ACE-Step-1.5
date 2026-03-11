@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "scripts": {
+    "docs:fetch": "node scripts/fetch-awesome.mjs",
+    "docs:dev": "npm run docs:fetch && vitepress dev docs",
+    "docs:build": "npm run docs:fetch && vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  }
+}

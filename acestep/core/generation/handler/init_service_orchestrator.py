@@ -8,6 +8,34 @@ from typing import Optional, Tuple
 import torch
 from loguru import logger
 
+from acestep import gpu_config
+
+_ROCM_DTYPE_MAP = {
+    "float32": torch.float32,
+    "float16": torch.float16,
+    "bfloat16": torch.bfloat16,
+}
+
+
+def _resolve_rocm_dtype() -> torch.dtype:
+    """Return a safe model dtype for ROCm/HIP devices.
+
+    Uses ``float32`` by default to avoid segfaults from incomplete
+    ``bfloat16`` kernel support on some ROCm GPU configurations (e.g.
+    AMD iGPUs on Strix Halo).  Set the ``ACESTEP_ROCM_DTYPE`` environment
+    variable to ``float16`` or ``bfloat16`` to override for hardware that
+    fully supports those formats.
+    """
+    raw = os.environ.get("ACESTEP_ROCM_DTYPE", "float32").strip().lower()
+    dtype = _ROCM_DTYPE_MAP.get(raw)
+    if dtype is None:
+        logger.warning(
+            f"[initialize_service] Unknown ACESTEP_ROCM_DTYPE={raw!r}; "
+            "falling back to float32."
+        )
+        dtype = torch.float32
+    return dtype
+
 
 class InitServiceOrchestratorMixin:
     """Public ``initialize_service`` orchestration entrypoint."""
@@ -48,7 +76,14 @@ class InitServiceOrchestratorMixin:
                 quantization=quantization,
             )
             self.compiled = normalized_compile
-            self.dtype = torch.bfloat16 if resolved_device in ["cuda", "xpu"] else torch.float32
+            if resolved_device == "cuda" and gpu_config.is_rocm_available():
+                self.dtype = _resolve_rocm_dtype()
+                logger.info(
+                    f"[initialize_service] ROCm/HIP device detected: using dtype={self.dtype} "
+                    "(set ACESTEP_ROCM_DTYPE=bfloat16 or float16 to override)"
+                )
+            else:
+                self.dtype = torch.bfloat16 if resolved_device in ["cuda", "xpu"] else torch.float32
             self.quantization = normalized_quantization
             self._validate_quantization_setup(
                 quantization=self.quantization,

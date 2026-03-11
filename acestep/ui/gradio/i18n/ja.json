@@ -5,8 +5,8 @@
   },
   "common": {
     "language_metadata": {
-    "name": "Japanese",
-    "native_name": "日本語"
+      "name": "Japanese",
+      "native_name": "日本語"
     }
   },
   "dataset": {
@@ -426,7 +426,34 @@
     "lokr_no_weights_selected_epoch": "❌ 選択したエポック {epoch} にLoKr重みが見つかりません",
     "lokr_no_weights_latest_checkpoint": "❌ 最新チェックポイント {checkpoint} にLoKr重みが見つかりません",
     "lokr_no_trained_weights_found": "❌ {path} にトレーニング済みLoKr重みが見つかりません",
-    "lokr_exported": "✅ LoKr を {path} にエクスポートしました"
+    "lokr_exported": "✅ LoKr を {path} にエクスポートしました",
+    "tab_train_lokr": "🚀 LoKr をトレーニング",
+    "lokr_section_tensors": "前処理済みデータセット選択",
+    "lokr_section_settings": "LoKr 設定",
+    "lokr_tensor_selection_desc": "前処理されたテンソルファイル（`.pt` ファイル）を含むディレクトリを選択します。\nこれらは「データセットビルダー」タブの「前処理」ボタンを使用して作成されます。",
+    "lokr_linear_dim": "LoKr Linear Dim",
+    "lokr_linear_dim_info": "Rank (dimension) for LoKr adaptation matrices.",
+    "lokr_linear_alpha": "LoKr Linear Alpha",
+    "lokr_linear_alpha_info": "Scaling factor for LoKr (usually similar to dim).",
+    "lokr_factor": "LoKr Factor",
+    "lokr_factor_info": "Kronecker factor (-1 for auto).",
+    "lokr_decompose_both": "Decompose Both Sides",
+    "lokr_decompose_both_info": "When enabled, decomposes both left and right matrices.",
+    "lokr_use_tucker": "Use Tucker Decomposition",
+    "lokr_use_tucker_info": "Apply Tucker decomposition when applicable.",
+    "lokr_use_scalar": "Use Scalar Gate",
+    "lokr_use_scalar_info": "Enable scalar gating for LoKr weights.",
+    "lokr_weight_decompose": "Weight Decompose (WD)",
+    "lokr_weight_decompose_info": "Enable weight decomposition for more stable LoKr training.",
+    "lokr_learning_rate_info": "LoKr commonly uses a higher LR than LoRA. Tune per dataset.",
+    "lokr_output_dir_info": "トレーニング済み LoKr 重みの保存先ディレクトリ。",
+    "start_lokr_training_btn": "🚀 トレーニング開始 LoKr",
+    "lokr_training_loss_title": "LoKr トレーニング損失",
+    "lokr_export_header": "LoKr をエクスポート",
+    "export_lokr_btn": "📦 LoKr をエクスポート",
+    "lokr_checkpoint_epoch": "Checkpoint Epoch",
+    "lokr_checkpoint_epoch_info": "Select a specific epoch checkpoint to export, or keep Latest (auto).",
+    "refresh_epochs_btn": "↻ 更新 Epochs"
   },
   "help": {
     "btn_label": "?",

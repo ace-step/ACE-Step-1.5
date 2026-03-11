@@ -18,6 +18,7 @@
  *   --offset       Lyric timing offset in seconds (default: -0.5)
  *   --output       Output file path (default: out/video.mp4)
  *   --codec        Video codec: h264, h265, vp8, vp9 (default: h264)
+ *   --background   Background image file path (if omitted, uses animated gradient)
  */
 
 import {execSync} from 'child_process';
@@ -252,6 +253,25 @@ if (args.lyrics) {
   console.log(`Loaded ${lyrics.length} lyric lines from JSON file`);
 }
 
+// Handle background image
+let backgroundImage = '';
+if (args.background) {
+  const resolvedBg = resolveFilePath(args.background);
+  if (!existsSync(resolvedBg)) {
+    console.error(`Error: Background image not found: ${resolvedBg}`);
+    process.exit(1);
+  }
+  const pubDir = resolve('public');
+  mkdirSync(pubDir, {recursive: true});
+  const bgName = basename(resolvedBg);
+  const bgDest = resolve(pubDir, bgName);
+  if (resolve(resolvedBg) !== bgDest) {
+    copyFileSync(resolvedBg, bgDest);
+    console.log(`Copied background image to public/${bgName}`);
+  }
+  backgroundImage = bgName;
+}
+
 // Determine audio duration
 let duration = args.duration ? parseFloat(args.duration) : null;
 if (!duration) {
@@ -281,6 +301,7 @@ const inputProps = {
   creditText: args.credit || '',
   durationInSeconds: duration,
   lyricOffset: args.offset ? parseFloat(args.offset) : -0.5,
+  backgroundImage,
 };
 
 const output = args.output ? resolveFilePath(args.output) : 'out/video.mp4';
@@ -321,6 +342,7 @@ console.log(`  Duration: ${duration.toFixed(1)}s`);
 console.log(`  Lyrics: ${lyrics.length} lines`);
 console.log(`  Output: ${output}`);
 console.log(`  Codec: ${codec}`);
+if (backgroundImage) console.log(`  Background: ${backgroundImage}`);
 if (browserExe) console.log(`  Browser: ${browserExe}`);
 if (chromeMode !== 'headless-shell') console.log(`  Chrome mode: ${chromeMode}`);
 console.log('');

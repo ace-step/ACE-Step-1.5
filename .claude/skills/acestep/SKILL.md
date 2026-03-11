@@ -38,6 +38,16 @@ If the user needs a simple music video, use the **acestep-simplemv** skill to re
 - **acestep-songwriting** — for writing lyrics and planning song structure
 - **acestep-lyrics-transcription** — for transcribing audio to timestamped lyrics (LRC)
 - **acestep-simplemv** — for rendering the final music video
+- **acestep-thumbnail** (optional) — for generating cover art / MV background images via Gemini API
+
+**MV Background Image**: When the user requests MV production, ask whether they want a background image for the video:
+1. **Generate via Gemini** — use the **acestep-thumbnail** skill (requires Gemini API key configuration)
+2. **Provide an existing image** — user supplies a local image path
+3. **Skip** — use the default animated gradient background (no image needed)
+
+Use `AskUserQuestion` to let the user choose before proceeding with MV rendering.
+
+**Parallel Processing**: Lyrics transcription and thumbnail generation are independent tasks. When the user chooses to generate a background image, run **acestep-lyrics-transcription** and **acestep-thumbnail** in parallel (e.g. via two concurrent Agent calls) to save time, then use both outputs for the final MV render.
 
 ## Script Commands
 
@@ -64,7 +74,12 @@ cd {project_root}/{.claude or .codex}/skills/acestep/
 ./scripts/acestep.sh generate -d "A cheerful song about spring"
 ./scripts/acestep.sh random
 
-# Options
+# Cover / Repainting from source audio
+./scripts/acestep.sh cover song.mp3 -c "Rock cover style" -l "[Verse] Lyrics..." --duration 120 --bpm 128
+./scripts/acestep.sh generate --src-audio song.mp3 --task-type repaint -c "Pop" --repaint-start 30 --repaint-end 60
+
+# Music attribute options
+./scripts/acestep.sh generate "Rock" --duration 60 --bpm 120 --key-scale "C major" --time-sig "4/4"
 ./scripts/acestep.sh generate "Rock" --duration 60 --batch 2
 ./scripts/acestep.sh generate "EDM" --no-thinking    # Faster
 
@@ -73,6 +88,29 @@ cd {project_root}/{.claude or .codex}/skills/acestep/
 ./scripts/acestep.sh health
 ./scripts/acestep.sh models
 ```
+
+### Cover / Audio Repainting
+
+The `cover` command generates music based on a source audio file. The audio is base64-encoded and sent to the API.
+
+```bash
+# Cover: regenerate with new style/lyrics, preserving melody structure
+./scripts/acestep.sh cover input.mp3 -c "Jazz cover" -l "[Verse] New lyrics..." --duration 120
+
+# Repainting: modify a specific region of the audio
+./scripts/acestep.sh generate --src-audio input.mp3 --task-type repaint -c "Pop ballad" --repaint-start 30 --repaint-end 90
+
+# Cover options
+#   --src-audio         Source audio file path
+#   --task-type         cover (default with --src-audio), repaint, text2music
+#   --cover-strength    0.0-1.0 (default: 1.0, higher = closer to source)
+#   --repaint-start     Repainting start position (seconds)
+#   --repaint-end       Repainting end position (seconds)
+#   --key-scale         Musical key (e.g. "E minor")
+#   --time-signature    Time signature (e.g. "4/4")
+```
+
+**Note**: For cloud API usage, large audio files may be rejected by Cloudflare. Compress audio before uploading if needed (e.g. using ffmpeg: `ffmpeg -i input.mp3 -b:a 64k -ar 24000 -ac 1 compressed.mp3`).
 
 ## Output Files
 

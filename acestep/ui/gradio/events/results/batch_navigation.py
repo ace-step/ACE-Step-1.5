@@ -12,6 +12,9 @@ import time as time_module
 import gradio as gr
 
 from acestep.ui.gradio.i18n import t
+from acestep.ui.gradio.events.results.audio_playback_updates import (
+    build_audio_slot_update,
+)
 from acestep.ui.gradio.events.results.batch_queue import (
     update_batch_indicator,
     update_navigation_buttons,
@@ -41,8 +44,9 @@ def navigate_to_previous_batch(current_batch_index, batch_queue):
 
     real_audio_paths = [p for p in audio_paths if not p.lower().endswith('.json')]
     audio_updates = [
-        gr.update(value=real_audio_paths[i].replace("\\", "/")) if i < len(real_audio_paths)
-        else gr.update(value=None)
+        build_audio_slot_update(gr, real_audio_paths[i].replace("\\", "/"))
+        if i < len(real_audio_paths)
+        else build_audio_slot_update(gr, None)
         for i in range(8)
     ]
 
@@ -108,8 +112,9 @@ def navigate_to_next_batch(autogen_enabled, current_batch_index, total_batches, 
 
     real_audio_paths = [p for p in audio_paths if not p.lower().endswith('.json')]
     audio_updates = [
-        gr.update(value=real_audio_paths[i].replace("\\", "/")) if i < len(real_audio_paths)
-        else gr.update(value=None)
+        build_audio_slot_update(gr, real_audio_paths[i].replace("\\", "/"))
+        if i < len(real_audio_paths)
+        else build_audio_slot_update(gr, None)
         for i in range(8)
     ]
 

@@ -1,34 +1,20 @@
-"""Generation mode UI updates for generation handlers.
-
-Contains functions for computing UI updates when the generation mode
-changes (Simple, Custom, Remix, Repaint, Extract, Lego, Complete)
-and related mode-switch helpers.
-"""
+"""Generation-mode UI update orchestration for Gradio handlers."""
 
 import gradio as gr
 from loguru import logger
 
 from acestep.constants import MODE_TO_TASK_TYPE
 from acestep.ui.gradio.i18n import t
+from .mode_ui_helpers import (
+    _compute_automation_updates,
+    _compute_field_updates_for_mode,
+    _compute_meta_updates_for_mode,
+    _compute_repainting_labels,
+)
 
 
 def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "Custom"):
-    """Compute gr.update() tuple for all mode-dependent UI components.
-
-    Shared by handle_generation_mode_change and by send_audio_to_remix /
-    send_audio_to_repaint so that mode-switch UI updates are applied
-    atomically in a single event.
-
-    Args:
-        mode: One of "Simple", "Custom", "Remix", "Repaint",
-              "Extract", "Lego", "Complete".
-        llm_handler: Optional LLM handler (used for think-checkbox state).
-        previous_mode: The mode that was active before this switch.
-
-    Returns:
-        Tuple of 44 gr.update objects matching the standard mode-change
-        output list (see event wiring in events/__init__.py).
-    """
+    """Return the 44-output mode-switch update tuple for generation UI."""
     task_type = MODE_TO_TASK_TYPE.get(mode, "text2music")
 
     is_simple = (mode == "Simple")
@@ -74,7 +60,9 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     elif not lm_initialized:
         think_update = gr.update(interactive=False, value=False, visible=True)
     else:
-        think_update = gr.update(interactive=True, visible=True)
+        # Restore thinking to True when entering a mode where it is supported
+        # (e.g. Custom after returning from Remix/Repaint where it was forced off).
+        think_update = gr.update(interactive=True, visible=True, value=True)
 
     mode_descriptions = {
         "Simple": t("generation.mode_info_simple"),
@@ -126,10 +114,13 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         auto_vocal_lang_update = gr.update()
         auto_duration_update = gr.update()
 
-    # Clear stale audio codes when leaving Custom mode to prevent
-    # them from leaking into Remix/other modes (state-leakage bug fix).
+    # Clear stale audio codes when leaving/returning from source-audio modes.
+    _prev_has_src_audio = previous_mode in ("Remix", "Repaint", "Extract", "Lego", "Complete")
     if is_custom:
-        audio_codes_update = gr.update(visible=True)
+        if _prev_has_src_audio:
+            audio_codes_update = gr.update(value="", visible=True)
+        else:
+            audio_codes_update = gr.update(visible=True)
     else:
         audio_codes_update = gr.update(value="", visible=False)
 
@@ -188,168 +179,24 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     )
 
 
-def _compute_field_updates_for_mode(is_extract, is_lego, not_simple, leaving_extract_or_lego):
-    """Compute gr.update() for captions, lyrics, bpm, key_scale."""
-    if is_extract:
-        return (
-            gr.update(value="", visible=False),
-            gr.update(value="", visible=False),
-            gr.update(value=None, interactive=False, visible=False),
-            gr.update(value="", interactive=False, visible=False),
-        )
-    elif is_lego:
-        return (
-            gr.update(visible=True, interactive=True),
-            gr.update(visible=True, interactive=True),
-            gr.update(value=None, interactive=False, visible=False),
-            gr.update(value="", interactive=False, visible=False),
-        )
-    elif not_simple:
-        if leaving_extract_or_lego:
-            return (
-                gr.update(value="", visible=True, interactive=True),
-                gr.update(value="", visible=True, interactive=True),
-                gr.update(value=None, visible=True, interactive=True),
-                gr.update(value="", visible=True, interactive=True),
-            )
-        else:
-            return (
-                gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
-            )
-    else:
-        if leaving_extract_or_lego:
-            return (
-                gr.update(value=""),
-                gr.update(value=""),
-                gr.update(value=None),
-                gr.update(value=""),
-            )
-        else:
-            return gr.update(), gr.update(), gr.update(), gr.update()
-
-
-def _compute_meta_updates_for_mode(is_extract, is_lego, not_simple, leaving_extract_or_lego):
-    """Compute gr.update() for time_signature, vocal_language, audio_duration."""
-    if is_extract:
-        return (
-            gr.update(value="", interactive=False, visible=False),
-            gr.update(value="unknown", interactive=False, visible=False),
-            gr.update(value=-1, interactive=False, visible=False),
-        )
-    elif is_lego:
-        return (
-            gr.update(value="", interactive=False, visible=False),
-            gr.update(value="unknown", interactive=False, visible=False),
-            gr.update(value=-1, interactive=False, visible=False),
-        )
-    elif not_simple:
-        if leaving_extract_or_lego:
-            return (
-                gr.update(value="", visible=True, interactive=True),
-                gr.update(value="en", visible=True, interactive=True),
-                gr.update(value=-1, visible=True, interactive=True),
-            )
-        else:
-            return (
-                gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
-                gr.update(visible=True, interactive=True),
-            )
-    else:
-        if leaving_extract_or_lego:
-            return (
-                gr.update(value=""),
-                gr.update(value="en"),
-                gr.update(value=-1),
-            )
-        else:
-            return gr.update(), gr.update(), gr.update()
-
-
-def _compute_automation_updates(is_extract, is_lego, not_simple):
-    """Compute gr.update() for auto_score, autogen, auto_lrc, analyze_btn."""
-    if is_extract or is_lego:
-        return (
-            gr.update(visible=False, value=False, interactive=False),
-            gr.update(visible=False, value=False, interactive=False),
-            gr.update(visible=False, value=False, interactive=False),
-            gr.update(visible=False),
-        )
-    elif not_simple:
-        return (
-            gr.update(visible=True, interactive=True),
-            gr.update(visible=True, interactive=True),
-            gr.update(visible=True, interactive=True),
-            gr.update(visible=True),
-        )
-    else:
-        return gr.update(), gr.update(), gr.update(), gr.update()
-
-
-def _compute_repainting_labels(is_lego, is_repaint):
-    """Compute gr.update() for repainting header, start, and end labels."""
-    if is_lego:
-        return (
-            gr.update(value=f"<h5>{t('generation.stem_area_controls')}</h5>"),
-            gr.update(label=t("generation.stem_start")),
-            gr.update(label=t("generation.stem_end")),
-        )
-    elif is_repaint:
-        return (
-            gr.update(value=f"<h5>{t('generation.repainting_controls')}</h5>"),
-            gr.update(label=t("generation.repainting_start")),
-            gr.update(label=t("generation.repainting_end")),
-        )
-    else:
-        return gr.update(), gr.update(), gr.update()
-
-
 def handle_generation_mode_change(mode: str, previous_mode: str, llm_handler=None):
-    """Handle unified generation mode change.
-
-    Args:
-        mode: One of "Simple", "Custom", "Remix", "Repaint",
-              "Extract", "Lego", "Complete".
-        previous_mode: The mode that was active before this switch.
-        llm_handler: Optional LLM handler.
-
-    Returns:
-        Tuple of 44 updates for UI components.
-    """
+    """Delegate generation-mode change handling to compute_mode_ui_updates."""
     return compute_mode_ui_updates(mode, llm_handler, previous_mode=previous_mode)
 
 
 def handle_extract_track_name_change(track_name_value: str, mode: str):
-    """Auto-fill caption with track name when in Extract mode.
-
-    Args:
-        track_name_value: Selected track name.
-        mode: Current generation mode.
-
-    Returns:
-        gr.update for captions component.
-    """
+    """Auto-fill caption with the selected track name in Extract mode."""
     if mode == "Extract" and track_name_value:
         return gr.update(value=track_name_value)
     return gr.update()
 
 
 def handle_extract_src_audio_change(src_audio_path, mode: str):
-    """Auto-fill audio_duration from source audio file in Extract or Lego mode.
-
-    Args:
-        src_audio_path: Path to the uploaded source audio file.
-        mode: Current generation mode.
-
-    Returns:
-        gr.update for audio_duration component.
-    """
+    """Auto-fill audio duration from source audio in Extract/Lego mode."""
     if mode not in ("Extract", "Lego") or not src_audio_path:
         return gr.update()
     try:
+        # Late import avoids loading training audio helpers unless this path is used.
         from acestep.training.dataset_builder_modules.audio_io import get_audio_duration
         duration = get_audio_duration(src_audio_path)
         if duration and duration > 0:

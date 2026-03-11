@@ -226,7 +226,7 @@ def run_basic_training_loop(
         )
 
         if (epoch + 1) % cfg.save_every_n_epochs == 0:
-            ckpt_dir = str(output_dir / "checkpoints" / f"epoch_{epoch + 1}")
+            ckpt_dir = str(output_dir / "checkpoints" / f"epoch_{epoch + 1}_loss_{avg_epoch_loss:.4f}")
             save_checkpoint(trainer, optimizer, scheduler, epoch + 1, global_step, ckpt_dir)
             yield TrainingUpdate(
                 step=global_step, loss=avg_epoch_loss,

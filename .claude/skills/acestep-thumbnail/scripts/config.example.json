@@ -1,0 +1,6 @@
+{
+  "api_key": "",
+  "api_url": "https://generativelanguage.googleapis.com/v1beta",
+  "model": "gemini-3.1-flash-image-preview",
+  "aspect_ratio": "16:9"
+}

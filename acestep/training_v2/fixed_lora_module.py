@@ -20,10 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # ACE-Step utilities
-from acestep.training.lora_utils import (
-    check_peft_available,
-    inject_lora_into_dit,
-)
+from acestep.training.lora_injection import inject_lora_into_dit
+from acestep.training.lora_utils import check_peft_available
 from acestep.training.lokr_utils import (
     check_lycoris_available,
     inject_lokr_into_dit,
@@ -65,12 +63,14 @@ class _LastLossAccessor:
     def __len__(self) -> int:
         return 1 if self._has_value else 0
 
+
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _normalize_device_type(device: Any) -> str:
     if isinstance(device, torch.device):
@@ -99,6 +99,7 @@ def _select_fabric_precision(device_type: str) -> str:
 # ===========================================================================
 # FixedLoRAModule -- corrected training step
 # ===========================================================================
+
 
 class FixedLoRAModule(nn.Module):
     """Adapter training module with corrected timestep sampling and CFG dropout.
@@ -216,7 +217,8 @@ class FixedLoRAModule(nn.Module):
                 "Install it with:  uv pip install lycoris-lora"
             )
         self.model, self.lycoris_net, self.adapter_info = inject_lokr_into_dit(
-            model, cfg,
+            model,
+            cfg,
         )
         # LyCORIS creates adapter parameters on CPU.  Move the entire
         # model to the target device so all parameters (including the
@@ -245,18 +247,30 @@ class FixedLoRAModule(nn.Module):
         """
         # Mixed-precision context
         if self.device_type in ("cuda", "xpu", "mps"):
-            autocast_ctx = torch.autocast(device_type=self.device_type, dtype=self.dtype)
+            autocast_ctx = torch.autocast(
+                device_type=self.device_type, dtype=self.dtype
+            )
         else:
             autocast_ctx = nullcontext()
 
         with autocast_ctx:
             nb = self.transfer_non_blocking
 
-            target_latents = batch["target_latents"].to(self.device, dtype=self.dtype, non_blocking=nb)
-            attention_mask = batch["attention_mask"].to(self.device, dtype=self.dtype, non_blocking=nb)
-            encoder_hidden_states = batch["encoder_hidden_states"].to(self.device, dtype=self.dtype, non_blocking=nb)
-            encoder_attention_mask = batch["encoder_attention_mask"].to(self.device, dtype=self.dtype, non_blocking=nb)
-            context_latents = batch["context_latents"].to(self.device, dtype=self.dtype, non_blocking=nb)
+            target_latents = batch["target_latents"].to(
+                self.device, dtype=self.dtype, non_blocking=nb
+            )
+            attention_mask = batch["attention_mask"].to(
+                self.device, dtype=self.dtype, non_blocking=nb
+            )
+            encoder_hidden_states = batch["encoder_hidden_states"].to(
+                self.device, dtype=self.dtype, non_blocking=nb
+            )
+            encoder_attention_mask = batch["encoder_attention_mask"].to(
+                self.device, dtype=self.dtype, non_blocking=nb
+            )
+            context_latents = batch["context_latents"].to(
+                self.device, dtype=self.dtype, non_blocking=nb
+            )
 
             bsz = target_latents.shape[0]
 

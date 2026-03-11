@@ -33,7 +33,7 @@ _CHECKPOINT_TO_VARIANT: Dict[str, str] = {
     "acestep-v15-turbo-shift3": "turbo",
     "acestep-v15-turbo-continuous": "turbo",
     "acestep-v15-turbo-fix-inst-shift3": "turbo",
-    "acestep-v15-turbo-fix-inst-shift-continous": "turbo",
+    "acestep-v15-turbo-fix-inst-shift-continuous": "turbo",
     "acestep-v15-turbo-fix-inst-shift-dynamic": "turbo",
     "acestep-v15-turbo-rl": "turbo",
 }
@@ -308,9 +308,18 @@ DEFAULT_LM_MODEL = "acestep-5Hz-lm-1.7B"
 
 
 def get_project_root() -> Path:
-    """Get the project root directory."""
-    current_file = Path(__file__).resolve()
-    return current_file.parent.parent
+    """Get the project root directory.
+
+    Returns the directory set by the ``ACESTEP_PROJECT_ROOT`` environment
+    variable when present, otherwise the current working directory.  Using
+    the working directory (rather than ``__file__``) keeps the checkpoints
+    folder next to where the user launched the process, regardless of whether
+    the package was installed via ``pip install .`` or run from source.
+    """
+    env_root = os.environ.get("ACESTEP_PROJECT_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+    return Path(os.getcwd())
 
 
 def get_checkpoints_dir(custom_dir: Optional[str] = None) -> Path:

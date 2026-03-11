@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def preprocess_audio_files(
     audio_dir: Optional[str],
     output_dir: str,
@@ -150,7 +151,9 @@ def preprocess_audio_files(
     }
     logger.info(
         "[Side-Step] Preprocessing complete: %d/%d processed, %d failed",
-        processed, total, failed,
+        processed,
+        total,
+        failed,
     )
     return result
 
@@ -158,6 +161,7 @@ def preprocess_audio_files(
 # ---------------------------------------------------------------------------
 # Pass 1 -- Light models (VAE + Text Encoder)
 # ---------------------------------------------------------------------------
+
 
 def _pass1_light(
     audio_files: List[Path],
@@ -187,7 +191,9 @@ def _pass1_light(
         unload_models,
         _resolve_dtype,
     )
-    from acestep.training.dataset_builder_modules.preprocess_audio import load_audio_stereo
+    from acestep.training.dataset_builder_modules.preprocess_audio import (
+        load_audio_stereo,
+    )
     from acestep.training.dataset_builder_modules.preprocess_text import encode_text
     from acestep.training.dataset_builder_modules.preprocess_lyrics import encode_lyrics
 
@@ -196,7 +202,9 @@ def _pass1_light(
     logger.info("[Side-Step] Pass 1/2: Loading VAE + Text Encoder ...")
     vae = load_vae(checkpoint_dir, device, precision)
     tokenizer, text_enc = load_text_encoder(checkpoint_dir, device, precision)
-    silence_latent = load_silence_latent(checkpoint_dir, device, precision, variant=variant)
+    silence_latent = load_silence_latent(
+        checkpoint_dir, device, precision, variant=variant
+    )
 
     intermediates: List[Path] = []
     failed = 0
@@ -209,7 +217,9 @@ def _pass1_light(
     if genre_indices:
         logger.info(
             "[Side-Step] genre_ratio=%d%% -- %d/%d samples will use genre as prompt",
-            genre_ratio, len(genre_indices), total,
+            genre_ratio,
+            len(genre_indices),
+            total,
         )
     if tag_position != "prepend":
         logger.info("[Side-Step] tag_position=%s (from dataset metadata)", tag_position)
@@ -242,7 +252,9 @@ def _pass1_light(
                 del audio
 
                 latent_length = target_latents.shape[1]
-                attention_mask = torch.ones(1, latent_length, device=device, dtype=dtype)
+                attention_mask = torch.ones(
+                    1, latent_length, device=device, dtype=dtype
+                )
 
                 # 3. Text encode
                 sm = sample_meta.get(af.name, {})
@@ -251,38 +263,47 @@ def _pass1_light(
 
                 # Build text prompt using dataset-level tag_position and genre_ratio
                 use_genre = i in genre_indices
-                text_prompt = _build_simple_prompt(sm, tag_position=tag_position, use_genre=use_genre)
+                text_prompt = _build_simple_prompt(
+                    sm, tag_position=tag_position, use_genre=use_genre
+                )
 
                 with torch.no_grad():
-                    text_hs, text_mask = encode_text(text_enc, tokenizer, text_prompt, device, dtype)
-                    lyric_hs, lyric_mask = encode_lyrics(text_enc, tokenizer, lyrics, device, dtype)
+                    text_hs, text_mask = encode_text(
+                        text_enc, tokenizer, text_prompt, device, dtype
+                    )
+                    lyric_hs, lyric_mask = encode_lyrics(
+                        text_enc, tokenizer, lyrics, device, dtype
+                    )
 
                 # 4. Save intermediate
                 tmp_path = out_path / f"{af.stem}.tmp.pt"
-                torch.save({
-                    "target_latents": target_latents.squeeze(0).cpu(),
-                    "attention_mask": attention_mask.squeeze(0).cpu(),
-                    "text_hidden_states": text_hs.cpu(),
-                    "text_attention_mask": text_mask.cpu(),
-                    "lyric_hidden_states": lyric_hs.cpu(),
-                    "lyric_attention_mask": lyric_mask.cpu(),
-                    "silence_latent": silence_latent.cpu(),
-                    "latent_length": latent_length,
-                    "metadata": {
-                        "audio_path": str(af),
-                        "filename": af.name,
-                        "caption": caption,
-                        "lyrics": lyrics,
-                        "duration": sm.get("duration", 0),
-                        "bpm": sm.get("bpm"),
-                        "keyscale": sm.get("keyscale", ""),
-                        "timesignature": sm.get("timesignature", ""),
-                        "genre": sm.get("genre", ""),
-                        "is_instrumental": sm.get("is_instrumental", True),
-                        "custom_tag": sm.get("custom_tag", ""),
-                        "prompt_override": sm.get("prompt_override"),
+                torch.save(
+                    {
+                        "target_latents": target_latents.squeeze(0).cpu(),
+                        "attention_mask": attention_mask.squeeze(0).cpu(),
+                        "text_hidden_states": text_hs.cpu(),
+                        "text_attention_mask": text_mask.cpu(),
+                        "lyric_hidden_states": lyric_hs.cpu(),
+                        "lyric_attention_mask": lyric_mask.cpu(),
+                        "silence_latent": silence_latent.cpu(),
+                        "latent_length": latent_length,
+                        "metadata": {
+                            "audio_path": str(af),
+                            "filename": af.name,
+                            "caption": caption,
+                            "lyrics": lyrics,
+                            "duration": sm.get("duration", 0),
+                            "bpm": sm.get("bpm"),
+                            "keyscale": sm.get("keyscale", ""),
+                            "timesignature": sm.get("timesignature", ""),
+                            "genre": sm.get("genre", ""),
+                            "is_instrumental": sm.get("is_instrumental", True),
+                            "custom_tag": sm.get("custom_tag", ""),
+                            "prompt_override": sm.get("prompt_override"),
+                        },
                     },
-                }, tmp_path)
+                    tmp_path,
+                )
 
                 # Free GPU tensors from this iteration before the next one
                 del target_latents, attention_mask, text_hs, text_mask
@@ -311,6 +332,7 @@ def _pass1_light(
 # Pass 2 -- Heavy model (DIT encoder)
 # ---------------------------------------------------------------------------
 
+
 def _pass2_heavy(
     intermediates: List[Path],
     out_path: Path,
@@ -334,7 +356,9 @@ def _pass2_heavy(
         _resolve_dtype,
     )
     from acestep.training.dataset_builder_modules.preprocess_encoder import run_encoder
-    from acestep.training.dataset_builder_modules.preprocess_context import build_context_latents
+    from acestep.training.dataset_builder_modules.preprocess_context import (
+        build_context_latents,
+    )
 
     dtype = _resolve_dtype(precision)
 
@@ -355,7 +379,7 @@ def _pass2_heavy(
                 progress_callback(i, total, f"[Pass 2] {tmp_path.stem}")
 
             try:
-                data = torch.load(str(tmp_path), weights_only=False)
+                data = torch.load(str(tmp_path), weights_only=True)
 
                 # Move tensors directly to model device/dtype (single .to()
                 # avoids creating throwaway intermediate GPU copies).
@@ -363,10 +387,18 @@ def _pass2_heavy(
                 model_dtype = next(model.parameters()).dtype
 
                 text_hs = data["text_hidden_states"].to(model_device, dtype=model_dtype)
-                text_mask = data["text_attention_mask"].to(model_device, dtype=model_dtype)
-                lyric_hs = data["lyric_hidden_states"].to(model_device, dtype=model_dtype)
-                lyric_mask = data["lyric_attention_mask"].to(model_device, dtype=model_dtype)
-                silence_latent = data["silence_latent"].to(model_device, dtype=model_dtype)
+                text_mask = data["text_attention_mask"].to(
+                    model_device, dtype=model_dtype
+                )
+                lyric_hs = data["lyric_hidden_states"].to(
+                    model_device, dtype=model_dtype
+                )
+                lyric_mask = data["lyric_attention_mask"].to(
+                    model_device, dtype=model_dtype
+                )
+                silence_latent = data["silence_latent"].to(
+                    model_device, dtype=model_dtype
+                )
                 latent_length = data["latent_length"]
 
                 # DIT encoder pass (adapter-agnostic: same tensors for
@@ -389,7 +421,10 @@ def _pass2_heavy(
                     silence_latent = silence_latent.unsqueeze(0)
 
                 context_latents = build_context_latents(
-                    silence_latent, latent_length, str(model_device), model_dtype,
+                    silence_latent,
+                    latent_length,
+                    str(model_device),
+                    model_dtype,
                 )
                 del silence_latent
 
@@ -397,14 +432,17 @@ def _pass2_heavy(
                 base_name = tmp_path.name.replace(".tmp.pt", ".pt")
                 final_path = out_path / base_name
                 meta = data["metadata"]
-                torch.save({
-                    "target_latents": data["target_latents"],
-                    "attention_mask": data["attention_mask"],
-                    "encoder_hidden_states": encoder_hs.squeeze(0).cpu(),
-                    "encoder_attention_mask": encoder_mask.squeeze(0).cpu(),
-                    "context_latents": context_latents.squeeze(0).cpu(),
-                    "metadata": meta,
-                }, final_path)
+                torch.save(
+                    {
+                        "target_latents": data["target_latents"],
+                        "attention_mask": data["attention_mask"],
+                        "encoder_hidden_states": encoder_hs.squeeze(0).cpu(),
+                        "encoder_attention_mask": encoder_mask.squeeze(0).cpu(),
+                        "context_latents": context_latents.squeeze(0).cpu(),
+                        "metadata": meta,
+                    },
+                    final_path,
+                )
 
                 # Free all GPU tensors and the loaded data dict before next iter
                 del encoder_hs, encoder_mask, context_latents, data

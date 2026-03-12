@@ -1,0 +1,21 @@
+services:
+  acestep:
+    build: .
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./checkpoints:/app/checkpoints
+      - ./gradio_outputs:/app/gradio_outputs
+    environment:
+      - ACESTEP_MODE=gradio
+      - ACESTEP_CONFIG_PATH=acestep-v15-turbo
+      - ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-0.6B
+      - ACESTEP_INIT_SERVICE=true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped

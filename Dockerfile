@@ -96,6 +96,7 @@ ENV ACESTEP_MODE=gradio
 ENV ACESTEP_INIT_SERVICE=true
 ENV ACESTEP_CONFIG_PATH=acestep-v15-turbo
 ENV ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-0.6B
+ENV ACESTEP_LM_BACKEND=pt
 ENV TOKENIZERS_PARALLELISM=false
 
 # ==================== Ports ====================
@@ -135,6 +136,7 @@ if [ "${ACESTEP_INIT_SERVICE:-true}" = "true" ]; then
     [ -n "${ACESTEP_CONFIG_PATH:-}" ]   && INIT_ARGS="${INIT_ARGS} --config_path ${ACESTEP_CONFIG_PATH}"
     [ -n "${ACESTEP_LM_MODEL_PATH:-}" ] && INIT_ARGS="${INIT_ARGS} --init_llm true --lm_model_path ${ACESTEP_LM_MODEL_PATH}"
 fi
+[ -n "${ACESTEP_LM_BACKEND:-}" ] && INIT_ARGS="${INIT_ARGS} --backend ${ACESTEP_LM_BACKEND}"
 
 if [ "${ACESTEP_MODE}" = "api" ]; then
     echo "Starting REST API server on 0.0.0.0:${ACESTEP_API_PORT:-8001} ..."

@@ -75,6 +75,7 @@ except ImportError:
         set_global_gpu_config,
         VRAM_16GB_MIN_GB,
         VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
+        is_blackwell_gpu,
         is_mps_platform,
     )
     from acestep.model_downloader import ensure_lm_model
@@ -143,7 +144,16 @@ def main():
         and gpu_memory_gb > 0
         and gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB
     )
-    _default_backend = "mlx" if _is_mac else "vllm"
+    _is_blackwell = is_blackwell_gpu()
+    if _is_mac:
+        _default_backend = "mlx"
+    elif _is_blackwell:
+        _default_backend = "pt"
+        print(
+            "Blackwell GPU detected — defaulting to PyTorch backend (vLLM may hang on RTX 50-series)"
+        )
+    else:
+        _default_backend = "vllm"
 
     # Print GPU configuration info
     print(f"\n{'=' * 60}")

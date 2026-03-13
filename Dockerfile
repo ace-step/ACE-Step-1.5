@@ -138,6 +138,9 @@ if [ "${ACESTEP_INIT_SERVICE:-true}" = "true" ]; then
 fi
 [ -n "${ACESTEP_LM_BACKEND:-}" ] && INIT_ARGS="${INIT_ARGS} --backend ${ACESTEP_LM_BACKEND}"
 
+echo "INIT_ARGS: ${INIT_ARGS}"
+echo "EXTRA_ARGS: ${ACESTEP_EXTRA_ARGS:-}"
+
 if [ "${ACESTEP_MODE}" = "api" ]; then
     echo "Starting REST API server on 0.0.0.0:${ACESTEP_API_PORT:-8001} ..."
     exec python -m acestep.api_server \

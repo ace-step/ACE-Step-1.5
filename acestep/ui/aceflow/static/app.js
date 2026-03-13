@@ -3025,38 +3025,6 @@ class GradioLikePlayer {
     this.seedSpan.textContent = __tr('player.resolved_seed', 'Resolved seed', 'Seed risolto') + ': ' + seedVal;
   }
 
-  updateLang() {
-    this.labels.a = __tr('ab.audio1', 'Audio 1', 'Audio 1');
-    this.labels.b = __tr('ab.audio2', 'Audio 2', 'Audio 2');
-    if (this.titleNode) this.titleNode.textContent = __tr('ab.compare_title', 'Audio 1 / Audio 2 Controls', 'Controlli Audio 1 / Audio 2');
-    if (this.descNode) this.descNode.textContent = __tr('ab.compare_desc', 'The normal players stay untouched. These controls act on both together.', 'I player normali restano intatti. Questi controlli agiscono su entrambi insieme.');
-    if (this.playBtn) this.playBtn.setAttribute('aria-label', __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi'));
-    if (this.stopBtn) this.stopBtn.setAttribute('aria-label', __tr('ab.stop', 'Stop both', 'Stop entrambi'));
-    if (this.fade) this.fade.setAttribute('aria-label', __tr('ab.crossfade', 'Crossfade', 'Crossfade'));
-    if (this.leftLabel) this.leftLabel.textContent = this.labels.a;
-    if (this.rightLabel) this.rightLabel.textContent = this.labels.b;
-  }
-
-  updateLang() {
-    this.labels.a = __tr('ab.audio1', 'Audio 1', 'Audio 1');
-    this.labels.b = __tr('ab.audio2', 'Audio 2', 'Audio 2');
-    if (this.titleNode) this.titleNode.textContent = __tr('ab.compare_title', 'Audio 1 / Audio 2 Controls', 'Controlli Audio 1 / Audio 2');
-    if (this.descNode) this.descNode.textContent = __tr('ab.compare_desc', 'The normal players stay untouched. These controls act on both together.', 'I player normali restano intatti. Questi controlli agiscono su entrambi insieme.');
-    if (this.leftLabel) this.leftLabel.textContent = this.labels.a;
-    if (this.rightLabel) this.rightLabel.textContent = this.labels.b;
-    if (this.playBtn) {
-      this.playBtn.title = __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi');
-      this.playBtn.setAttribute('aria-label', __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi'));
-    }
-    if (this.stopBtn) {
-      this.stopBtn.title = __tr('ab.stop', 'Stop both', 'Stop entrambi');
-      this.stopBtn.setAttribute('aria-label', __tr('ab.stop', 'Stop both', 'Stop entrambi'));
-    }
-    if (this.fade) {
-      this.fade.title = __tr('ab.crossfade', 'Crossfade', 'Crossfade');
-      this.fade.setAttribute('aria-label', __tr('ab.crossfade', 'Crossfade', 'Crossfade'));
-    }
-  }
 
   _wire() {
     
@@ -3508,6 +3476,27 @@ class AbCompareBridge {
     window.addEventListener('ace_ui_lang_changed', this._langHandler);
     window.addEventListener('ace:ui_lang_changed', this._langHandler);
     this.updateLang();
+  }
+
+  updateLang() {
+    this.labels.a = __tr('ab.audio1', 'Audio 1', 'Audio 1');
+    this.labels.b = __tr('ab.audio2', 'Audio 2', 'Audio 2');
+    if (this.titleNode) this.titleNode.textContent = __tr('ab.compare_title', 'Audio 1 / Audio 2 Controls', 'Controlli Audio 1 / Audio 2');
+    if (this.descNode) this.descNode.textContent = __tr('ab.compare_desc', 'The normal players stay untouched. These controls act on both together.', 'I player normali restano intatti. Questi controlli agiscono su entrambi insieme.');
+    if (this.leftLabel) this.leftLabel.textContent = this.labels.a;
+    if (this.rightLabel) this.rightLabel.textContent = this.labels.b;
+    if (this.playBtn) {
+      this.playBtn.title = __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi');
+      this.playBtn.setAttribute('aria-label', __tr('ab.play_pause', 'Play/Pause both', 'Play/Pausa entrambi'));
+    }
+    if (this.stopBtn) {
+      this.stopBtn.title = __tr('ab.stop', 'Stop both', 'Stop entrambi');
+      this.stopBtn.setAttribute('aria-label', __tr('ab.stop', 'Stop both', 'Stop entrambi'));
+    }
+    if (this.fade) {
+      this.fade.title = __tr('ab.crossfade', 'Crossfade', 'Crossfade');
+      this.fade.setAttribute('aria-label', __tr('ab.crossfade', 'Crossfade', 'Crossfade'));
+    }
   }
 
   _wire() {

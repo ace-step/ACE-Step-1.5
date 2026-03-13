@@ -68,44 +68,26 @@ A variation / repaint-style workflow for transforming or reworking existing mate
 
 AceFlow lets you choose the DiT model directly from the UI.
 
-There is also some **automatic UI behavior** tied to the selected model name:
+There are two distinct layers involved here:
 
-- when the selected model name contains `sft`, the UI automatically sets:
-  - **Shift = 1**
-  - **Inference steps = 50**
-- for non-SFT models, the UI automatically sets:
-  - **Shift = 3**
-  - **Inference steps = 20**
+### Frontend auto-fill
+When the model selector changes, AceFlow auto-fills some values for convenience:
 
-This is a UI convenience rule triggered when the model selector changes.
+- models whose name contains `sft` → **Shift = 1**, **Inference steps = 50**
+- other models → **Shift = 3**, **Inference steps = 20**
 
-### Important note
+This is only a UI helper so the form starts from sensible values.
 
-AceFlow applies model-dependent defaults at both frontend and backend level.
-
-In the frontend:
-
-- selecting an **SFT** model automatically sets:
-  - **Shift = 1**
-  - **Inference steps = 50**
-- selecting other models automatically sets:
-  - **Shift = 3**
-  - **Inference steps = 20**
-
-In the backend, if `inference_steps` is missing from the request, fallback defaults are:
+### Backend fallback and clamp
+When the request reaches the backend, `inference_steps` is normalized again. If the field is missing, backend fallbacks are:
 
 - **8** for turbo models
 - **50** for SFT models
 - **32** for other non-turbo models
 
-After that, the backend clamps the value to the allowed range.
+Then the backend clamps the final value to the allowed range.
 
-So there are two separate layers:
-
-1. the **frontend auto-fills** values for convenience
-2. the **backend normalizes and clamps** the final value before generation
-
-This behavior is specific to AceFlow and does not exactly match the Gradio UI, which generally uses **8** for turbo models and **32** for non-turbo models.
+So the frontend suggests defaults, while the backend remains the final safety layer. This behavior is specific to AceFlow and does not exactly match the Gradio UI, which generally uses **8** for turbo models and **32** for non-turbo models.
 
 ---
 

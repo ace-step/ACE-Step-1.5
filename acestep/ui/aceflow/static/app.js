@@ -2292,6 +2292,25 @@ function __makeStableAbSeed(seedRandom, seedRaw) {
   return 1 + Math.floor(Math.random() * max);
 }
 
+function __makeAbCompareKey() {
+  return `ab-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function __normalizeCustomModeConditioning(payload) {
+  if (!payload || String(payload.generation_mode || '').trim() !== 'Custom') return payload;
+  const hasAudioCodes = !!String(payload.audio_codes || '').trim();
+  const usesLmThinking = !!payload.thinking;
+  if (!hasAudioCodes && !usesLmThinking) return payload;
+  return {
+    ...payload,
+    task_type: 'text2music',
+    reference_audio: '',
+    src_audio: '',
+    audio_cover_strength: 1.0,
+    cover_noise_strength: 0.0,
+  };
+}
+
 function __setPlayerVolume(player, value) {
   if (!player || !player.audio || !player.vol) return;
   const v = Math.max(0, Math.min(1, Number(value) || 0));
@@ -3902,7 +3921,7 @@ function buildPayloadForCurrentUi() {
       ...(language_auto ? {} : { vocal_language }),
     };
 
-    return payload;
+    return __normalizeCustomModeConditioning(payload);
 }
 
 async function postJob() {
@@ -4037,10 +4056,11 @@ async function triggerGenerateFromUi() {
     const seedRandom = !!el('seed_random')?.checked;
     const seedRaw = el('seed')?.value;
     const stableSeed = __makeStableAbSeed(seedRandom, seedRaw);
+    const compareKey = __makeAbCompareKey();
 
     const basePayload = buildPayloadForCurrentUi();
-    const payloadA = { ...basePayload, seed: stableSeed, batch_size: 1, lora_id: '', lora_trigger: '', lora_weight: basePayload.lora_weight };
-    const payloadB = { ...basePayload, seed: stableSeed, batch_size: 1, lora_id: basePayload.lora_id, lora_trigger: basePayload.lora_trigger, lora_weight: basePayload.lora_weight };
+    const payloadA = __normalizeCustomModeConditioning({ ...basePayload, seed: stableSeed, batch_size: 1, lora_id: '', lora_trigger: '', lora_weight: basePayload.lora_weight, _aceflow_compare_key: compareKey, _aceflow_compare_step: 'A' });
+    const payloadB = __normalizeCustomModeConditioning({ ...basePayload, seed: stableSeed, batch_size: 1, lora_id: basePayload.lora_id, lora_trigger: basePayload.lora_trigger, lora_weight: basePayload.lora_weight, _aceflow_compare_key: compareKey, _aceflow_compare_step: 'B' });
 
     resultBox.classList.add('hidden');
     stopPolling();
@@ -4624,10 +4644,14 @@ function setupImportJson() {
     
     if (req.seed != null) {
       const n = safeInt(req.seed);
-      if (n !== null) setVal('seed', n);
-      
+      if (n !== null) {
+        setVal('seed', n);
+        if (n >= 0) setChecked('seed_random', false);
+      }
     }
-    setChecked('seed_random', req.seed_random);
+    if (!(req.seed != null && safeInt(req.seed) !== null && safeInt(req.seed) >= 0)) {
+      setChecked('seed_random', req.seed_random);
+    }
 
     
     setChecked('instrumental', req.instrumental);

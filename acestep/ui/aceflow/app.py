@@ -1243,6 +1243,7 @@ def create_app() -> FastAPI:
     app.state._counter_lock = threading.Lock()
     app.state._rate_lock = threading.Lock()
     app.state._last_job_at_by_ip = {}
+    app.state._ab_compare_window_by_ip = {}
     app.state._rate_min_interval_s = float(os.environ.get("ACESTEP_REMOTE_MIN_JOB_INTERVAL_S", "5"))
     app.state._queue_active_cap = int(os.environ.get("ACESTEP_REMOTE_MAX_ACTIVE_JOBS", "30"))
 
@@ -2610,6 +2611,23 @@ def create_app() -> FastAPI:
             return "reference_audio_wav", "reference_audio_wav"
         return "none", "none"
 
+    def _normalize_custom_mode_payload(payload: dict | None) -> dict:
+
+        payload = dict(payload or {})
+        generation_mode = str(payload.get("generation_mode") or "Custom").strip() or "Custom"
+        audio_codes = str(payload.get("audio_codes") or "").strip()
+        thinking = bool(payload.get("thinking", False))
+        if generation_mode != "Custom":
+            return payload
+        if not audio_codes and not thinking:
+            return payload
+        payload["task_type"] = "text2music"
+        payload["reference_audio"] = ""
+        payload["src_audio"] = ""
+        payload["audio_cover_strength"] = 1.0
+        payload["cover_noise_strength"] = 0.0
+        return payload
+
     def _safe_json_dump(value) -> str:
 
         try:
@@ -2652,6 +2670,7 @@ timesignature: {timesignature}
     def create_job(payload: dict, request: Request):
 
         _require_token(request)
+        payload = _normalize_custom_mode_payload(payload)
         job_id = str(uuid4())
         try:
             _start_job_cli_capture(job_id)
@@ -2671,16 +2690,36 @@ timesignature: {timesignature}
         ip = _get_client_ip(request)
         now = time.time()
         min_interval = float(getattr(app.state, "_rate_min_interval_s", 5.0) or 5.0)
+        compare_key = str(payload.get("_aceflow_compare_key") or "").strip()
+        compare_step = str(payload.get("_aceflow_compare_step") or "").strip().upper()
+        allow_compare_followup = False
         if min_interval > 0:
             with app.state._rate_lock:
+                compare_windows = getattr(app.state, "_ab_compare_window_by_ip", {})
+                ip_windows = compare_windows.get(ip)
+                if isinstance(ip_windows, dict):
+                    compare_windows[ip] = {
+                        k: v for k, v in ip_windows.items()
+                        if isinstance(v, (int, float)) and (now - float(v)) <= max(min_interval * 2.0, 10.0)
+                    }
+                else:
+                    compare_windows[ip] = {}
+                if compare_key and compare_step == "B":
+                    started_at = compare_windows[ip].get(compare_key)
+                    if isinstance(started_at, (int, float)) and (now - float(started_at)) <= max(min_interval * 2.0, 10.0):
+                        allow_compare_followup = True
                 last = float(app.state._last_job_at_by_ip.get(ip, 0.0) or 0.0)
-                if (now - last) < min_interval:
+                if (not allow_compare_followup) and ((now - last) < min_interval):
                     wait_s = max(0.0, min_interval - (now - last))
                     raise HTTPException(
                         status_code=429,
                         detail={"error_code": "rate_limited", "retry_after_s": round(float(wait_s), 2)},
                     )
                 app.state._last_job_at_by_ip[ip] = now
+                if compare_key and compare_step == "A":
+                    compare_windows[ip][compare_key] = now
+                elif compare_key and compare_step == "B":
+                    compare_windows[ip].pop(compare_key, None)
         try:
             rep = cleanup_old_job_dirs(Path(results_root), 3600)
             logger.info(
@@ -2742,6 +2781,8 @@ timesignature: {timesignature}
             lora_weight = 0.5
         lora_weight = max(0.0, min(lora_weight, 1.0))
         _keys = sorted([str(k) for k in payload.keys()]) if isinstance(payload, dict) else []
+        payload.pop('_aceflow_compare_key', None)
+        payload.pop('_aceflow_compare_step', None)
         _audio_codes = str(payload.get('audio_codes') or '')
         _audio_codes_trim = _audio_codes.strip()
         _reference_audio = str(payload.get('reference_audio') or '').strip()

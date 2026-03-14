@@ -60,7 +60,9 @@ The most flexible mode. This is also the mode where full chord conditioning can 
 Reference-based workflow. When full chord conditioning is used here, the generated harmonic reference is used as **reference WAV audio** rather than audio codes.
 
 ### Remix
-A variation / repaint-style workflow for transforming or reworking existing material.
+A source-audio remix workflow. Upload source audio, then guide the remix with your caption and lyrics. Unlike Cover, Remix does not use manual audio-code conditioning.
+
+AceFlow also exposes optional **Source start / Source end** controls for Remix so you can limit the source-audio window used by the request.
 
 ---
 

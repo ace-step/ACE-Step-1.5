@@ -2405,6 +2405,17 @@ function updateModeVisibility() {
   }
 
   updateRefAudioVisibility();
+  updateRemixSourceWindowVisibility();
+}
+
+
+function updateRemixSourceWindowVisibility() {
+  const mode = getGenerationMode();
+  const show = (mode === 'Remix');
+  const startRow = document.getElementById('remix_source_window_start_row');
+  const endRow = document.getElementById('remix_source_window_end_row');
+  if (startRow) startRow.classList.toggle('hidden', !show);
+  if (endRow) endRow.classList.toggle('hidden', !show);
 }
 
 function updateRefAudioVisibility() {
@@ -3790,7 +3801,7 @@ function buildPayloadForCurrentUi() {
     src_audio = uploadedReferencePath;
     audio_codes = '';
     conditioningRouteDebug = src_audio ? 'src_audio_wav' : 'none';
-    conditioningSourceDebug = src_audio ? 'uploaded_reference_audio' : 'none';
+    conditioningSourceDebug = src_audio ? 'uploaded_source_audio' : 'none';
   } else {
     reference_audio = '';
     conditioningRouteDebug = String(audio_codes || '').trim() ? 'audio_codes' : 'none';
@@ -4829,6 +4840,7 @@ window.addEventListener('load', async () => {
   syncRangeNumber('inference_steps_range', 'inference_steps', { decimals: 0 });
   syncRangeNumber('repainting_start_range', 'repainting_start', { decimals: 1 });
   syncRangeNumber('repainting_end_range', 'repainting_end', { decimals: 1 });
+  updateRemixSourceWindowVisibility();
   syncRangeNumber('guidance_scale_range', 'guidance_scale', { decimals: 1 });
   syncRangeNumber('shift_range', 'shift', { decimals: 1 });
   syncRangeNumber('cfg_interval_start_range', 'cfg_interval_start', { decimals: 2 });

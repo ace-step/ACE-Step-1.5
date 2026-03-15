@@ -21,6 +21,53 @@ import torchaudio
 from loguru import logger
 
 
+def apply_fade(
+    audio_data: Union[torch.Tensor, np.ndarray],
+    fade_in_samples: int = 0,
+    fade_out_samples: int = 0,
+) -> Union[torch.Tensor, np.ndarray]:
+    """Apply linear fade in and/or fade out to audio data.
+
+    Args:
+        audio_data: Audio data as torch.Tensor [channels, samples] or numpy.ndarray.
+        fade_in_samples: Number of samples for fade in ramp (0 = no fade in).
+        fade_out_samples: Number of samples for fade out ramp (0 = no fade out).
+
+    Returns:
+        Audio data with fades applied, in the same format as input.
+    """
+    if fade_in_samples <= 0 and fade_out_samples <= 0:
+        return audio_data
+
+    is_tensor = isinstance(audio_data, torch.Tensor)
+    if is_tensor:
+        audio = audio_data.clone()
+        total_samples = audio.shape[-1]
+    else:
+        audio = audio_data.copy()
+        total_samples = audio.shape[-1]
+
+    if fade_in_samples > 0:
+        actual_in = min(fade_in_samples, total_samples)
+        if is_tensor:
+            ramp = torch.linspace(0.0, 1.0, actual_in, dtype=audio.dtype, device=audio.device)
+            audio[..., :actual_in] = audio[..., :actual_in] * ramp
+        else:
+            ramp = np.linspace(0.0, 1.0, actual_in, dtype=np.float32)
+            audio[..., :actual_in] = audio[..., :actual_in] * ramp
+
+    if fade_out_samples > 0:
+        actual_out = min(fade_out_samples, total_samples)
+        if is_tensor:
+            ramp = torch.linspace(1.0, 0.0, actual_out, dtype=audio.dtype, device=audio.device)
+            audio[..., total_samples - actual_out:] = audio[..., total_samples - actual_out:] * ramp
+        else:
+            ramp = np.linspace(1.0, 0.0, actual_out, dtype=np.float32)
+            audio[..., total_samples - actual_out:] = audio[..., total_samples - actual_out:] * ramp
+
+    return audio
+
+
 def normalize_audio(audio_data: Union[torch.Tensor, np.ndarray], target_db: float = -1.0) -> Union[torch.Tensor, np.ndarray]:
     """
     Apply peak normalization to audio data.

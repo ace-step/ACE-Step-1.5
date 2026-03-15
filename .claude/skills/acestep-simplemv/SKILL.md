@@ -59,6 +59,8 @@ Options:
   --codec        h264|h265|vp8|vp9 (default: h264)
   --background   Background image file path (if omitted, uses animated gradient)
   --browser      Custom browser executable path (Chrome/Edge/Chromium)
+  --max-size     Max output file size in MB (e.g. 24). Auto-compresses if exceeded.
+                 Use for IM platforms (WhatsApp≤16MB, Discord≤25MB, Telegram≤50MB)
 
 Environment variables:
   BROWSER_EXECUTABLE  Path to browser executable (overrides auto-detection)
@@ -107,6 +109,45 @@ export BROWSER_EXECUTABLE="/path/to/msedge.exe"
 
 # With background image
 ./scripts/render-mv.sh --audio song.mp3 --lyrics song.lrc --title "Song" --background /path/to/cover.jpg
+
+# Compress for Discord upload (max 25MB)
+./scripts/render-mv.sh --audio song.mp3 --lyrics song.lrc --title "Song" --max-size 24
+
+# Compress for WhatsApp (max 16MB)
+./scripts/render-mv.sh --audio song.mp3 --lyrics song.lrc --title "Song" --max-size 15
+```
+
+## IM Platform Upload Limits
+
+When sending MV to chat platforms, use `--max-size` to auto-compress:
+
+| Platform | Limit | Recommended `--max-size` |
+|----------|-------|--------------------------|
+| WhatsApp | 16MB | 15 |
+| Discord (free) | 25MB | 24 |
+| Telegram | 50MB | 48 |
+| Slack (free) | 1GB | - |
+
+The compression uses ffmpeg two-pass encoding to achieve the best quality within the size constraint.
+
+## Container / Docker Font Support
+
+When running in containers (e.g. OpenClaw), CJK fonts may not be pre-installed, causing lyrics to render as □ boxes. The script automatically:
+
+1. **Detects** if CJK fonts are available (via `fc-list`)
+2. **Attempts to install** `fonts-noto-cjk` (Debian/Ubuntu), `font-noto-cjk` (Alpine), or `google-noto-sans-cjk-fonts` (Fedora/RHEL)
+3. **Falls back** with a warning and manual install instructions if auto-install fails
+
+If auto-install doesn't work, manually install fonts before rendering:
+```bash
+# Debian/Ubuntu
+apt-get install -y fonts-noto-cjk
+
+# Alpine
+apk add font-noto-cjk
+
+# Fedora/RHEL
+dnf install -y google-noto-sans-cjk-fonts
 ```
 
 ## File Naming

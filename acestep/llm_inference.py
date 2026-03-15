@@ -1231,7 +1231,10 @@ class LLMHandler:
                 formatted_prompt=formatted_prompt,
                 cfg={
                     "temperature": temperature,
-                    "cfg_scale": cfg_scale,
+                    # CFG must not be applied during CoT (text generation) phase.
+                    # cfg_scale > 1 distorts text logits during reasoning, causing
+                    # premature newlines and truncated captions.
+                    "cfg_scale": 1.0,
                     "negative_prompt": negative_prompt,
                     "top_k": top_k,
                     "top_p": top_p,
@@ -2438,13 +2441,16 @@ class LLMHandler:
         """
         Custom CFG generation loop that:
         1. Processes both conditional and unconditional sequences in parallel
-        2. Applies CFG formula to logits
+        2. Applies CFG formula to logits, restricted to valid tokens when in CODES_GENERATION
         3. Samples tokens only for conditional sequences
         4. Applies the same sampled tokens to both conditional and unconditional sequences
         5. Optionally applies constrained decoding via FSM-based logits processor
+        6. Tracks per-sequence EOS state; stops only when all sequences have finished
 
-        Batch format: [cond_input, uncond_input]
+        Batch format: [cond_0..cond_n, uncond_0..uncond_n]
         """
+        from acestep.constrained_logits_processor import FSMState
+
         model = self.llm
         device = self.device
         batch_size = batch_input_ids.shape[0] // 2  # Half are conditional, half are unconditional
@@ -2475,6 +2481,9 @@ class LLMHandler:
         # Build logits processor for non-CFG operations (repetition penalty, top_k, top_p)
         logits_processor = self._build_logits_processor(repetition_penalty)
 
+        # Per-sequence finished tracking (Fix 4: batch compaction - stop when ALL done)
+        seq_finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
+
         with torch.inference_mode():
             for step in tqdm(range(max_new_tokens), desc="LLM CFG Generation", unit="token", disable=self.disable_tqdm):
                 # Forward pass for the entire batch (conditional + unconditional)
@@ -2487,11 +2496,47 @@ class LLMHandler:
                 cond_logits = next_token_logits[cond_start_idx:cond_start_idx+batch_size]
                 uncond_logits = next_token_logits[uncond_start_idx:uncond_start_idx+batch_size]
 
-                # Apply CFG formula: cfg_logits = uncond_logits + cfg_scale * (cond_logits - uncond_logits)
-                # Upcast to float32 to prevent overflow in float16 (CFG scaling can exceed fp16 range)
-                cfg_logits = uncond_logits.float() + cfg_scale * (cond_logits.float() - uncond_logits.float())
+                # Fixes 2, 3, 5: When in CODES_GENERATION state, apply the non-audio mask
+                # BEFORE CFG to avoid:
+                #  - wasted compute over the full 217k vocab (only ~64k audio tokens are valid)
+                #  - probability mass leakage from text tokens into the softmax denominator
+                # Extract valid token indices and compute CFG only on those to avoid
+                # NaN from (-inf - -inf) when both cond and uncond are masked.
+                if (
+                    constrained_processor is not None
+                    and constrained_processor.state == FSMState.CODES_GENERATION
+                    and constrained_processor.non_audio_code_mask is not None
+                ):
+                    non_audio_mask = constrained_processor.non_audio_code_mask
+                    if non_audio_mask.device != device or non_audio_mask.dtype != torch.float32:
+                        non_audio_mask = non_audio_mask.to(device=device, dtype=torch.float32)
+                    # valid_mask is True where tokens are allowed (mask value == 0)
+                    valid_mask = (non_audio_mask[0] == 0)  # [vocab_size]
+                    valid_indices = valid_mask.nonzero(as_tuple=False).squeeze(1)  # [num_valid]
 
-                # Apply constrained processor FIRST (modifies logits based on FSM state)
+                    # CFG on valid tokens only; all others get -inf
+                    cond_valid = cond_logits[:, valid_indices].float()
+                    uncond_valid = uncond_logits[:, valid_indices].float()
+                    cfg_valid = uncond_valid + cfg_scale * (cond_valid - uncond_valid)
+
+                    cfg_logits = torch.full(
+                        (batch_size, cond_logits.shape[1]),
+                        float('-inf'),
+                        device=device,
+                        dtype=torch.float32,
+                    )
+                    cfg_logits[:, valid_indices] = cfg_valid
+                else:
+                    # Apply CFG formula: cfg_logits = uncond + cfg_scale * (cond - uncond)
+                    # Upcast to float32 to prevent overflow in float16 (CFG scaling can exceed fp16 range)
+                    cfg_logits = uncond_logits.float() + cfg_scale * (cond_logits.float() - uncond_logits.float())
+                    # Guard against NaN from (-inf) + scale * ((-inf) - (-inf)).
+                    # This can happen when repetition penalty drives a token to -inf in both
+                    # cond and uncond branches simultaneously.  Replace NaN with -inf so those
+                    # tokens are simply excluded from sampling.
+                    cfg_logits = torch.nan_to_num(cfg_logits, nan=float('-inf'))
+
+                # Apply constrained processor (modifies logits based on FSM state, e.g. duration constraint)
                 if constrained_processor is not None:
                     current_input_ids = generated_ids[cond_start_idx:cond_start_idx+batch_size]
                     cfg_logits = constrained_processor(current_input_ids, cfg_logits)
@@ -2506,16 +2551,24 @@ class LLMHandler:
                 cfg_logits = self._apply_top_k_filter(cfg_logits, top_k)
                 cfg_logits = self._apply_top_p_filter(cfg_logits, top_p)
 
+                # Force EOS for already-finished sequences so they don't alter constrained state
+                if seq_finished.any():
+                    for b in range(batch_size):
+                        if seq_finished[b]:
+                            cfg_logits[b, :] = float('-inf')
+                            cfg_logits[b, eos_token_id] = 0.0
+
                 # Apply temperature and sample
                 next_tokens = self._sample_tokens(cfg_logits, temperature)
 
                 # Update constrained processor state AFTER sampling
                 self._update_constrained_processor_state(constrained_processor, next_tokens)
 
-                # Check for EOS token in conditional sequences BEFORE unsqueezing
-                # Stop if any conditional sequence generates EOS token
-                # next_tokens shape: [batch_size] (only conditional tokens)
-                should_stop = self._check_eos_token(next_tokens, eos_token_id, pad_token_id)
+                # Per-sequence EOS tracking (Fix 4: stop when ALL sequences are done)
+                is_eos = next_tokens == eos_token_id
+                if pad_token_id is not None and pad_token_id != eos_token_id:
+                    is_eos = is_eos | (next_tokens == pad_token_id)
+                seq_finished = seq_finished | is_eos
 
                 # Apply the same sampled tokens to both conditional and unconditional sequences
                 next_tokens_unsqueezed = next_tokens.unsqueeze(1)
@@ -2531,8 +2584,8 @@ class LLMHandler:
                 if streamer is not None:
                     streamer.put(next_tokens_unsqueezed)  # Stream conditional tokens
 
-                # Stop generation if EOS token detected
-                if should_stop:
+                # Stop generation only when ALL sequences have finished
+                if seq_finished.all():
                     break
 
         if streamer is not None:

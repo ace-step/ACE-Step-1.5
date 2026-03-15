@@ -11,6 +11,7 @@ from acestep.debug_utils import debug_log
 from acestep.training.configs import LoKRConfig
 
 LOKR_WEIGHTS_FILENAME = "lokr_weights.safetensors"
+REQUIRED_PEFT_CONFIG_KEYS = ("peft_type",)
 
 
 def _is_lokr_safetensors(weights_path: str) -> bool:
@@ -54,6 +55,32 @@ def _resolve_lokr_weights_path(adapter_path: str) -> str | None:
             candidate = os.path.join(adapter_path, name)
             if _is_lokr_safetensors(candidate):
                 return candidate
+    return None
+
+
+def _validate_peft_adapter_config(config_file: str) -> str | None:
+    """Validate a PEFT ``adapter_config.json`` file and return an error message or ``None``.
+
+    Returns:
+        An error string describing the problem, or ``None`` when the config is valid.
+    """
+    try:
+        with open(config_file, "r", encoding="utf-8") as fh:
+            config = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        return f"❌ Could not read adapter_config.json: {exc}"
+
+    if not isinstance(config, dict):
+        return "❌ adapter_config.json must be a JSON object."
+
+    for key in REQUIRED_PEFT_CONFIG_KEYS:
+        if key not in config:
+            return (
+                f"❌ adapter_config.json is missing required field '{key}'. "
+                "The adapter may have been saved with an incompatible tool or a very old PEFT version. "
+                "Please re-export the adapter using a current PEFT release."
+            )
+
     return None
 
 
@@ -192,6 +219,9 @@ def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
                 "❌ Invalid adapter: expected PEFT LoRA directory containing adapter_config.json "
                 f"or LoKr artifact {LOKR_WEIGHTS_FILENAME} in {lora_path}"
             )
+        config_error = _validate_peft_adapter_config(config_file)
+        if config_error is not None:
+            return config_error
 
     try:
         from peft import PeftModel

@@ -35,6 +35,8 @@ _EXPECTED_RESTORE_OUTPUT_KEYS = [
     "complete_track_classes",
     "enable_normalization",
     "normalization_db",
+    "fade_in_duration",
+    "fade_out_duration",
     "latent_shift",
     "latent_rescale",
 ]

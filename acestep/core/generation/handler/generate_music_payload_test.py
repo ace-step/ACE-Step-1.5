@@ -135,5 +135,66 @@ class GenerateMusicPayloadMixinTests(unittest.TestCase):
         self.assertEqual(payload["extra_outputs"]["pred_latents"].device.type, "cpu")
 
 
+    def test_build_success_payload_does_not_mutate_outputs_dict(self):
+        """Payload builder must not remove keys from the caller's outputs dict."""
+        host = _Host()
+        outputs = {
+            "target_latents_input": torch.ones(1, 4, 3),
+            "src_latents": torch.ones(1, 4, 3),
+            "chunk_masks": torch.ones(1, 4),
+            "latent_masks": torch.ones(1, 4),
+            "spans": [(0, 4)],
+            "encoder_hidden_states": torch.ones(1, 2, 3),
+            "encoder_attention_mask": torch.ones(1, 2),
+            "context_latents": torch.ones(1, 4, 3),
+            "lyric_token_idss": torch.ones(1, 2, dtype=torch.long),
+        }
+        original_keys = set(outputs.keys())
+
+        host._build_generate_music_success_payload(
+            outputs=outputs,
+            pred_wavs=torch.ones(1, 2, 8),
+            pred_latents_cpu=torch.ones(1, 4, 3),
+            time_costs={"total_time_cost": 1.0},
+            seed_value_for_ui=0,
+            actual_batch_size=1,
+            progress=None,
+        )
+
+        self.assertEqual(set(outputs.keys()), original_keys)
+
+    def test_build_success_payload_all_extra_outputs_are_cpu_tensors(self):
+        """It ensures every tensor in extra_outputs is on CPU."""
+        host = _Host()
+        outputs = {
+            "target_latents_input": torch.ones(1, 4, 3),
+            "src_latents": torch.ones(1, 4, 3),
+            "encoder_hidden_states": torch.ones(1, 2, 3),
+            "encoder_attention_mask": torch.ones(1, 2),
+            "context_latents": torch.ones(1, 4, 3),
+            "lyric_token_idss": torch.ones(1, 2, dtype=torch.long),
+        }
+        pred_wavs = torch.ones(1, 2, 8)
+        pred_latents_cpu = torch.ones(1, 4, 3)
+
+        payload = host._build_generate_music_success_payload(
+            outputs=outputs,
+            pred_wavs=pred_wavs,
+            pred_latents_cpu=pred_latents_cpu,
+            time_costs={"total_time_cost": 1.0},
+            seed_value_for_ui=0,
+            actual_batch_size=1,
+            progress=None,
+        )
+
+        for key, val in payload["extra_outputs"].items():
+            if isinstance(val, torch.Tensor):
+                self.assertEqual(
+                    val.device.type, "cpu",
+                    f"extra_outputs['{key}'] is not on CPU (device={val.device})",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
+

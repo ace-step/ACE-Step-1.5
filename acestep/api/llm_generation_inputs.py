@@ -26,6 +26,7 @@ class PreparedLlmInputs:
     original_prompt: str
     original_lyrics: str
     format_has_duration: bool
+    global_caption: str = ""
 
 
 def prepare_llm_generation_inputs(
@@ -202,4 +203,5 @@ def prepare_llm_generation_inputs(
         original_prompt=original_prompt,
         original_lyrics=original_lyrics,
         format_has_duration=format_has_duration,
+        global_caption=getattr(req, "global_caption", "") or "",
     )

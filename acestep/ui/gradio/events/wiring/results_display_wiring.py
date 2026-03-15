@@ -124,6 +124,8 @@ def register_results_restore_and_lrc_handlers(context: GenerationWiringContext) 
             generation_section["complete_track_classes"],
             generation_section["enable_normalization"],
             generation_section["normalization_db"],
+            generation_section["fade_in_duration"],
+            generation_section["fade_out_duration"],
             generation_section["latent_shift"],
             generation_section["latent_rescale"],
         ],

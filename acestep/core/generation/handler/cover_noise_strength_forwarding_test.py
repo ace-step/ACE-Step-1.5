@@ -60,6 +60,7 @@ class CoverNoiseStrengthForwardingTests(unittest.TestCase):
                 None,
                 None,
                 None,
+                None,
             )
         )
 

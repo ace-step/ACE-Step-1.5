@@ -251,5 +251,66 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
         self.assertGreaterEqual(host.empty_cache_calls, 2)
 
 
+    def test_decode_pred_latents_does_not_restore_latents_to_gpu_after_successful_cpu_decode(self):
+        """It does not move pred_latents_for_decode back to GPU after a successful CPU decode.
+
+        The removed ``pred_latents_for_decode = pred_latents_for_decode.to(vae_device)`` line
+        was causing a wasteful re-allocation of the already-decoded input tensor on the
+        GPU.  After the fix, only the VAE itself is restored; the input latent is not.
+        """
+
+        class _SuccessVae(_FakeVae):
+            """VAE double that records transfer calls and succeeds on decode."""
+
+            def __init__(self):
+                """Initialize transfer call trackers."""
+                super().__init__()
+                self.vae_to_calls = []
+                self._device = "cuda"
+
+            def decode(self, latents: torch.Tensor):
+                """Return a simple decoded output."""
+                return _FakeDecodeOutput(torch.ones(latents.shape[0], 2, 8))
+
+            def cpu(self):
+                """Simulate VAE being moved to CPU."""
+                self._device = "cpu"
+                return self
+
+            def to(self, *args, **kwargs):
+                """Record VAE device-transfer destinations."""
+                self.vae_to_calls.append(args[0] if args else kwargs)
+                return self
+
+        class _SuccessHost(_Host):
+            """Host that forces non-MLX VAE so the CPU-decode path is exercised."""
+
+            def __init__(self):
+                """Configure non-MLX state and a tracking VAE."""
+                super().__init__()
+                self.use_mlx_vae = False
+                self.mlx_vae = None
+                self.vae = _SuccessVae()
+                self.device = "cuda"
+
+        host = _SuccessHost()
+        pred_latents = torch.ones(1, 4, 3)
+        time_costs = {"total_time_cost": 1.0}
+
+        with patch.dict(GENERATE_MUSIC_DECODE_MODULE.os.environ, {"ACESTEP_VAE_ON_CPU": "1"}, clear=False):
+            pred_wavs, _cpu_latents, _costs = host._decode_generate_music_pred_latents(
+                pred_latents=pred_latents,
+                progress=None,
+                use_tiled_decode=False,
+                time_costs=time_costs,
+            )
+
+        # VAE itself must be restored to its original device.
+        self.assertEqual(len(host.vae.vae_to_calls), 1)
+        # The decoded waveform must be returned correctly.
+        self.assertEqual(tuple(pred_wavs.shape), (1, 2, 8))
+
+
 if __name__ == "__main__":
     unittest.main()
+

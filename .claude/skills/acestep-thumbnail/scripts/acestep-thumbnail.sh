@@ -138,6 +138,7 @@ handle_generate() {
 
   [[ -z "$api_url" ]] && api_url="https://generativelanguage.googleapis.com/v1beta"
   [[ -z "$model" ]] && model="gemini-3.1-flash-image-preview"
+  local generate_api="generateContent"
 
   # Aspect ratio: CLI arg > config > default
   if [[ -z "$aspect_ratio" ]]; then
@@ -187,18 +188,18 @@ handle_generate() {
     --arg aspect_ratio "$aspect_ratio" \
     '{
       contents: [{
+        role: "user",
         parts: [{ text: $prompt }]
       }],
       generationConfig: {
-        responseModalities: ["IMAGE", "TEXT"],
-        imageSizeOptions: {
-          aspectRatio: $aspect_ratio
-        }
+        responseModalities: ["IMAGE"],
+        thinkingConfig: { thinkingLevel: "MINIMAL" },
+        imageConfig: { aspectRatio: $aspect_ratio, imageSize: "1K" }
       }
     }')
 
   # Call Gemini API
-  local endpoint="${api_url}/models/${model}:generateContent?key=${api_key}"
+  local endpoint="${api_url}/models/${model}:${generate_api}?key=${api_key}"
 
   local response http_code
   local tmp_response
@@ -222,29 +223,24 @@ handle_generate() {
   response=$(cat "$tmp_response")
   rm -f "$tmp_response"
 
-  # Extract base64 image data from response
-  # Response format: candidates[0].content.parts[] may contain inlineData or text
+  # Extract base64 image data from response (generateContent returns plain JSON)
   local image_data mime_type
   image_data=$(echo "$response" | jq -r '
     .candidates[0].content.parts[]
     | select(.inlineData != null)
-    | .inlineData.data' | head -1)
+    | .inlineData.data' 2>/dev/null | head -1)
 
   mime_type=$(echo "$response" | jq -r '
     .candidates[0].content.parts[]
     | select(.inlineData != null)
-    | .inlineData.mimeType' | head -1)
+    | .inlineData.mimeType' 2>/dev/null | head -1)
 
   if [[ -z "$image_data" || "$image_data" == "null" ]]; then
     echo "Error: No image data in API response" >&2
-    # Show text response if any
     local text_part
-    text_part=$(echo "$response" | jq -r '.candidates[0].content.parts[] | select(.text != null) | .text' 2>/dev/null)
+    text_part=$(echo "$response" | jq -r '.candidates[0].content.parts[] | select(.text != null) | .text' 2>/dev/null | head -3)
     [[ -n "$text_part" ]] && echo "Response text: $text_part" >&2
-    # Check for safety block
-    local block_reason
-    block_reason=$(echo "$response" | jq -r '.candidates[0].finishReason // empty' 2>/dev/null)
-    [[ -n "$block_reason" && "$block_reason" != "STOP" ]] && echo "Finish reason: $block_reason" >&2
+    echo "Raw response (first 500 chars): ${response:0:500}" >&2
     exit 1
   fi
 

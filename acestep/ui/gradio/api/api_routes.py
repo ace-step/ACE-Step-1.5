@@ -466,6 +466,16 @@ async def release_task(request: Request, authorization: Optional[str] = Header(N
             lm_temperature=lm_temperature,
             lm_cfg_scale=float(get_param("lm_cfg_scale", default=2.0) or 2.0),
             lm_negative_prompt=get_param("lm_negative_prompt", default="NO USER INPUT") or "NO USER INPUT",
+            repaint_latent_crossfade_frames=int(
+                get_param("repaint_latent_crossfade_frames", default=10) or 10,
+            ),
+            repaint_wav_crossfade_sec=float(
+                get_param("repaint_wav_crossfade_sec", default=0.0) or 0.0,
+            ),
+            repaint_mode=get_param("repaint_mode", default="balanced") or "balanced",
+            repaint_strength=float(
+                get_param("repaint_strength", default=0.5) or 0.5,
+            ),
         )
 
         # Resolve seed(s) into List[int] for GenerationConfig.seeds

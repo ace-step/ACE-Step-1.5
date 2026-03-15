@@ -63,9 +63,18 @@ class ConditioningTextMixin:
         parsed_metas: List[str],
         vocal_languages: List[str],
         audio_cover_strength: float,
+        global_captions: Optional[List[str]] = None,
+        chunk_mask_modes: Optional[List[str]] = None,
     ) -> Tuple[List[str], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """Tokenize caption/lyric prompts and optional non-cover branch prompts."""
         actual_captions, actual_languages = self._extract_caption_and_language(parsed_metas, captions, vocal_languages)
+
+        # Detect is_lego_sft from the loaded model config (set on the SFT-stems checkpoint).
+        is_lego_sft = (
+            hasattr(self, "model")
+            and self.model is not None
+            and getattr(self.model.config, "is_lego_sft", False)
+        )
 
         text_inputs = []
         text_token_idss = []
@@ -79,6 +88,31 @@ class ConditioningTextMixin:
             )
             actual_caption = actual_captions[i]
             actual_language = actual_languages[i]
+
+            # SFT-stems lego: build the training-compatible caption block.
+            #
+            # Training format — full mode ("Generate the {TAG} track based on the audio context:"):
+            #   "Global: {global_caption}\nLocal: {local_caption}\nMask Control: true"
+            #   where global_caption = full song description, local_caption = per-stem description
+            #
+            # Training format — chunk mode ("Generate a segment of the {TAG} track..."):
+            #   "Local: {local_caption}\nMask Control: true"    (no Global prefix)
+            #
+            # The caller passes:
+            #   - captions[i]        → local/per-track description  (→ Local:)
+            #   - global_captions[i] → global/full-song description (→ Global:)
+            if is_lego_sft:
+                local_cap = actual_caption
+                global_cap = (global_captions[i] if global_captions and i < len(global_captions) else "") or ""
+                instr_lower = instruction.lower()
+                is_chunk_mode = "a segment" in instr_lower
+                chunk_mode_i = (chunk_mask_modes[i] if chunk_mask_modes and i < len(chunk_mask_modes) else "auto")
+                mask_control_str = "Mask Control: false" if chunk_mode_i == "auto" else "Mask Control: true"
+                if is_chunk_mode:
+                    actual_caption = f"Local: {local_cap}\n{mask_control_str}"
+                else:
+                    actual_caption = f"Global: {global_cap}\nLocal: {local_cap}\n{mask_control_str}"
+
             text_prompt = SFT_GEN_PROMPT.format(instruction, actual_caption, parsed_metas[i])
 
             if i == 0:

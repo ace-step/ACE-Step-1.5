@@ -19,10 +19,10 @@ except Exception as exc:  # pragma: no cover - environment dependency guard
     _IMPORT_ERROR = exc
 
 # Output indices for the two new state-clearing outputs
-_IDX_AUDIO_CODES = 42
-_IDX_SRC_AUDIO = 43
+_IDX_AUDIO_CODES = 44
+_IDX_SRC_AUDIO = 45
 _IDX_THINK_CHECKBOX = 14
-_EXPECTED_TUPLE_LENGTH = 44
+_EXPECTED_TUPLE_LENGTH = 46
 _IDX_BPM = 21
 _IDX_KEY = 22
 _IDX_TIMESIG = 23

@@ -66,19 +66,47 @@ AceFlow also exposes optional **Source start / Source end** controls for Remix s
 
 ---
 
+## 🔐 Optional Authentication
+
+AceFlow supports optional user authentication controlled by environment variables.
+
+### Enable or disable login
+
+- `ACEFLOW_AUTH_ENABLED=1` → login is required
+- `ACEFLOW_AUTH_ENABLED=0` → login is disabled, even if `_auth/users.json` and `_auth/access_log.jsonl` already exist
+
+### Auth storage
+
+When authentication is enabled, AceFlow stores auth data under:
+
+    <results_root>/_auth/
+    ├─ users.json
+    └─ access_log.jsonl
+
+### Auth behavior
+
+- bootstrap admin creation is supported
+- first-login password change is supported
+- one active session per user is enforced
+- session IP mismatch invalidates the session
+- admin users can create and delete users
+- deleting a user invalidates the deleted user's session and rewrites `users.json`
+- access events are appended to `access_log.jsonl`
+
 ## 🎚️ DiT Model Behavior in the UI
 
 AceFlow lets you choose the DiT model directly from the UI.
 
 There are two distinct layers involved here:
 
-### Frontend auto-fill
+### Frontend auto-fill and limits
 When the model selector changes, AceFlow auto-fills some values for convenience:
 
-- models whose name contains `sft` → **Shift = 1**, **Inference steps = 50**
-- other models → **Shift = 3**, **Inference steps = 20**
+- models whose name contains `turbo` → **Shift = 3**, **Inference steps = 8**, **UI max = 20**
+- models whose name contains `sft` → **Shift = 1**, **Inference steps = 50**, **UI max = 200**
+- other models → **Shift = 3**, **Inference steps = 20**, **UI max = 200**
 
-This is only a UI helper so the form starts from sensible values.
+This is only a UI helper so the form starts from sensible values, but the Turbo UI is intentionally capped at **20**.
 
 ### Backend fallback and clamp
 When the request reaches the backend, `inference_steps` is normalized again. If the field is missing, backend fallbacks are:
@@ -87,9 +115,12 @@ When the request reaches the backend, `inference_steps` is normalized again. If 
 - **50** for SFT models
 - **32** for other non-turbo models
 
-Then the backend clamps the final value to the allowed range.
+Then the backend clamps the final value to the allowed range used by AceFlow:
 
-So the frontend suggests defaults, while the backend remains the final safety layer. This behavior is specific to AceFlow and does not exactly match the Gradio UI, which generally uses **8** for turbo models and **32** for non-turbo models.
+- **Turbo** → max **20**
+- **Other models** → max **200**
+
+So the frontend suggests defaults, while the backend remains the final safety layer.
 
 ---
 
@@ -419,9 +450,15 @@ This is useful for debugging model routing, LoRA loading, conditioning, backend 
 
 ---
 
-## 🧹 Hardcoded Auto-Cleanup (60 minutes)
+## 🧹 Auto-Cleanup TTL
 
-AceFlow includes **hardcoded cleanup with a TTL of 3600 seconds**, which is **60 minutes**.
+AceFlow cleanup is now controlled by the environment variable `ACEFLOW_CLEANUP_TTL_SECONDS`.
+
+Default behavior:
+
+- default value: `3600` seconds
+- that means **60 minutes**
+- `0` disables auto-cleanup completely
 
 This cleanup covers:
 
@@ -437,22 +474,44 @@ It is triggered when a new generation request is submitted.
 
 So the practical rule is:
 
-- files older than 60 minutes are eligible for cleanup
+- files older than the configured TTL are eligible for cleanup
 - cleanup actually runs on the **next job submission**
 
 ### What gets deleted
 
-- job directories older than 60 minutes, if they look like real AceFlow job folders
-- uploaded audio files older than 60 minutes
-- log files older than 60 minutes
+- job directories older than the configured TTL, if they look like real AceFlow job folders
+- uploaded audio files older than the configured TTL
+- log files older than the configured TTL
+
+### Examples
+
+- `ACEFLOW_CLEANUP_TTL_SECONDS=3600` → keep current 60-minute behavior
+- `ACEFLOW_CLEANUP_TTL_SECONDS=7200` → keep files for 2 hours
+- `ACEFLOW_CLEANUP_TTL_SECONDS=0` → disable cleanup
 
 ### What this means in practice
 
 AceFlow is intentionally not designed as a permanent archival system.
 
-If you want to keep outputs, logs, or temporary uploads for longer, copy them somewhere else or change the code.
+If you want to keep outputs, logs, or temporary uploads for longer, copy them somewhere else or raise the TTL. Tiny goblin with a configurable broom.
 
-The current 60-minute cleanup window is hardcoded. Tiny goblin with a broom, no mercy.
+### Optional turbo clamp bypass from AceFlow only
+
+AceFlow also supports an **optional runtime patch** for the core turbo DiT steps clamp:
+
+- `ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP=0` → default behavior, no bypass
+- `ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP=1` → AceFlow applies process-local runtime patches before handler creation
+
+When enabled, AceFlow does two things for Turbo models:
+
+1. it bypasses the core normalization clamp that would otherwise force `infer_steps` back to **8**
+2. if Turbo is asked to use more than **8** steps and no explicit `timesteps` were supplied, AceFlow injects an explicit Turbo timestep schedule so the request actually runs with the requested step count
+
+Important limits:
+
+- this is still **AceFlow-only** and does **not** modify ACE-Step core files on disk
+- Turbo remains capped to **20** steps in AceFlow
+- the runtime patch is process-local and only affects the AceFlow process that started with the environment variable enabled
 
 ---
 

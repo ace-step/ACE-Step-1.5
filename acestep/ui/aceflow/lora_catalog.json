@@ -10,24 +10,29 @@
     "label": "Coldplay"
   },
   {
-    "id": "marcojmj",
-    "trigger": "marcojmj",
-    "label": "Jean-Michel Jarre"
-  },
-  {
-    "id": "marcomj",
-    "trigger": "marcomj",
-    "label": "Michael Jackson"
-  },
-  {
     "id": "marcosalsa",
     "trigger": "marcosalsa",
-    "label": "Salsa cubana"
+    "label": "Cuban Salsa"
   },
   {
-    "id": "marcou2",
-    "trigger": "marcou2",
-    "label": "U2"
+    "id": "dkcountry",
+    "trigger": "dkcountry",
+    "label": "DK Country"
+  },
+  {
+    "id": "mstrct",
+    "trigger": "mstrct",
+    "label": "EDM-Techno"
+  },
+  {
+    "id": "marcomj_1",
+    "trigger": "marcomj",
+    "label": "Michael Jackson (high-epoch)"
+  },
+  {
+    "id": "marcomjl_2",
+    "trigger": "marcomj",
+    "label": "Michael Jackson (low-epoch)"
   },
   {
     "id": "reggaeton",
@@ -39,19 +44,19 @@
     "trigger": "Symphonic Metal / Technical Death Metal / Symphonic Technical Death Metal",
     "label": "Symphonic Metal & Technical Death Metal"
   },
-   {
+  {
     "id": "synth-funk-pop",
     "trigger": "synth-funk-pop",
     "label": "Synth-funk pop - New jack swing"
   },
-   {
-    "id": "dkcountry",
-    "trigger": "dkcountry",
-    "label": "DK Country"
+  {
+    "id": "marcopolice",
+    "trigger": "marcopolice",
+    "label": "The Police / Sting"
   },
   {
-    "id": "mstrct",
-    "trigger": "mstrct",
-    "label": "EDM-Techno"
+    "id": "marcou2",
+    "trigger": "marcou2",
+    "label": "U2"
   }
 ]

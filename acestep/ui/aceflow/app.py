@@ -25,11 +25,15 @@ import re
 import shutil
 import sys
 import time
+import hmac
+import hashlib
+import secrets
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
@@ -945,6 +949,169 @@ def _env_int(name: str, default: int) -> int:
     except Exception:
         return default
 
+def _env_flag(name: str, default: bool = False) -> bool:
+
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return str(v).strip().lower() in {"1", "true", "yes", "on", "y"}
+
+ACEFLOW_DEFAULT_CLEANUP_TTL_SECONDS = 3600
+ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO = 20
+ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE = 200
+ACEFLOW_TURBO_CLAMP_BYPASS_ENV = "ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP"
+ACEFLOW_CLEANUP_TTL_ENV = "ACEFLOW_CLEANUP_TTL_SECONDS"
+
+def _get_cleanup_ttl_seconds() -> int:
+
+    ttl = _env_int(ACEFLOW_CLEANUP_TTL_ENV, ACEFLOW_DEFAULT_CLEANUP_TTL_SECONDS)
+    return max(0, ttl)
+
+def _is_core_turbo_step_clamp_bypass_enabled() -> bool:
+
+    return _env_flag(ACEFLOW_TURBO_CLAMP_BYPASS_ENV, False)
+
+def _get_max_inference_steps_for_model(model_name: Optional[str]) -> int:
+
+    if _is_turbo_model(model_name):
+        return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO
+    return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE
+
+ACEFLOW_TURBO_VALID_TIMESTEPS = [
+    1.0, 0.9545454545454546, 0.9333333333333333, 0.9, 0.875,
+    0.8571428571428571, 0.8333333333333334, 0.7692307692307693, 0.75,
+    0.6666666666666666, 0.6428571428571429, 0.625, 0.5454545454545454,
+    0.5, 0.4, 0.375, 0.3, 0.25, 0.2222222222222222, 0.125,
+]
+
+def _get_turbo_timesteps_for_infer_steps(infer_steps: int) -> List[float]:
+
+    steps = max(1, min(int(infer_steps), ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO))
+    return ACEFLOW_TURBO_VALID_TIMESTEPS[:steps]
+
+def _install_core_turbo_step_clamp_bypass_patch() -> bool:
+
+    if not _is_core_turbo_step_clamp_bypass_enabled():
+        return False
+    try:
+        from acestep.core.generation.handler.service_generate_request import ServiceGenerateRequestMixin
+        from acestep.core.generation.handler.service_generate_execute import ServiceGenerateExecuteMixin
+        import torch
+    except Exception as exc:
+        logger.warning("[AceFlow] could not import core turbo clamp target; bypass disabled err={!r}", exc)
+        return False
+
+    if getattr(ServiceGenerateRequestMixin, "_aceflow_turbo_clamp_patch_installed", False) and getattr(ServiceGenerateExecuteMixin, "_aceflow_turbo_timestep_patch_installed", False):
+        return True
+
+    original_normalize = ServiceGenerateRequestMixin._normalize_service_generate_inputs
+    original_build_kwargs = ServiceGenerateExecuteMixin._build_service_generate_kwargs
+
+    class _ConfigProxy:
+        def __init__(self, config):
+            self._config = config
+
+        @property
+        def is_turbo(self):
+            return False
+
+        def __getattr__(self, name):
+            return getattr(self._config, name)
+
+    class _HostProxy:
+        def __init__(self, host):
+            self._host = host
+            self.config = _ConfigProxy(getattr(host, "config", None))
+
+        def __getattr__(self, name):
+            return getattr(self._host, name)
+
+    def patched_normalize(self, *args, **kwargs):
+        infer_steps = kwargs.get("infer_steps", None)
+        if infer_steps is None and len(args) >= 10:
+            infer_steps = args[9]
+        if not getattr(getattr(self, "config", None), "is_turbo", False):
+            return original_normalize(self, *args, **kwargs)
+        try:
+            infer_steps_int = int(infer_steps)
+        except Exception:
+            return original_normalize(self, *args, **kwargs)
+        if infer_steps_int <= 8:
+            return original_normalize(self, *args, **kwargs)
+        logger.warning(
+            "[AceFlow] bypassing core turbo infer_steps clamp via runtime patch env={} requested={}",
+            ACEFLOW_TURBO_CLAMP_BYPASS_ENV,
+            infer_steps_int,
+        )
+        return original_normalize(_HostProxy(self), *args, **kwargs)
+
+    def patched_build_kwargs(
+        self,
+        payload,
+        seed_param,
+        infer_steps,
+        guidance_scale,
+        audio_cover_strength,
+        cover_noise_strength,
+        infer_method,
+        use_adg,
+        cfg_interval_start,
+        cfg_interval_end,
+        shift,
+        timesteps,
+    ):
+        kwargs = original_build_kwargs(
+            self=self,
+            payload=payload,
+            seed_param=seed_param,
+            infer_steps=infer_steps,
+            guidance_scale=guidance_scale,
+            audio_cover_strength=audio_cover_strength,
+            cover_noise_strength=cover_noise_strength,
+            infer_method=infer_method,
+            use_adg=use_adg,
+            cfg_interval_start=cfg_interval_start,
+            cfg_interval_end=cfg_interval_end,
+            shift=shift,
+            timesteps=timesteps,
+        )
+        if timesteps is not None:
+            return kwargs
+        if not getattr(getattr(self, "config", None), "is_turbo", False):
+            return kwargs
+        try:
+            infer_steps_int = int(infer_steps)
+        except Exception:
+            return kwargs
+        if infer_steps_int <= 8:
+            return kwargs
+        effective_steps = max(1, min(infer_steps_int, ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO))
+        schedule = _get_turbo_timesteps_for_infer_steps(effective_steps)
+        kwargs["timesteps"] = torch.tensor(schedule, dtype=torch.float32, device=self.device)
+        kwargs["infer_steps"] = effective_steps
+        logger.warning(
+            "[AceFlow] turbo runtime patch mapped requested infer_steps={} to explicit timesteps schedule len={} values={}",
+            infer_steps_int,
+            len(schedule),
+            schedule,
+        )
+        return kwargs
+
+    ServiceGenerateRequestMixin._normalize_service_generate_inputs = patched_normalize
+    ServiceGenerateRequestMixin._aceflow_turbo_clamp_patch_installed = True
+    ServiceGenerateRequestMixin._aceflow_turbo_clamp_patch_original = original_normalize
+    ServiceGenerateExecuteMixin._build_service_generate_kwargs = patched_build_kwargs
+    ServiceGenerateExecuteMixin._aceflow_turbo_timestep_patch_installed = True
+    ServiceGenerateExecuteMixin._aceflow_turbo_timestep_patch_original = original_build_kwargs
+    logger.warning(
+        "[AceFlow] core turbo infer_steps clamp bypass ENABLED for this AceFlow process via {}",
+        ACEFLOW_TURBO_CLAMP_BYPASS_ENV,
+    )
+    logger.warning(
+        "[AceFlow] turbo runtime timestep patch ENABLED: requested steps > 8 are converted to explicit 1..20 timestep schedules",
+    )
+    return True
+
 def _resolve_lora_root(project_root: str) -> str:
 
     """Return LoRA root directory.
@@ -1217,6 +1384,238 @@ def create_app() -> FastAPI:
             return s
         return str(config_path)
     remote_token = os.environ.get('ACESTEP_REMOTE_TOKEN', '').strip()
+    auth_dir = os.path.join(results_root, "_auth").replace("\\", "/")
+    users_path = os.path.join(auth_dir, "users.json").replace("\\", "/")
+    auth_log_path = os.path.join(auth_dir, "access_log.jsonl").replace("\\", "/")
+    auth_enabled = str(os.environ.get("ACEFLOW_AUTH_ENABLED", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    session_cookie_name = str(os.environ.get("ACEFLOW_SESSION_COOKIE", "aceflow_session") or "aceflow_session").strip()
+    session_cookie_secure = str(os.environ.get("ACEFLOW_SESSION_SECURE", "0")).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _ensure_auth_dir() -> str:
+        try:
+            Path(auth_dir).mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            logger.warning("[auth] ensure auth dir failed dir={} err={!r}", auth_dir, exc)
+            raise
+        return auth_dir
+
+    def _password_hash(password: str, salt: bytes | None = None, iterations: int = 200_000) -> dict:
+        salt = salt or secrets.token_bytes(16)
+        digest = hashlib.pbkdf2_hmac('sha256', str(password or '').encode('utf-8'), salt, int(iterations))
+        return {
+            "salt": urlsafe_b64encode(salt).decode('ascii'),
+            "hash": urlsafe_b64encode(digest).decode('ascii'),
+            "iterations": int(iterations),
+        }
+
+    def _verify_password(password: str, rec: dict) -> bool:
+        try:
+            salt = urlsafe_b64decode(str(rec.get('password_salt') or '').encode('ascii'))
+            expected = str(rec.get('password_hash') or '')
+            iterations = int(rec.get('password_iterations') or 200_000)
+        except Exception:
+            return False
+        trial = _password_hash(password, salt=salt, iterations=iterations)
+        return hmac.compare_digest(str(trial.get('hash') or ''), expected)
+
+    def _generate_temp_password(length: int = 16) -> str:
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$%+=_-"
+        return ''.join(secrets.choice(alphabet) for _ in range(max(12, int(length))))
+
+    def _normalize_email(value: str) -> str:
+        return str(value or '').strip().lower()
+
+    def _auth_now() -> float:
+        return float(time.time())
+
+    def _blank_auth_store() -> dict:
+        return {"users": []}
+
+    def _load_auth_store() -> dict:
+        if not os.path.exists(users_path):
+            return _blank_auth_store()
+        try:
+            with open(users_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict) and isinstance(data.get('users'), list):
+                return data
+        except Exception as exc:
+            logger.warning("[auth] load users failed path={} err={!r}", users_path, exc)
+        return _blank_auth_store()
+
+    def _save_auth_store(data: dict) -> None:
+        _ensure_auth_dir()
+        tmp = users_path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        os.replace(tmp, users_path)
+
+    def _append_auth_event(event_type: str, *, email: str = '', ip: str = '', ok: bool = True, detail: str = '', session_id: str = '') -> None:
+        try:
+            _ensure_auth_dir()
+            payload = {
+                'ts': _auth_now(),
+                'event': str(event_type or ''),
+                'email': _normalize_email(email),
+                'ip': str(ip or ''),
+                'ok': bool(ok),
+                'detail': str(detail or ''),
+                'session_id': str(session_id or ''),
+            }
+            with open(auth_log_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            logger.warning('[auth] append audit failed path={} err={!r}', auth_log_path, exc)
+
+    def _read_auth_events(limit: int = 100) -> list[dict]:
+        if not os.path.exists(auth_log_path):
+            return []
+        try:
+            with open(auth_log_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except Exception as exc:
+            logger.warning('[auth] read audit failed path={} err={!r}', auth_log_path, exc)
+            return []
+        out = []
+        for raw in lines[-max(1, int(limit)):]:
+            try:
+                obj = json.loads(raw)
+                if isinstance(obj, dict):
+                    out.append(obj)
+            except Exception:
+                continue
+        return list(reversed(out))
+
+    def _sanitize_user(rec: dict) -> dict:
+        return {
+            "email": str(rec.get('email') or ''),
+            "role": str(rec.get('role') or 'user'),
+            "must_change_password": bool(rec.get('must_change_password', False)),
+            "created_at": rec.get('created_at'),
+            "updated_at": rec.get('updated_at'),
+            "last_login_at": rec.get('last_login_at'),
+            "last_login_ip": rec.get('last_login_ip'),
+        }
+
+    def _find_user(data: dict, email: str) -> tuple[dict | None, int | None]:
+        target = _normalize_email(email)
+        users = data.get('users') if isinstance(data, dict) else None
+        if not isinstance(users, list):
+            return None, None
+        for idx, rec in enumerate(users):
+            if _normalize_email((rec or {}).get('email')) == target:
+                return rec, idx
+        return None, None
+
+    def _set_password(rec: dict, password: str, *, must_change_password: bool) -> None:
+        ph = _password_hash(password)
+        rec['password_salt'] = ph['salt']
+        rec['password_hash'] = ph['hash']
+        rec['password_iterations'] = ph['iterations']
+        rec['must_change_password'] = bool(must_change_password)
+        rec['updated_at'] = _auth_now()
+
+    def _invalidate_session_locked(email: str) -> None:
+        target = _normalize_email(email)
+        sid = app.state._auth_user_to_session.pop(target, None)
+        if sid:
+            app.state._auth_sessions.pop(sid, None)
+
+    def _create_session_locked(email: str, ip: str, user_agent: str) -> str:
+        target = _normalize_email(email)
+        _invalidate_session_locked(target)
+        sid = secrets.token_urlsafe(32)
+        now = _auth_now()
+        app.state._auth_sessions[sid] = {
+            'email': target,
+            'ip': str(ip or 'unknown'),
+            'user_agent': str(user_agent or ''),
+            'created_at': now,
+            'last_seen': now,
+        }
+        app.state._auth_user_to_session[target] = sid
+        return sid
+
+    def _bootstrap_admin_if_needed() -> None:
+        if not auth_enabled:
+            return
+        with app.state._auth_lock:
+            data = _load_auth_store()
+            if isinstance(data.get('users'), list) and data['users']:
+                return
+            admin_email = _normalize_email(os.environ.get('ACEFLOW_ADMIN_EMAIL', 'admin@local'))
+            preset_password = str(os.environ.get('ACEFLOW_ADMIN_PASSWORD', '') or '').strip()
+            temp_password = preset_password or _generate_temp_password()
+            now = _auth_now()
+            rec = {
+                'email': admin_email,
+                'role': 'admin',
+                'created_at': now,
+                'updated_at': now,
+                'last_login_at': None,
+                'last_login_ip': None,
+                'must_change_password': not bool(preset_password),
+            }
+            _set_password(rec, temp_password, must_change_password=not bool(preset_password))
+            data['users'] = [rec]
+            _save_auth_store(data)
+            _append_auth_event('bootstrap_admin', email=admin_email, ok=True, detail='bootstrap admin created')
+            logger.warning('[auth] bootstrap admin created email={} temporary_password={} must_change_password={}', admin_email, temp_password, not bool(preset_password))
+
+    def _get_authenticated_user(request: Request) -> dict | None:
+        if not auth_enabled:
+            return None
+        sid = str(request.cookies.get(session_cookie_name) or '').strip()
+        if not sid:
+            return None
+        ip = _get_client_ip(request)
+        with app.state._auth_lock:
+            session = app.state._auth_sessions.get(sid)
+            if not session:
+                return None
+            email = _normalize_email(session.get('email'))
+            if str(session.get('ip') or '').strip() != str(ip or '').strip():
+                _append_auth_event('session_ip_mismatch', email=email, ip=ip, ok=False, detail='session invalidated due to IP mismatch', session_id=sid)
+                _invalidate_session_locked(email)
+                return None
+            data = _load_auth_store()
+            rec, _ = _find_user(data, email)
+            if not rec:
+                _invalidate_session_locked(email)
+                return None
+            if app.state._auth_user_to_session.get(email) != sid:
+                return None
+            session['last_seen'] = _auth_now()
+            return dict(rec)
+
+    def _set_session_cookie(response: Response, sid: str) -> None:
+        response.set_cookie(
+            key=session_cookie_name,
+            value=sid,
+            httponly=True,
+            secure=session_cookie_secure,
+            samesite='lax',
+            max_age=7 * 24 * 60 * 60,
+            path='/',
+        )
+
+    def _clear_session_cookie(response: Response) -> None:
+        response.delete_cookie(session_cookie_name, path='/', samesite='lax')
+
+    def _auth_payload(request: Request, user: dict | None) -> dict:
+        return {
+            'enabled': bool(auth_enabled),
+            'authenticated': bool(user),
+            'must_change_password': bool((user or {}).get('must_change_password', False)),
+            'user': _sanitize_user(user) if user else None,
+            'is_admin': bool((user or {}).get('role') == 'admin'),
+            'ip': _get_client_ip(request),
+        }
 
     def _require_token(request: Request) -> None:
 
@@ -1234,11 +1633,25 @@ def create_app() -> FastAPI:
     async def _no_cache_ui(request, call_next):
         resp = await call_next(request)
         p = request.url.path or ""
-        if p == "/" or p.startswith("/static") or p.startswith("/favicon"):
+        if p == "/" or p.startswith("/static") or p.startswith("/favicon") or p.startswith('/api/auth') or p.startswith('/api/admin'):
             resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             resp.headers["Pragma"] = "no-cache"
             resp.headers["Expires"] = "0"
         return resp
+
+    @app.middleware("http")
+    async def _auth_gate(request: Request, call_next):
+        path = request.url.path or ""
+        if auth_enabled and (path.startswith('/api') or path.startswith('/download')):
+            allow = {'/api/auth/status', '/api/auth/login'}
+            user = _get_authenticated_user(request)
+            if path not in allow and not user:
+                return JSONResponse(status_code=401, content={'detail': 'AUTH_REQUIRED'})
+            if user and bool(user.get('must_change_password')) and path not in {'/api/auth/status', '/api/auth/logout', '/api/auth/change-password'}:
+                return JSONResponse(status_code=403, content={'detail': 'PASSWORD_CHANGE_REQUIRED'})
+            if user is not None:
+                request.state.auth_user = user
+        return await call_next(request)
     import threading
     app.state._counter_lock = threading.Lock()
     app.state._rate_lock = threading.Lock()
@@ -1246,6 +1659,11 @@ def create_app() -> FastAPI:
     app.state._ab_compare_window_by_ip = {}
     app.state._rate_min_interval_s = float(os.environ.get("ACESTEP_REMOTE_MIN_JOB_INTERVAL_S", "5"))
     app.state._queue_active_cap = int(os.environ.get("ACESTEP_REMOTE_MAX_ACTIVE_JOBS", "30"))
+    app.state._auth_lock = threading.Lock()
+    app.state._auth_sessions = {}
+    app.state._auth_user_to_session = {}
+    app.state._auth_enabled = bool(auth_enabled)
+    _bootstrap_admin_if_needed()
 
     def _load_counter() -> int:
 
@@ -1430,6 +1848,11 @@ def create_app() -> FastAPI:
 
     def _startup():
 
+        bypass_requested = _is_core_turbo_step_clamp_bypass_enabled()
+        bypass_installed = _install_core_turbo_step_clamp_bypass_patch()
+        if bypass_requested and not bypass_installed:
+            logger.warning("[AceFlow] core turbo infer_steps clamp bypass requested but not installed; core clamp remains active")
+
         logger.info("[aceflow] Initializing DiT model…")
         status, ok = dit_handler.initialize_service(
             project_root=project_root,
@@ -1606,25 +2029,25 @@ def create_app() -> FastAPI:
                 if inference_steps is None:
                     inference_steps = 8 if is_turbo else (50 if is_sft else 32)
                 if inference_steps is not None:
-                    max_steps = 20 if is_turbo else 200
+                    max_steps = _get_max_inference_steps_for_model(config_name)
                     inference_steps = max(1, min(inference_steps, max_steps))
                 infer_method = str(req.get("infer_method") or "ode").strip().lower()
                 if infer_method not in {"ode", "sde"}:
                     infer_method = "ode"
                 timesteps_raw = req.get("timesteps", None)
                 parsed_timesteps = _parse_timesteps_input(timesteps_raw)
-                repainting_start = req.get("repainting_start", 0.0)
-                repainting_end = req.get("repainting_end", -1.0)
+                source_start = req.get("source_start", 0.0)
+                source_end = req.get("source_end", -1.0)
                 try:
-                    repainting_start = float(repainting_start) if repainting_start is not None and str(repainting_start) != "" else 0.0
+                    source_start = float(source_start) if source_start is not None and str(source_start) != "" else 0.0
                 except Exception:
-                    repainting_start = 0.0
+                    source_start = 0.0
                 try:
-                    repainting_end = float(repainting_end) if repainting_end is not None and str(repainting_end) != "" else -1.0
+                    source_end = float(source_end) if source_end is not None and str(source_end) != "" else -1.0
                 except Exception:
-                    repainting_end = -1.0
-                repainting_start = max(0.0, min(repainting_start, float(max_duration)))
-                repainting_end = max(-1.0, min(repainting_end, float(max_duration)))
+                    source_end = -1.0
+                source_start = max(0.0, min(source_start, float(max_duration)))
+                source_end = max(-1.0, min(source_end, float(max_duration)))
                 guidance_scale = req.get("guidance_scale", None)
                 try:
                     guidance_scale = (
@@ -1795,7 +2218,7 @@ def create_app() -> FastAPI:
                 if generation_mode not in {"Simple", "Custom", "Cover", "Remix"}:
                     generation_mode = "Custom"
                 task_type = str(req.get("task_type") or "text2music").strip() or "text2music"
-                if task_type not in {"text2music", "cover", "repaint"}:
+                if task_type not in {"text2music", "cover"}:
                     task_type = "text2music"
                 reference_audio_abs = None
                 src_audio_abs = None
@@ -1805,10 +2228,6 @@ def create_app() -> FastAPI:
                     reference_audio_rel = str(req.get("reference_audio") or "").strip()
                     if reference_audio_rel:
                         reference_audio_abs = _resolve_uploaded_path(reference_audio_rel)
-                    src_audio_rel = str(req.get("src_audio") or "").strip()
-                    if src_audio_rel:
-                        src_audio_abs = _resolve_uploaded_path(src_audio_rel)
-                if task_type == "repaint":
                     src_audio_rel = str(req.get("src_audio") or "").strip()
                     if src_audio_rel:
                         src_audio_abs = _resolve_uploaded_path(src_audio_rel)
@@ -1822,7 +2241,7 @@ def create_app() -> FastAPI:
                 except Exception:
                     cover_noise_strength = 0.0
                 cover_noise_strength = max(0.0, min(cover_noise_strength, 1.0))
-                params = GenerationParams(
+                _params_kwargs = dict(
                     task_type=task_type,
                     reference_audio=reference_audio_abs,
                     src_audio=src_audio_abs,
@@ -1847,8 +2266,6 @@ def create_app() -> FastAPI:
                     shift=shift,
                     infer_method=infer_method,
                     timesteps=parsed_timesteps,
-                    repainting_start=repainting_start,
-                    repainting_end=repainting_end,
                     audio_cover_strength=audio_cover_strength,
                     cover_noise_strength=cover_noise_strength,
                     thinking=thinking,
@@ -1862,6 +2279,23 @@ def create_app() -> FastAPI:
                     use_cot_caption=use_cot_caption,
                     use_cot_language=use_cot_language,
                 )
+                _is_source_audio_flow = str(req.get("generation_mode") or "").strip() == "Remix"
+                if _is_source_audio_flow:
+                    _params_kwargs["source_start"] = source_start
+                    _params_kwargs["source_end"] = source_end
+                try:
+                    params = GenerationParams(**_params_kwargs)
+                except TypeError as exc:
+                    _err = str(exc)
+                    if _is_source_audio_flow and ("source_start" in _err or "source_end" in _err):
+                        _compat_kwargs = dict(_params_kwargs)
+                        _compat_kwargs.pop("source_start", None)
+                        _compat_kwargs.pop("source_end", None)
+                        _compat_kwargs["rep" + "ainting_start"] = source_start
+                        _compat_kwargs["rep" + "ainting_end"] = source_end
+                        params = GenerationParams(**_compat_kwargs)
+                    else:
+                        raise
                 config = GenerationConfig(
                     batch_size=batch_size,
                     use_random_seed=(seed < 0),
@@ -2109,8 +2543,8 @@ def create_app() -> FastAPI:
                         "inference_steps": inference_steps,
                         "infer_method": infer_method,
                         "timesteps": timesteps_raw if isinstance(timesteps_raw, str) else (parsed_timesteps if parsed_timesteps is not None else ""),
-                        "repainting_start": repainting_start,
-                        "repainting_end": repainting_end,
+                        "source_start": source_start,
+                        "source_end": source_end,
                         "guidance_scale": guidance_scale,
                         "shift": shift,
                         "use_adg": use_adg,
@@ -2241,6 +2675,156 @@ def create_app() -> FastAPI:
         except Exception:
             return "unknown"
 
+    @app.get('/api/auth/status')
+    def auth_status(request: Request):
+        user = _get_authenticated_user(request)
+        return _auth_payload(request, user)
+
+    @app.post('/api/auth/login')
+    def auth_login(payload: dict, request: Request):
+        if not auth_enabled:
+            return _auth_payload(request, None)
+        email = _normalize_email((payload or {}).get('email'))
+        password = str((payload or {}).get('password') or '')
+        if not email or not password:
+            raise HTTPException(status_code=400, detail='Missing email or password.')
+        with app.state._auth_lock:
+            data = _load_auth_store()
+            rec, idx = _find_user(data, email)
+            if rec is None or idx is None or not _verify_password(password, rec):
+                _append_auth_event('login', email=email, ip=_get_client_ip(request), ok=False, detail='invalid credentials')
+                raise HTTPException(status_code=401, detail='Invalid credentials.')
+            ip = _get_client_ip(request)
+            sid = _create_session_locked(email, ip, request.headers.get('user-agent') or '')
+            data['users'][idx]['last_login_at'] = _auth_now()
+            data['users'][idx]['last_login_ip'] = ip
+            data['users'][idx]['updated_at'] = _auth_now()
+            _save_auth_store(data)
+            _append_auth_event('login', email=email, ip=ip, ok=True, detail='login ok', session_id=sid)
+            response = JSONResponse(content=_auth_payload(request, data['users'][idx]))
+            _set_session_cookie(response, sid)
+            return response
+
+    @app.post('/api/auth/logout')
+    def auth_logout(request: Request):
+        response = JSONResponse(content={'ok': True})
+        if auth_enabled:
+            user = _get_authenticated_user(request)
+            with app.state._auth_lock:
+                if user:
+                    _append_auth_event('logout', email=str(user.get('email') or ''), ip=_get_client_ip(request), ok=True, detail='logout')
+                    _invalidate_session_locked(str(user.get('email') or ''))
+            _clear_session_cookie(response)
+        return response
+
+    @app.post('/api/auth/change-password')
+    def auth_change_password(payload: dict, request: Request):
+        if not auth_enabled:
+            return {'ok': True, 'enabled': False}
+        user = _get_authenticated_user(request)
+        if not user:
+            raise HTTPException(status_code=401, detail='AUTH_REQUIRED')
+        new_password = str((payload or {}).get('new_password') or '')
+        if len(new_password) < 10:
+            raise HTTPException(status_code=400, detail='New password must be at least 10 characters long.')
+        email = _normalize_email(user.get('email'))
+        with app.state._auth_lock:
+            data = _load_auth_store()
+            rec, idx = _find_user(data, email)
+            if rec is None or idx is None:
+                raise HTTPException(status_code=404, detail='User not found.')
+            _set_password(data['users'][idx], new_password, must_change_password=False)
+            _save_auth_store(data)
+            _append_auth_event('change_password', email=email, ip=_get_client_ip(request), ok=True, detail='password updated')
+            user = data['users'][idx]
+        return {'ok': True, 'user': _sanitize_user(user)}
+
+    @app.get('/api/admin/users')
+    def admin_list_users(request: Request):
+        if not auth_enabled:
+            raise HTTPException(status_code=404, detail='Auth disabled.')
+        user = _get_authenticated_user(request)
+        if not user or str(user.get('role') or '') != 'admin':
+            raise HTTPException(status_code=403, detail='Admin only.')
+        with app.state._auth_lock:
+            data = _load_auth_store()
+            users = [_sanitize_user(rec) for rec in data.get('users', []) if isinstance(rec, dict)]
+        return {'users': users, 'count': len(users)}
+
+    @app.post('/api/admin/users')
+    def admin_create_user(payload: dict, request: Request):
+        if not auth_enabled:
+            raise HTTPException(status_code=404, detail='Auth disabled.')
+        user = _get_authenticated_user(request)
+        if not user or str(user.get('role') or '') != 'admin':
+            raise HTTPException(status_code=403, detail='Admin only.')
+        email = _normalize_email((payload or {}).get('email'))
+        role = str((payload or {}).get('role') or 'user').strip().lower()
+        if role not in {'user', 'admin'}:
+            role = 'user'
+        if not email or '@' not in email:
+            raise HTTPException(status_code=400, detail='Enter a valid email address.')
+        temp_password = _generate_temp_password()
+        now = _auth_now()
+        with app.state._auth_lock:
+            data = _load_auth_store()
+            existing, _ = _find_user(data, email)
+            if existing is not None:
+                raise HTTPException(status_code=409, detail='User already exists.')
+            rec = {
+                'email': email,
+                'role': role,
+                'created_at': now,
+                'updated_at': now,
+                'last_login_at': None,
+                'last_login_ip': None,
+                'must_change_password': True,
+            }
+            _set_password(rec, temp_password, must_change_password=True)
+            data.setdefault('users', []).append(rec)
+            _save_auth_store(data)
+            _append_auth_event('create_user', email=email, ip=_get_client_ip(request), ok=True, detail=f'created by {user.get("email", "admin")}')
+        return {'ok': True, 'user': _sanitize_user(rec), 'temporary_password': temp_password}
+
+    @app.delete('/api/admin/users')
+    def admin_delete_user(request: Request, email: str = ''):
+        if not auth_enabled:
+            raise HTTPException(status_code=404, detail='Auth disabled.')
+        user = _get_authenticated_user(request)
+        if not user or str(user.get('role') or '') != 'admin':
+            raise HTTPException(status_code=403, detail='Admin only.')
+        target_email = _normalize_email(email)
+        actor_email = _normalize_email(str(user.get('email') or ''))
+        if not target_email or '@' not in target_email:
+            raise HTTPException(status_code=400, detail='Enter a valid email address.')
+        if target_email == actor_email:
+            raise HTTPException(status_code=400, detail='You cannot delete your own account.')
+        with app.state._auth_lock:
+            data = _load_auth_store()
+            rec, idx = _find_user(data, target_email)
+            if rec is None or idx is None:
+                raise HTTPException(status_code=404, detail='User not found.')
+            role = str(rec.get('role') or 'user').strip().lower()
+            if role == 'admin':
+                admins = [u for u in (data.get('users') or []) if isinstance(u, dict) and str(u.get('role') or 'user').strip().lower() == 'admin']
+                if len(admins) <= 1:
+                    raise HTTPException(status_code=400, detail='You cannot delete the last admin account.')
+            del data['users'][idx]
+            _invalidate_session_locked(target_email)
+            _save_auth_store(data)
+            _append_auth_event('delete_user', email=target_email, ip=_get_client_ip(request), ok=True, detail=f'deleted by {user.get("email", "admin")}')
+            users = [_sanitize_user(item) for item in data.get('users', []) if isinstance(item, dict)]
+        return {'ok': True, 'deleted_email': target_email, 'users': users, 'count': len(users)}
+
+    @app.get('/api/admin/auth-events')
+    def admin_auth_events(request: Request, limit: int = 100):
+        if not auth_enabled:
+            raise HTTPException(status_code=404, detail='Auth disabled.')
+        user = _get_authenticated_user(request)
+        if not user or str(user.get('role') or '') != 'admin':
+            raise HTTPException(status_code=403, detail='Admin only.')
+        return {'events': _read_auth_events(limit=max(1, min(int(limit or 100), 500)))}
+
     @app.get("/favicon.ico")
 
     def favicon():
@@ -2296,12 +2880,20 @@ def create_app() -> FastAPI:
 
     def health():
 
+        active_model = str(getattr(app.state, "_active_model", config_path) or config_path)
         return {
             "status": "ok",
             "max_duration": max_duration,
-            "model": str(getattr(app.state, "_active_model", config_path) or config_path),
+            "model": active_model,
             "max_batch_size": 4,
             "audio_formats": ["flac","wav","mp3","opus","aac","wav32"],
+            "limits": {
+                "max_inference_steps_current_model": _get_max_inference_steps_for_model(active_model),
+                "max_inference_steps_turbo": _get_max_inference_steps_for_model("turbo"),
+                "max_inference_steps_base": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE,
+            },
+            "cleanup_ttl_seconds": _get_cleanup_ttl_seconds(),
+            "core_turbo_step_clamp_bypass_enabled": _is_core_turbo_step_clamp_bypass_enabled(),
         }
 
     @app.get("/api/options")
@@ -2318,16 +2910,16 @@ def create_app() -> FastAPI:
             "lm_ready": bool(getattr(app.state, "_llm_ready", False)),
             "think_default": True,
             "limits": {
-                "max_inference_steps_turbo": 20,
-                "max_inference_steps_base": 200,
+                "max_inference_steps_turbo": _get_max_inference_steps_for_model("turbo"),
+                "max_inference_steps_base": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE,
             },
             "infer_methods": ["ode", "sde"],
             "defaults": {
                 "inference_steps": 8,
                 "infer_method": "ode",
                 "timesteps": "",
-                "repainting_start": 0.0,
-                "repainting_end": -1.0,
+                "source_start": 0.0,
+                "source_end": -1.0,
                 "guidance_scale": 7.0,
                 "shift": 3.0,
                 "cfg_interval_start": 0.0,
@@ -2720,46 +3312,50 @@ timesignature: {timesignature}
                     compare_windows[ip][compare_key] = now
                 elif compare_key and compare_step == "B":
                     compare_windows[ip].pop(compare_key, None)
-        try:
-            rep = cleanup_old_job_dirs(Path(results_root), 3600)
-            logger.info(
-                "[cleanup] ttl={}s scanned={} deleted={} skipped={} errors={}",
-                3600,
-                rep.get("scanned", 0),
-                rep.get("deleted", 0),
-                rep.get("skipped", 0),
-                rep.get("errors", 0),
-            )
-        except Exception as exc:
-            logger.warning("[cleanup] exception err={!r}", exc)
-        try:
-            _ensure_uploads_dir()
-            repu = cleanup_old_upload_files(Path(uploads_dir), 3600)
-            _ensure_uploads_dir()
-            logger.info(
-                "[cleanup_uploads] ttl={}s scanned={} deleted={} skipped={} errors={}",
-                3600,
-                repu.get("scanned", 0),
-                repu.get("deleted", 0),
-                repu.get("skipped", 0),
-                repu.get("errors", 0),
-            )
-        except Exception as exc:
-            logger.warning("[cleanup_uploads] exception err={!r}", exc)
-        try:
-            _ensure_logs_dir()
-            repl = cleanup_old_log_files(Path(logs_dir), 3600)
-            _ensure_logs_dir()
-            logger.info(
-                "[cleanup_logs] ttl={}s scanned={} deleted={} skipped={} errors={}",
-                3600,
-                repl.get("scanned", 0),
-                repl.get("deleted", 0),
-                repl.get("skipped", 0),
-                repl.get("errors", 0),
-            )
-        except Exception as exc:
-            logger.warning("[cleanup_logs] exception err={!r}", exc)
+        cleanup_ttl_seconds = _get_cleanup_ttl_seconds()
+        if cleanup_ttl_seconds <= 0:
+            logger.info("[cleanup] disabled ttl={}s via {}", cleanup_ttl_seconds, ACEFLOW_CLEANUP_TTL_ENV)
+        else:
+            try:
+                rep = cleanup_old_job_dirs(Path(results_root), cleanup_ttl_seconds)
+                logger.info(
+                    "[cleanup] ttl={}s scanned={} deleted={} skipped={} errors={}",
+                    cleanup_ttl_seconds,
+                    rep.get("scanned", 0),
+                    rep.get("deleted", 0),
+                    rep.get("skipped", 0),
+                    rep.get("errors", 0),
+                )
+            except Exception as exc:
+                logger.warning("[cleanup] exception err={!r}", exc)
+            try:
+                _ensure_uploads_dir()
+                repu = cleanup_old_upload_files(Path(uploads_dir), cleanup_ttl_seconds)
+                _ensure_uploads_dir()
+                logger.info(
+                    "[cleanup_uploads] ttl={}s scanned={} deleted={} skipped={} errors={}",
+                    cleanup_ttl_seconds,
+                    repu.get("scanned", 0),
+                    repu.get("deleted", 0),
+                    repu.get("skipped", 0),
+                    repu.get("errors", 0),
+                )
+            except Exception as exc:
+                logger.warning("[cleanup_uploads] exception err={!r}", exc)
+            try:
+                _ensure_logs_dir()
+                repl = cleanup_old_log_files(Path(logs_dir), cleanup_ttl_seconds)
+                _ensure_logs_dir()
+                logger.info(
+                    "[cleanup_logs] ttl={}s scanned={} deleted={} skipped={} errors={}",
+                    cleanup_ttl_seconds,
+                    repl.get("scanned", 0),
+                    repl.get("deleted", 0),
+                    repl.get("skipped", 0),
+                    repl.get("errors", 0),
+                )
+            except Exception as exc:
+                logger.warning("[cleanup_logs] exception err={!r}", exc)
         q: InProcessJobQueue = app.state.queue
         caption = (payload.get("caption") or "").strip()
         lyrics = (payload.get("lyrics") or "").strip()
@@ -2849,8 +3445,8 @@ timesignature: {timesignature}
         inference_steps = payload.get("inference_steps", None)
         infer_method = str(payload.get("infer_method") or "ode").strip().lower()
         timesteps = payload.get("timesteps", None)
-        repainting_start = payload.get("repainting_start", None)
-        repainting_end = payload.get("repainting_end", None)
+        source_start = payload.get("source_start", None)
+        source_end = payload.get("source_end", None)
         guidance_scale = payload.get("guidance_scale", None)
         shift = payload.get("shift", None)
         use_adg = payload.get("use_adg", False)
@@ -2874,6 +3470,11 @@ timesignature: {timesignature}
         generation_mode = str(payload.get("generation_mode") or "Custom").strip()
         if generation_mode not in {"Simple", "Custom", "Cover", "Remix"}:
             generation_mode = "Custom"
+        if generation_mode != "Remix":
+            source_start = None
+            source_end = None
+            payload.pop("source_start", None)
+            payload.pop("source_end", None)
         task_type = "text2music"
         if generation_mode == "Cover":
             task_type = "cover"
@@ -2891,10 +3492,6 @@ timesignature: {timesignature}
                 raise HTTPException(status_code=400, detail="Per COVER devi fornire un audio sorgente oppure audio codes.")
             reference_audio = ""
             payload["reference_audio"] = ""
-        elif task_type == "repaint":
-            if not src_audio:
-                raise HTTPException(status_code=400, detail="Per REMIX devi caricare un audio sorgente.")
-            _resolve_uploaded_path(src_audio)
         else:
             reference_audio = ""
             payload["reference_audio"] = ""
@@ -2969,8 +3566,8 @@ timesignature: {timesignature}
                 "inference_steps": inference_steps,
                 "infer_method": infer_method,
                 "timesteps": timesteps,
-                "repainting_start": repainting_start,
-                "repainting_end": repainting_end,
+                "source_start": source_start,
+                "source_end": source_end,
                 "guidance_scale": guidance_scale,
                 "shift": shift,
                 "use_adg": use_adg,

@@ -1,3 +1,14 @@
+
+function escapeHtml(value) {
+  const s = String(value ?? '');
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const el = (id) => document.getElementById(id);
 
 
@@ -7,6 +18,72 @@ const t = (window && window.t) ? window.t : ((k, vars) => {
   return String(k).replace(/\{([a-zA-Z0-9_]+)\}/g, (m, kk) => (vars[kk] ?? ''));
 });
 const applyTranslations = (window && window.applyTranslations) ? window.applyTranslations : (() => {});
+
+const authOverlay = el('auth_overlay');
+const authOverlayTitle = el('auth_overlay_title');
+const authOverlayHelp = el('auth_overlay_help');
+const authOverlayStatus = el('auth_overlay_status');
+const authLoginBox = el('auth_login_box');
+const authChangeBox = el('auth_change_box');
+const authLoginEmail = el('auth_login_email');
+const authLoginPassword = el('auth_login_password');
+const authLoginForm = el('auth_login_form');
+const authLoginSubmit = el('auth_login_submit');
+const authChangePassword = el('auth_change_password');
+const authChangePasswordConfirm = el('auth_change_password_confirm');
+const authChangeSubmit = el('auth_change_submit');
+const authBar = el('auth_bar');
+const authUserLabel = el('auth_user_label');
+const authLogoutBtn = el('auth_logout');
+const authAdminToggleBtn = el('auth_admin_toggle');
+const authAdminPanel = el('auth_admin_panel');
+const authAdminEmail = el('auth_admin_email');
+const authAdminRole = el('auth_admin_role');
+const authAdminCreate = el('auth_admin_create');
+const authAdminStatus = el('auth_admin_status');
+const authAdminPasswordBox = el('auth_admin_password_box');
+const authAdminPassword = el('auth_admin_password');
+const authAdminUsers = el('auth_admin_users');
+const authAdminEvents = el('auth_admin_events');
+
+const authState = {
+  enabled: false,
+  authenticated: false,
+  mustChangePassword: false,
+  user: null,
+  isAdmin: false,
+  resolved: false,
+};
+
+let protectedBootstrapStarted = false;
+
+function canUseProtectedApi() {
+  if (!authState.resolved) return false;
+  if (!authState.enabled) return true;
+  return !!(authState.authenticated && !authState.mustChangePassword);
+}
+
+async function ensureProtectedBootstrap() {
+  if (protectedBootstrapStarted) return;
+  if (!canUseProtectedApi()) return;
+  protectedBootstrapStarted = true;
+  await initializeProtectedBootstrap();
+}
+
+
+const __nativeFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await __nativeFetch(...args);
+  if (res && (res.status === 401 || res.status === 403)) {
+    try {
+      const data = await res.clone().json();
+      const detail = String((data && data.detail) || '');
+      if (detail === 'AUTH_REQUIRED') handleAuthRequirement('login');
+      else if (detail === 'PASSWORD_CHANGE_REQUIRED') handleAuthRequirement('change-password');
+    } catch (_) {}
+  }
+  return res;
+};
 
 const statusBox = el('status');
 const resultBox = el('result');
@@ -251,10 +328,324 @@ async function getResponseErrorMessage(res, kind) {
   if (detail.startsWith('{') && detail.endsWith('}')) {
     try {
       const parsed = JSON.parse(detail);
-      if (parsed && typeof parsed.detail !== 'undefined') return String(parsed.detail || '').trim() || detail;
+      if (parsed && typeof parsed.detail !== 'undefined') {
+        return localizeApiErrorMessage(String(parsed.detail || '').trim() || detail, kind);
+      }
     } catch (_) {}
   }
-  return detail || `${res.status} ${res.statusText || ''}`.trim();
+  return localizeApiErrorMessage(detail || `${res.status} ${res.statusText || ''}`.trim(), kind);
+}
+
+function localizeApiErrorMessage(detail, kind) {
+  const raw = String(detail || '').trim();
+  if (!raw) return raw;
+  const map = {
+    'Missing email or password.': 'auth.error.missing_email_or_password',
+    'Invalid credentials.': 'auth.error.invalid_credentials',
+    'New password must be at least 10 characters long.': 'auth.error.password_too_short',
+    'User not found.': 'auth.error.user_not_found',
+    'Enter a valid email address.': 'auth.error.invalid_email',
+    'User already exists.': 'auth.error.user_already_exists',
+    'You cannot delete your own account.': 'auth.error.delete_self',
+    'You cannot delete the last admin account.': 'auth.error.delete_last_admin',
+    'Admin only.': 'auth.error.admin_only',
+    'Auth disabled.': 'auth.error.auth_disabled',
+    'AUTH_REQUIRED': 'auth.status.session_required',
+    'PASSWORD_CHANGE_REQUIRED': 'auth.status.password_required',
+  };
+  const key = map[raw];
+  if (key) return t(key);
+  return raw;
+}
+
+function formatAuthTime(value) {
+  if (!value) return '—';
+  try {
+    const d = new Date(Number(value) * 1000);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+  } catch (_) {
+    return '—';
+  }
+}
+
+function setAuthOverlayMessage(message) {
+  if (!authOverlayStatus) return;
+  authOverlayStatus.textContent = message ? String(message) : '';
+}
+
+function renderAdminUsers(users) {
+  if (!authAdminUsers) return;
+  const items = Array.isArray(users) ? users : [];
+  if (!items.length) {
+    authAdminUsers.textContent = t('auth.admin.no_users');
+    authAdminUsers.classList.remove('auth-user-list');
+    return;
+  }
+  const currentEmail = String(authState.user?.email || '').trim().toLowerCase();
+  authAdminUsers.classList.add('auth-user-list');
+  authAdminUsers.innerHTML = items.map((user) => {
+    const email = String(user.email || '');
+    const role = String(user.role || 'user').toLowerCase();
+    const roleLabel = t(role === 'admin' ? 'auth.role.admin' : 'auth.role.user');
+    const must = user.must_change_password ? t('auth.admin.must_change') : '';
+    const last = t('auth.admin.last_login') + ': ' + formatAuthTime(user.last_login_at);
+    const isSelf = email.trim().toLowerCase() === currentEmail;
+    const delLabel = isSelf ? t('auth.admin.delete_self_disabled') : t('auth.admin.delete');
+    return `<div class="auth-user-row"><div><strong>${escapeHtml(email)}</strong><div class="muted small">${escapeHtml(roleLabel)}${must ? ' • ' + escapeHtml(must) : ''}</div></div><div class="auth-user-actions"><div class="muted small">${escapeHtml(last)}</div><button class="btn ghost small auth-user-delete" type="button" data-email="${encodeURIComponent(email)}" ${isSelf ? 'disabled' : ''}>${escapeHtml(delLabel)}</button></div></div>`;
+  }).join('');
+  if (!authAdminUsers.dataset.deleteBound) {
+    authAdminUsers.dataset.deleteBound = '1';
+    authAdminUsers.addEventListener('click', async (e) => {
+      const btn = e.target?.closest?.('.auth-user-delete');
+      if (!btn || btn.disabled) return;
+      const email = decodeURIComponent(String(btn.getAttribute('data-email') || ''));
+      if (!email) return;
+      const msg = t('auth.admin.delete_confirm', { email });
+      if (!window.confirm(msg)) return;
+      const prev = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = t('auth.admin.deleting');
+      try {
+        const res = await fetch(`/api/admin/users?email=${encodeURIComponent(email)}`, { method: 'DELETE', cache: 'no-store' });
+        if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'admin-delete-user'));
+        const data = await res.json();
+        const row = btn.closest('.auth-user-row');
+        if (Array.isArray(data?.users)) {
+          renderAdminUsers(data.users);
+        } else if (row) {
+          row.remove();
+        }
+        if (authAdminStatus) authAdminStatus.textContent = t('auth.admin.deleted', { email });
+        loadAdminUsers().catch((reloadErr) => {
+          console.warn('admin user reload failed after delete', reloadErr);
+          if (authAdminStatus) {
+            authAdminStatus.textContent = `${t('auth.admin.deleted', { email })} · ${t('auth.admin.reload_warning')}`;
+          }
+        });
+      } catch (err) {
+        if (authAdminStatus) authAdminStatus.textContent = t('auth.admin.delete_failed', { msg: err.message || String(err) });
+        btn.disabled = false;
+        btn.textContent = prev;
+      }
+    });
+  }
+}
+
+function renderAdminEvents(events) {
+  if (!authAdminEvents) return;
+  const items = Array.isArray(events) ? events : [];
+  if (!items.length) {
+    authAdminEvents.textContent = t('auth.admin.audit_empty');
+    authAdminEvents.classList.remove('auth-user-list');
+    return;
+  }
+  authAdminEvents.classList.add('auth-user-list');
+  authAdminEvents.innerHTML = items.map((ev) => {
+    const when = formatAuthTime(ev.ts);
+    const eventName = String(ev.event || 'event');
+    const eventKey = `auth.event.${eventName}`;
+    const eventLabel = t(eventKey) === eventKey ? eventName : t(eventKey);
+    const email = String(ev.email || '—');
+    const ip = String(ev.ip || '—');
+    const ok = ev.ok ? t('auth.event.ok') : t('auth.event.fail');
+    const detail = String(ev.detail || '');
+    return `<div class="auth-user-row"><div><strong>${escapeHtml(eventLabel)}</strong><div class="muted small">${escapeHtml(email)} • ${escapeHtml(ip)} • ${escapeHtml(ok)}</div></div><div class="muted small">${escapeHtml(when)}${detail ? `<br />${escapeHtml(detail)}` : ''}</div></div>`;
+  }).join('');
+}
+
+function updateAuthChrome() {
+  document.body.classList.toggle('auth-locked', !!(authState.enabled && (!authState.authenticated || authState.mustChangePassword)));
+  if (authBar) authBar.classList.toggle('hidden', !(authState.enabled && authState.authenticated));
+  if (authUserLabel) {
+    if (authState.authenticated && authState.user) {
+      const role = String(authState.user.role || 'user').toLowerCase();
+      const roleLabel = t(role === 'admin' ? 'auth.role.admin' : 'auth.role.user');
+      authUserLabel.textContent = `${authState.user.email} · ${roleLabel}`;
+    } else {
+      authUserLabel.textContent = '';
+    }
+  }
+  if (authAdminToggleBtn) authAdminToggleBtn.classList.toggle('hidden', !authState.isAdmin);
+  if (authAdminPanel && !authState.isAdmin) authAdminPanel.classList.add('hidden');
+}
+
+function setAuthOverlayMode(mode) {
+  if (!authOverlay) return;
+  const loginMode = mode !== 'change-password';
+  authOverlay.classList.toggle('hidden', mode === 'hidden');
+  if (authLoginBox) authLoginBox.classList.toggle('hidden', !loginMode);
+  if (authChangeBox) authChangeBox.classList.toggle('hidden', loginMode);
+  if (authOverlayTitle) authOverlayTitle.textContent = t(loginMode ? 'auth.login.title' : 'auth.change.title');
+  if (authOverlayHelp) authOverlayHelp.textContent = t(loginMode ? 'auth.login.help' : 'auth.change.help');
+  requestAnimationFrame(() => {
+    const target = loginMode ? authLoginEmail : authChangePassword;
+    try { target?.focus(); } catch (_) {}
+  });
+}
+
+function handleAuthRequirement(kind) {
+  if (!authState.enabled) return;
+  authState.authenticated = false;
+  authState.mustChangePassword = kind === 'change-password';
+  setAuthOverlayMode(kind === 'change-password' ? 'change-password' : 'login');
+  setAuthOverlayMessage(t(kind === 'change-password' ? 'auth.status.password_required' : 'auth.status.session_required'));
+  updateAuthChrome();
+}
+
+async function loadAdminUsers() {
+  if (!authState.isAdmin) return;
+  try {
+    const [usersRes, eventsRes] = await Promise.all([
+      fetch('/api/admin/users', { cache: 'no-store' }),
+      fetch('/api/admin/auth-events?limit=100', { cache: 'no-store' }),
+    ]);
+    if (!usersRes.ok) throw new Error(await getResponseErrorMessage(usersRes, 'admin-users'));
+    const usersData = await usersRes.json();
+    renderAdminUsers(usersData.users || []);
+    if (!eventsRes.ok) throw new Error(await getResponseErrorMessage(eventsRes, 'admin-events'));
+    const eventsData = await eventsRes.json();
+    renderAdminEvents(eventsData.events || []);
+  } catch (e) {
+    if (authAdminUsers) authAdminUsers.textContent = t('auth.admin.list_failed', { msg: e.message || String(e) });
+    if (authAdminEvents) authAdminEvents.textContent = t('auth.admin.audit_failed', { msg: e.message || String(e) });
+  }
+}
+
+async function loadAuthStatus() {
+  const res = await __nativeFetch('/api/auth/status', { cache: 'no-store' });
+  const data = res.ok ? await res.json() : { enabled: false, authenticated: true, must_change_password: false, user: null, is_admin: false };
+  authState.enabled = !!data.enabled;
+  authState.authenticated = !!data.authenticated;
+  authState.mustChangePassword = !!data.must_change_password;
+  authState.user = data.user || null;
+  authState.isAdmin = !!data.is_admin;
+  authState.resolved = true;
+  updateAuthChrome();
+  if (!authState.enabled) {
+    setAuthOverlayMode('hidden');
+    return data;
+  }
+  if (!authState.authenticated) {
+    setAuthOverlayMode('login');
+    setAuthOverlayMessage('');
+  } else if (authState.mustChangePassword) {
+    setAuthOverlayMode('change-password');
+    setAuthOverlayMessage(t('auth.status.password_required'));
+  } else {
+    setAuthOverlayMode('hidden');
+    setAuthOverlayMessage('');
+    if (authState.isAdmin) await loadAdminUsers();
+  }
+  await ensureProtectedBootstrap();
+  return data;
+}
+
+async function submitLogin() {
+  const email = String(authLoginEmail?.value || '').trim();
+  const password = String(authLoginPassword?.value || '');
+  try {
+    const res = await __nativeFetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'auth-login'));
+    await loadAuthStatus();
+    if (authState.authenticated && !authState.mustChangePassword) window.location.reload();
+  } catch (e) {
+    setAuthOverlayMessage(t('auth.status.login_failed', { msg: e.message || String(e) }));
+  }
+}
+
+async function submitPasswordChange() {
+  const p1 = String(authChangePassword?.value || '');
+  const p2 = String(authChangePasswordConfirm?.value || '');
+  if (p1.length < 10) {
+    setAuthOverlayMessage(t('auth.status.password_short'));
+    return;
+  }
+  if (p1 !== p2) {
+    setAuthOverlayMessage(t('auth.status.password_mismatch'));
+    return;
+  }
+  try {
+    const res = await fetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_password: p1 }),
+    });
+    if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'auth-change'));
+    if (authChangePassword) authChangePassword.value = '';
+    if (authChangePasswordConfirm) authChangePasswordConfirm.value = '';
+    setAuthOverlayMessage(t('auth.status.password_changed'));
+    await loadAuthStatus();
+    if (authState.authenticated && !authState.mustChangePassword) window.location.reload();
+  } catch (e) {
+    setAuthOverlayMessage(t('auth.status.password_change_failed', { msg: e.message || String(e) }));
+  }
+}
+
+async function submitCreateUser() {
+  const email = String(authAdminEmail?.value || '').trim();
+  const role = String(authAdminRole?.value || 'user');
+  if (authAdminStatus) authAdminStatus.textContent = '';
+  try {
+    const res = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role }),
+    });
+    if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'admin-create'));
+    const data = await res.json();
+    if (authAdminStatus) authAdminStatus.textContent = t('auth.admin.created', { email: data?.user?.email || email });
+    if (authAdminPasswordBox) authAdminPasswordBox.classList.remove('hidden');
+    if (authAdminPassword) authAdminPassword.textContent = String(data.temporary_password || '');
+    if (authAdminEmail) authAdminEmail.value = '';
+    await loadAdminUsers();
+  } catch (e) {
+    if (authAdminStatus) authAdminStatus.textContent = t('auth.admin.create_failed', { msg: e.message || String(e) });
+  }
+}
+
+function bindAuthUi() {
+  if (authLoginForm && !authLoginForm.dataset.bound) {
+    authLoginForm.dataset.bound = '1';
+    authLoginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      submitLogin();
+    });
+  } else if (authLoginSubmit && !authLoginSubmit.dataset.bound) {
+    authLoginSubmit.dataset.bound = '1';
+    authLoginSubmit.addEventListener('click', submitLogin);
+  }
+  if (authChangeSubmit && !authChangeSubmit.dataset.bound) {
+    authChangeSubmit.dataset.bound = '1';
+    authChangeSubmit.addEventListener('click', submitPasswordChange);
+  }
+  if (authChangePasswordConfirm && !authChangePasswordConfirm.dataset.bound) {
+    authChangePasswordConfirm.dataset.bound = '1';
+    authChangePasswordConfirm.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPasswordChange(); });
+  }
+  if (authLogoutBtn && !authLogoutBtn.dataset.bound) {
+    authLogoutBtn.dataset.bound = '1';
+    authLogoutBtn.addEventListener('click', async () => {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
+      await loadAuthStatus();
+    });
+  }
+  if (authAdminToggleBtn && !authAdminToggleBtn.dataset.bound) {
+    authAdminToggleBtn.dataset.bound = '1';
+    authAdminToggleBtn.addEventListener('click', async () => {
+      if (!authAdminPanel) return;
+      const willShow = authAdminPanel.classList.contains('hidden');
+      authAdminPanel.classList.toggle('hidden', !willShow);
+      if (willShow) await loadAdminUsers();
+    });
+  }
+  if (authAdminCreate && !authAdminCreate.dataset.bound) {
+    authAdminCreate.dataset.bound = '1';
+    authAdminCreate.addEventListener('click', submitCreateUser);
+  }
 }
 
 function setupFilePickButton(buttonEl, inputEl, nameEl) {
@@ -1948,8 +2339,8 @@ function __snapshotUiForExport(payload) {
     inference_steps: payload?.inference_steps ?? null,
     infer_method: payload?.infer_method ?? (el('infer_method') ? el('infer_method').value : null),
     timesteps: (payload?.timesteps != null) ? payload.timesteps : (el('timesteps') ? el('timesteps').value : null),
-    repainting_start: (payload?.repainting_start != null) ? payload.repainting_start : (el('repainting_start') ? Number(el('repainting_start').value || '') : null),
-    repainting_end: (payload?.repainting_end != null) ? payload.repainting_end : (el('repainting_end') ? Number(el('repainting_end').value || '') : null),
+    source_start: (payload?.source_start != null) ? payload.source_start : (el('source_start') ? Number(el('source_start').value || '') : null),
+    source_end: (payload?.source_end != null) ? payload.source_end : (el('source_end') ? Number(el('source_end').value || '') : null),
     guidance_scale: payload?.guidance_scale ?? null,
     shift: payload?.shift ?? null,
 
@@ -2098,6 +2489,7 @@ async function downloadMergedJobJson(jsonUrl, jobId, audioUrl, explicitAudioFile
 
 
 async function refreshFooterStats() {
+  if (!canUseProtectedApi()) return;
   try {
     const r = await fetch(`/api/stats?ts=${Date.now()}`);
     const data = await r.json();
@@ -2408,7 +2800,6 @@ function updateModeVisibility() {
   updateRemixSourceWindowVisibility();
 }
 
-
 function updateRemixSourceWindowVisibility() {
   const mode = getGenerationMode();
   const show = (mode === 'Remix');
@@ -2641,6 +3032,56 @@ function syncRangeNumber(rangeId, numId, { decimals = null } = {}) {
 }
 
 
+
+let __ACE_STEP_LIMITS = {
+  max_inference_steps_turbo: 20,
+  max_inference_steps_base: 200,
+  max_inference_steps_current_model: 20,
+};
+
+function isSftModelName(modelName) {
+  const v = String(modelName || '').trim().toLowerCase();
+  return v.startsWith('sft') || v.includes('sft');
+}
+
+function isTurboModelName(modelName) {
+  const v = String(modelName || '').trim().toLowerCase();
+  return v.includes('turbo') && !isSftModelName(v);
+}
+
+function getCurrentStepLimit(modelName) {
+  if (isTurboModelName(modelName)) return Number(__ACE_STEP_LIMITS.max_inference_steps_turbo || 20);
+  return Number(__ACE_STEP_LIMITS.max_inference_steps_base || 200);
+}
+
+function getDefaultInferenceStepsForModel(modelName) {
+  if (isSftModelName(modelName)) return 50;
+  if (isTurboModelName(modelName)) return 8;
+  return 20;
+}
+
+function applyInferenceStepLimit(modelName, options = {}) {
+  const st = el('steps') || el('inference_steps');
+  const stR = el('steps_range') || el('inference_steps_range');
+  if (!st || !stR) return;
+  const maxSteps = Math.max(1, getCurrentStepLimit(modelName));
+  const minSteps = 1;
+  const preserveValue = options.preserveValue !== false;
+  const desiredValue = options.desiredValue;
+  st.min = String(minSteps);
+  st.max = String(maxSteps);
+  stR.min = String(minSteps);
+  stR.max = String(maxSteps);
+  let nextValue = desiredValue;
+  if (nextValue == null && preserveValue) {
+    const current = Number((st.value ?? stR.value ?? '').toString().trim());
+    if (!Number.isNaN(current)) nextValue = current;
+  }
+  if (nextValue == null) nextValue = maxSteps;
+  nextValue = Math.max(minSteps, Math.min(maxSteps, Math.round(Number(nextValue) || minSteps)));
+  writeNumericInputValue(st, nextValue, { decimals: 0, preferValueAsNumber: true });
+  stR.value = String(nextValue);
+}
 
 function syncStepsPair() {
   const st = el('steps');
@@ -3734,13 +4175,13 @@ function buildPayloadForCurrentUi() {
   const audio_format = el('audio_format')?.value || 'flac';
   let inference_steps = numOrNull((el('inference_steps')?.value ?? el('steps')?.value));
   try {
-    const maxSteps = 200; 
+    const maxSteps = getCurrentStepLimit(modelSelect?.value || '');
     if (inference_steps !== null) inference_steps = Math.max(1, Math.min(inference_steps, maxSteps));
   } catch (e) {}
   const infer_method = (el('infer_method')?.value || 'ode').trim().toLowerCase() || 'ode';
   const timesteps = strVal('timesteps', '');
-  const repainting_start = numOrNull(el('repainting_start')?.value);
-  const repainting_end = numOrNull(el('repainting_end')?.value);
+  const source_start = numOrNull(el('source_start')?.value);
+  const source_end = numOrNull(el('source_end')?.value);
   const guidance_scale = numOrNull((el('guidance_scale')?.value ?? el('cfg')?.value));
   const shift = numOrNull(el('shift')?.value);
   const use_adg = !!el('use_adg')?.checked;
@@ -3899,8 +4340,7 @@ function buildPayloadForCurrentUi() {
       inference_steps,
       infer_method,
       timesteps,
-      repainting_start,
-      repainting_end,
+      ...(generation_mode === 'Remix' ? { source_start, source_end } : {}),
       guidance_scale,
       shift,
       use_adg,
@@ -4247,13 +4687,18 @@ if (btnTranscribe) {
 }
 
 
-(async () => {
+async function initializeProtectedBootstrap() {
+  if (!canUseProtectedApi()) return;
   refreshFooterStats();
   try {
     let opt = null;
     const optRes = await fetch('/api/options');
     if (optRes.ok) {
       opt = await optRes.json();
+      __ACE_STEP_LIMITS = {
+        ...__ACE_STEP_LIMITS,
+        ...(opt && opt.limits ? opt.limits : {}),
+      };
       const langs = Array.isArray(opt.valid_languages) ? opt.valid_languages : [];
       const sel = el('vocal_language');
       if (sel && langs.length) {
@@ -4320,29 +4765,21 @@ think.addEventListener('change', () => {
 
     
     try {
-      const maxSteps = 200; 
-      const st = el('inference_steps') || el('steps');
-      const stR = el('inference_steps_range') || el('steps_range');
-      if (st) {
-        st.min = '1';
-        st.max = String(maxSteps);
-        
-        if (st.value) {
-          const v = Number(st.value);
-          if (!Number.isNaN(v)) st.value = String(Math.max(1, Math.min(v, maxSteps)));
-        }
-      }
-      if (stR) {
-        stR.min = '1';
-        stR.max = String(maxSteps);
-        const v = Number(stR.value);
-        if (!Number.isNaN(v)) stR.value = String(Math.max(1, Math.min(v, maxSteps)));
-      }
+      const activeModel = (modelSelect && modelSelect.value) ? modelSelect.value : '';
+      applyInferenceStepLimit(activeModel, {
+        preserveValue: __stepsTouched,
+        desiredValue: __stepsTouched ? undefined : getDefaultInferenceStepsForModel(activeModel),
+      });
     } catch (e) {}
 
+    if (!canUseProtectedApi()) return;
     const res = await fetch('/api/health');
     if (res.ok) {
       const h = await res.json();
+      __ACE_STEP_LIMITS = {
+        ...__ACE_STEP_LIMITS,
+        ...(h && h.limits ? h.limits : {}),
+      };
       window.__ACE_MAX_DURATION = h.max_duration;
       updateReadyStatus(h.max_duration);
       const dur = el('duration');
@@ -4350,6 +4787,14 @@ think.addEventListener('change', () => {
         dur.max = String(h.max_duration);
         if (!dur.value) dur.value = 180;
       }
+
+      try {
+        const uiModel = modelSelect?.value || h.model || '';
+        applyInferenceStepLimit(uiModel, {
+          preserveValue: __stepsTouched,
+          desiredValue: __stepsTouched ? undefined : getDefaultInferenceStepsForModel(uiModel),
+        });
+      } catch (e) {}
 
       
       if (modelSelect && !modelSelect.dataset.bound) {
@@ -4371,25 +4816,16 @@ think.addEventListener('change', () => {
   
   
   try {
-    const v = String(modelSelect.value || '').toLowerCase();
-    const isSft = v.startsWith('sft') || v.includes('sft');
-    const desiredSteps = isSft ? 50 : 20;
+    const v = String(modelSelect.value || '');
+    const desiredSteps = getDefaultInferenceStepsForModel(v);
+    applyInferenceStepLimit(v, {
+      preserveValue: __stepsTouched,
+      desiredValue: __stepsTouched ? undefined : desiredSteps,
+    });
 
-    const st = el('steps') || el('inference_steps');
-    const stR = el('steps_range') || el('inference_steps_range');
-    if (st) {
-      st.value = String(desiredSteps);
-      st.dispatchEvent(new Event('input', { bubbles: true }));
-      st.dispatchEvent(new Event('change', { bubbles: true }));
+    if (!__stepsTouched) {
+      __stepsTouched = false;
     }
-    if (stR) {
-      stR.value = String(desiredSteps);
-      stR.dispatchEvent(new Event('input', { bubbles: true }));
-      stR.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-
-    
-    __stepsTouched = false;
   } catch (e) {}
 
   
@@ -4403,16 +4839,21 @@ think.addEventListener('change', () => {
   } catch {
     setStatusT('status.server_unreachable');
   }
-})();
+}
 
 setupSeedUI();
 
 
 
 async function loadOptions() {
+  if (!canUseProtectedApi()) return;
   try {
     const r = await fetch("/api/options");
     const data = await r.json();
+    __ACE_STEP_LIMITS = {
+      ...__ACE_STEP_LIMITS,
+      ...(data && data.limits ? data.limits : {}),
+    };
     const langs = (data && data.valid_languages) ? data.valid_languages : ["unknown","it","en","es","fr","de","pt","ja","ko","zh","ru"];
     chordReferenceSoundfontAvailable = !!(data && data.soundfont_available);
     chordReferenceSoundfontName = String((data && data.soundfont_name) || '');
@@ -4592,7 +5033,7 @@ function setupImportJson() {
       if (m === 'simple') uiMode = 'Simple';
       else if (m === 'custom') uiMode = 'Custom';
       else if (m === 'cover') uiMode = 'Cover';
-      else if (m === 'remix' || m === 'repaint') uiMode = 'Remix';
+      else if (m === 'remix') uiMode = 'Remix';
       if (uiMode) setGenerationMode(uiMode);
     }
 
@@ -4691,8 +5132,8 @@ function setupImportJson() {
     if (req.inference_steps != null) setVal('steps', safeInt(req.inference_steps) ?? req.inference_steps);
     if (req.infer_method != null) setVal('infer_method', String(req.infer_method).toLowerCase());
     if (req.timesteps != null) setVal('timesteps', Array.isArray(req.timesteps) ? req.timesteps.join(',') : req.timesteps);
-    if (req.repainting_start != null) setVal('repainting_start', safeNum(req.repainting_start) ?? req.repainting_start);
-    if (req.repainting_end != null) setVal('repainting_end', safeNum(req.repainting_end) ?? req.repainting_end);
+    if (req.source_start != null) setVal('source_start', safeNum(req.source_start) ?? req.source_start);
+    if (req.source_end != null) setVal('source_end', safeNum(req.source_end) ?? req.source_end);
     if (req.guidance_scale != null) setVal('guidance_scale', safeNum(req.guidance_scale) ?? req.guidance_scale);
     if (req.shift != null) setVal('shift', safeNum(req.shift) ?? req.shift);
     setChecked('use_adg', req.use_adg);
@@ -4736,6 +5177,9 @@ function setupImportJson() {
       generatedChordConditioningPath = uploadedRefAudioPath;
     }
     updateRefAudioVisibility();
+    try {
+      applyInferenceStepLimit(el('model_select')?.value || '', { preserveValue: true });
+    } catch (e) {}
   };
 
   const parseAndApply = async (raw) => {
@@ -4754,8 +5198,8 @@ function setupImportJson() {
       try { syncRangeNumber('lm_top_k_range', 'lm_top_k', { decimals: 0 }); } catch (e) {}
       try { syncRangeNumber('inference_steps_range', 'inference_steps', { decimals: 0 }); } catch (e) {}
       try { syncRangeNumber('steps_range', 'steps', { decimals: 0 }); } catch (e) {}
-      try { syncRangeNumber('repainting_start_range', 'repainting_start', { decimals: 1 }); } catch (e) {}
-      try { syncRangeNumber('repainting_end_range', 'repainting_end', { decimals: 1 }); } catch (e) {}
+      try { syncRangeNumber('source_start_range', 'source_start', { decimals: 1 }); } catch (e) {}
+      try { syncRangeNumber('source_end_range', 'source_end', { decimals: 1 }); } catch (e) {}
       try { syncRangeNumber('guidance_scale_range', 'guidance_scale', { decimals: 1 }); } catch (e) {}
       try { syncRangeNumber('shift_range', 'shift', { decimals: 1 }); } catch (e) {}
       try { syncRangeNumber('audio_cover_strength_range', 'audio_cover_strength', { decimals: 2 }); } catch (e) {}
@@ -4816,6 +5260,9 @@ window.addEventListener('ace:ui_lang_changed', () => {
 window.addEventListener('load', async () => {
   
   applyTranslations();
+  bindAuthUi();
+  await loadAuthStatus();
+  if (authState.enabled && (!authState.authenticated || authState.mustChangePassword)) return;
   setupFilePickButton(refAudioBtn, refAudioInput, refAudioName);
   setupFilePickButton(lmAudioBtn, lmAudioInput, lmAudioName);
   setupFilePickButton(importJsonFileBtn, importJsonFileInput, importJsonFileName);
@@ -4838,9 +5285,8 @@ window.addEventListener('load', async () => {
   syncRangeNumber('steps_range', 'steps', { decimals: 0 });
   syncStepsPair();
   syncRangeNumber('inference_steps_range', 'inference_steps', { decimals: 0 });
-  syncRangeNumber('repainting_start_range', 'repainting_start', { decimals: 1 });
-  syncRangeNumber('repainting_end_range', 'repainting_end', { decimals: 1 });
-  updateRemixSourceWindowVisibility();
+  syncRangeNumber('source_start_range', 'source_start', { decimals: 1 });
+  syncRangeNumber('source_end_range', 'source_end', { decimals: 1 });
   syncRangeNumber('guidance_scale_range', 'guidance_scale', { decimals: 1 });
   syncRangeNumber('shift_range', 'shift', { decimals: 1 });
   syncRangeNumber('cfg_interval_start_range', 'cfg_interval_start', { decimals: 2 });
@@ -4888,6 +5334,17 @@ ${el('lyrics')?.value || ''}`;
     if (stR) { stR.addEventListener('input', mark); stR.addEventListener('change', mark); }
   } catch (e) {}
 
+  try {
+    if (modelSelect) {
+      modelSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      const initialModel = el('model_select')?.value || '';
+      applyInferenceStepLimit(initialModel, {
+        preserveValue: __stepsTouched,
+        desiredValue: __stepsTouched ? undefined : getDefaultInferenceStepsForModel(initialModel),
+      });
+    }
+  } catch (e) {}
 
   
   try {

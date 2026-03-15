@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ACE-Step</title>
   <link rel="icon" href="/favicon.ico" />
-  <link rel="stylesheet" href="/static/style.css?v=v20" />
+  <link rel="stylesheet" href="/static/style.css?v=v32" />
 </head>
 <body>
   <div class="wrap">
@@ -21,6 +21,13 @@
         <a href="https://github.com/robustini" target="_blank" rel="noopener noreferrer" aria-label="Marcopter GitHub" style="display:inline-flex;align-items:center;"><img class="brand-logo" src="/static/logo-marcopter-white_8k.png" alt="marcopter" loading="lazy" /></a>
       </div>
 
+      <div class="hdr-right">
+        <div id="auth_bar" class="authbar hidden">
+        <span id="auth_user_label" class="auth-user-label muted small"></span>
+        <button id="auth_admin_toggle" class="btn ghost small hidden" type="button" data-i18n="auth.admin.open"></button>
+        <button id="auth_logout" class="btn ghost small" type="button" data-i18n="auth.logout"></button>
+      </div>
+
       <div class="ui-lang" aria-label="UI language">
         <label class="lbl-inline" style="margin:0;flex-direction:row;align-items:center;gap:6px;">
           <span class="ui-lang-label" data-i18n="ui.lang.label"></span>
@@ -30,6 +37,7 @@
             <option value="it" data-i18n="ui.lang.it"></option>
           </select>
         </label>
+      </div>
       </div>
     </header>
 
@@ -84,6 +92,43 @@
       </div>
 
       <hr class="sep" />
+
+      <section id="auth_admin_panel" class="card subcard hidden auth-admin-panel">
+        <div class="row split">
+          <div>
+            <h3 data-i18n="auth.admin.title"></h3>
+            <p class="muted small" data-i18n="auth.admin.help"></p>
+          </div>
+        </div>
+        <div class="grid2 auth-admin-grid">
+          <label class="lbl-inline">
+            <span class="setting-label" data-i18n="auth.admin.email"></span>
+            <input id="auth_admin_email" type="email" autocomplete="off" placeholder="user@example.com" />
+          </label>
+          <label class="lbl-inline">
+            <span class="setting-label" data-i18n="auth.admin.role"></span>
+            <select id="auth_admin_role">
+              <option value="user" data-i18n="auth.role.user"></option>
+              <option value="admin" data-i18n="auth.role.admin"></option>
+            </select>
+          </label>
+        </div>
+        <div class="row" style="margin-top:10px;gap:10px;align-items:center;">
+          <button id="auth_admin_create" class="btn" type="button" data-i18n="auth.admin.create"></button>
+          <div id="auth_admin_status" class="muted small"></div>
+        </div>
+        <div id="auth_admin_password_box" class="auth-password-box hidden">
+          <div class="lbl" data-i18n="auth.admin.temp_password"></div>
+          <pre id="auth_admin_password" class="pre auth-temp-password"></pre>
+        </div>
+        <div class="gap-md"></div>
+        <div class="lbl" data-i18n="auth.admin.user_list"></div>
+        <div id="auth_admin_users" class="muted small"></div>
+        <div class="gap-md"></div>
+        <div class="lbl" data-i18n="auth.admin.audit_title"></div>
+        <div id="auth_admin_events" class="muted small"></div>
+      </section>
+
 
       
       <div id="ref_audio_box" class="card subcard hidden">
@@ -199,6 +244,9 @@
 
         <hr class="sep" />
 
+      
+
+
         
         <section class="lora">
           <h3 data-i18n="title.lora_style"></h3>
@@ -231,6 +279,9 @@
         </section>
 
         <hr class="sep" />
+
+      
+
 
         
         <details class="lm-details" id="lm_settings_details">
@@ -517,27 +568,27 @@
               </div>
 
               
-              <div class="param-row hidden" id="remix_source_window_start_row">
+              <div id="remix_source_window_start_row" class="param-row hidden">
                 <div class="lbl-inline">
                   <div class="row-space">
-                    <span class="setting-label" data-i18n="label.repainting_start" data-i18n-title="label.repainting_start"></span>
-                    <input id="repainting_start" type="number" step="0.1" min="0" max="600" value="0.0" class="num" />
+                    <span class="setting-label" data-i18n="label.source_start" data-i18n-title="label.source_start"></span>
+                    <input id="source_start" type="number" step="0.1" min="0" max="600" value="0.0" class="num" />
                   </div>
-                  <input id="repainting_start_range" type="range" min="0" max="600" step="0.1" value="0.0" />
+                  <input id="source_start_range" type="range" min="0" max="600" step="0.1" value="0.0" />
                 </div>
-                <div class="muted small" data-i18n="help.repainting_start"></div>
+                <div class="muted small" data-i18n="help.source_start"></div>
               </div>
 
               
-              <div class="param-row hidden" id="remix_source_window_end_row">
+              <div id="remix_source_window_end_row" class="param-row hidden">
                 <div class="lbl-inline">
                   <div class="row-space">
-                    <span class="setting-label" data-i18n="label.repainting_end" data-i18n-title="label.repainting_end"></span>
-                    <input id="repainting_end" type="number" step="0.1" min="-1" max="600" value="-1.0" class="num" />
+                    <span class="setting-label" data-i18n="label.source_end" data-i18n-title="label.source_end"></span>
+                    <input id="source_end" type="number" step="0.1" min="-1" max="600" value="-1.0" class="num" />
                   </div>
-                  <input id="repainting_end_range" type="range" min="-1" max="600" step="0.1" value="-1.0" />
+                  <input id="source_end_range" type="range" min="-1" max="600" step="0.1" value="-1.0" />
                 </div>
-                <div class="muted small" data-i18n="help.repainting_end"></div>
+                <div class="muted small" data-i18n="help.source_end"></div>
               </div>
 
               
@@ -811,7 +862,64 @@
 
   </div>
 
-  <script src="/static/i18n.js?v=v20"></script>
-  <script src="/static/app.js?v=v20"></script>
+  <div id="auth_overlay" class="auth-overlay hidden">
+    <div class="auth-shell">
+      <div class="auth-brand-panel">
+        <div class="auth-brand-top">
+          <div class="auth-brand-title">🎵 ACE-Step</div>
+          <div class="auth-brand-badge" data-i18n="auth.kicker"></div>
+        </div>
+        <div class="auth-brand-hero-wrap">
+          <div class="auth-brand-hero">AceFlow</div>
+          <img class="auth-brand-hero-logo" src="/static/logo-marcopter-white_8k.png" alt="Marcopter" loading="lazy" />
+        </div>
+        <p class="auth-brand-copy" data-i18n="auth.hero.copy"></p>
+        <div class="auth-brand-pills">
+          <span class="auth-pill" data-i18n="auth.hero.pill_music"></span>
+          <span class="auth-pill" data-i18n="auth.hero.pill_remix"></span>
+          <span class="auth-pill" data-i18n="auth.hero.pill_lora"></span>
+        </div>
+        <div class="auth-brand-note" data-i18n="auth.hero.note"></div>
+      </div>
+      <div class="auth-modal">
+        <div class="auth-modal-head">
+          <div class="auth-modal-kicker" data-i18n="auth.kicker"></div>
+          <h2 id="auth_overlay_title" data-i18n="auth.login.title"></h2>
+          <p id="auth_overlay_help" class="muted" data-i18n="auth.login.help"></p>
+        </div>
+
+        <form id="auth_login_form" autocomplete="on">
+          <div id="auth_login_box">
+          <label class="lbl-inline">
+            <span class="setting-label" data-i18n="auth.login.email"></span>
+            <input id="auth_login_email" name="username" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" inputmode="email" placeholder="user@example.com" />
+          </label>
+          <label class="lbl-inline">
+            <span class="setting-label" data-i18n="auth.login.password"></span>
+            <input id="auth_login_password" name="password" type="password" autocomplete="current-password" />
+          </label>
+          <button id="auth_login_submit" class="btn main-btn auth-submit" type="submit" data-i18n="auth.login.submit"></button>
+          </div>
+        </form>
+
+        <div id="auth_change_box" class="hidden">
+          <label class="lbl-inline">
+            <span class="setting-label" data-i18n="auth.change.new_password"></span>
+            <input id="auth_change_password" type="password" autocomplete="new-password" />
+          </label>
+          <label class="lbl-inline">
+            <span class="setting-label" data-i18n="auth.change.confirm_password"></span>
+            <input id="auth_change_password_confirm" type="password" autocomplete="new-password" />
+          </label>
+          <button id="auth_change_submit" class="btn main-btn auth-submit" type="button" data-i18n="auth.change.submit"></button>
+        </div>
+
+        <div id="auth_overlay_status" class="auth-status muted small"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/i18n.js?v=v32"></script>
+  <script src="/static/app.js?v=v32"></script>
 </body>
 </html>

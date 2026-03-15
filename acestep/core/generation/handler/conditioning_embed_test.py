@@ -107,7 +107,7 @@ class ConditioningEmbedMixinTests(unittest.TestCase):
             "non_cover_text_attention_masks": None,
         }
         result = host.preprocess_batch(batch)
-        self.assertEqual(len(result), 19)
+        self.assertEqual(len(result), 20)
         self.assertEqual(result[0], ["k1", "k2"])
         self.assertEqual(result[3].shape, (2, 128, 6))
 

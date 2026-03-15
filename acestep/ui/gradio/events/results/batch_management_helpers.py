@@ -30,7 +30,8 @@ def _build_saved_params(
     constrained_decoding_debug, allow_lm_batch, auto_score, auto_lrc,
     score_scale, lm_batch_chunk_size,
     track_name, complete_track_classes,
-    enable_normalization, normalization_db, latent_shift, latent_rescale,
+    enable_normalization, normalization_db, fade_in_duration, fade_out_duration,
+    latent_shift, latent_rescale,
 ):
     """Build the parameter snapshot dict stored in batch history."""
     return {
@@ -63,6 +64,8 @@ def _build_saved_params(
         "track_name": track_name, "complete_track_classes": complete_track_classes,
         "enable_normalization": enable_normalization,
         "normalization_db": normalization_db,
+        "fade_in_duration": fade_in_duration,
+        "fade_out_duration": fade_out_duration,
         "latent_shift": latent_shift, "latent_rescale": latent_rescale,
     }
 
@@ -112,6 +115,7 @@ def _apply_param_defaults(params):
         "lm_batch_chunk_size": 8,
         "track_name": None, "complete_track_classes": [],
         "enable_normalization": True, "normalization_db": -1.0,
+        "fade_in_duration": 0.0, "fade_out_duration": 0.0,
         "latent_shift": 0.0, "latent_rescale": 1.0,
     }
     for key, value in defaults.items():

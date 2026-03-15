@@ -103,6 +103,8 @@ def generate_next_batch_background(
             lm_batch_chunk_size=params.get("lm_batch_chunk_size"),
             enable_normalization=params.get("enable_normalization"),
             normalization_db=params.get("normalization_db"),
+            fade_in_duration=params.get("fade_in_duration", 0.0),
+            fade_out_duration=params.get("fade_out_duration", 0.0),
             latent_shift=params.get("latent_shift", 0.0),
             latent_rescale=params.get("latent_rescale", 1.0),
             progress=progress,

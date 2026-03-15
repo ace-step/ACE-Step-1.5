@@ -40,6 +40,8 @@ class GenerateMusicPayloadMixin:
         for index in range(actual_batch_size):
             audio_tensor = pred_wavs[index].cpu()
             audio_tensors.append(audio_tensor)
+        # Free the GPU waveform tensor now that all per-sample CPU copies are done.
+        del pred_wavs
 
         status_message = "Generation completed successfully!"
         logger.info(f"[generate_music] Done! Generated {len(audio_tensors)} audio tensors.")

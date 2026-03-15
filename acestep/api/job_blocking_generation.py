@@ -105,6 +105,7 @@ def run_blocking_generate(
     generation_setup = build_generation_setup(
         req=req,
         caption=prepared_inputs.caption,
+        global_caption=prepared_inputs.global_caption,
         lyrics=prepared_inputs.lyrics,
         bpm=prepared_inputs.bpm,
         key_scale=prepared_inputs.key_scale,

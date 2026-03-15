@@ -1,5 +1,6 @@
 """Decode/validation helpers for ``generate_music`` orchestration."""
 
+import gc
 import os
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -180,7 +181,6 @@ class GenerateMusicDecodeMixin:
                     if vae_cpu and vae_device is not None:
                         logger.info("[generate_music] Restoring VAE to original device after CPU decode path...")
                         self.vae = self.vae.to(vae_device)
-                        pred_latents_for_decode = pred_latents_for_decode.to(vae_device)
                     self._empty_cache()
                 logger.debug(
                     "[generate_music] After VAE decode: "
@@ -194,6 +194,8 @@ class GenerateMusicDecodeMixin:
                 if torch.any(peak > 1.0):
                     pred_wavs = pred_wavs / peak.clamp(min=1.0)
                 self._empty_cache()
+        gc.collect()
+        self._empty_cache()
         end_time = time.time()
         time_costs["vae_decode_time_cost"] = end_time - start_time
         time_costs["total_time_cost"] = time_costs["total_time_cost"] + time_costs["vae_decode_time_cost"]

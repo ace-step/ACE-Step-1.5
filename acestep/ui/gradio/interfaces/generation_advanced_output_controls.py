@@ -69,6 +69,25 @@ def build_output_controls(
                 elem_classes=["has-info-container"],
             )
         with gr.Row():
+            fade_in_duration = gr.Slider(
+                label=t("generation.fade_in_duration"),
+                minimum=0.0,
+                maximum=10.0,
+                step=0.1,
+                value=params.get("fade_in_duration", 0.0) if service_pre_initialized else 0.0,
+                info=t("generation.fade_in_duration_info"),
+                elem_classes=["has-info-container"],
+            )
+            fade_out_duration = gr.Slider(
+                label=t("generation.fade_out_duration"),
+                minimum=0.0,
+                maximum=10.0,
+                step=0.1,
+                value=params.get("fade_out_duration", 0.0) if service_pre_initialized else 0.0,
+                info=t("generation.fade_out_duration_info"),
+                elem_classes=["has-info-container"],
+            )
+        with gr.Row():
             latent_shift = gr.Slider(
                 label=t("generation.latent_shift"),
                 minimum=-0.2,
@@ -92,6 +111,8 @@ def build_output_controls(
         "score_scale": score_scale,
         "enable_normalization": enable_normalization,
         "normalization_db": normalization_db,
+        "fade_in_duration": fade_in_duration,
+        "fade_out_duration": fade_out_duration,
         "latent_shift": latent_shift,
         "latent_rescale": latent_rescale,
     }

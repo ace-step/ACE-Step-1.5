@@ -15,7 +15,7 @@ from loguru import logger
 import torch
 
 
-from acestep.audio_utils import AudioSaver, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
+from acestep.audio_utils import AudioSaver, apply_fade, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
 
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
@@ -103,6 +103,7 @@ class GenerationParams:
 
     # Text Inputs
     caption: str = ""
+    global_caption: str = ""  # Global/song-level caption for SFT-stems lego tasks
     lyrics: str = ""
     instrumental: bool = False
 
@@ -116,6 +117,8 @@ class GenerationParams:
     # Audio Post-Processing
     enable_normalization: bool = True
     normalization_db: float = -1.0
+    fade_in_duration: float = 0.0   # Fade in duration in seconds. 0 = no fade in.
+    fade_out_duration: float = 0.0  # Fade out duration in seconds. 0 = no fade out.
 
     # Latent Post-Processing (before VAE decode)
     latent_shift: float = 0.0       # Additive shift on DiT latents. Default 0 = no shift.
@@ -136,6 +139,11 @@ class GenerationParams:
 
     repainting_start: float = 0.0
     repainting_end: float = -1
+    chunk_mask_mode: str = "auto"  # "explicit" = 0/1 mask from repaint range; "auto" = all 2.0 (model decides)
+    repaint_latent_crossfade_frames: int = 10  # latent-level boundary blend width (25Hz frames, 10≈0.4s)
+    repaint_wav_crossfade_sec: float = 0.0  # waveform-level splice crossfade (seconds, 0=hard cut)
+    repaint_mode: str = "balanced"  # "conservative", "balanced", or "aggressive"
+    repaint_strength: float = 0.5  # 0.0=aggressive, 1.0=conservative (balanced mode only)
     audio_cover_strength: float = 1.0
     cover_noise_strength: float = 0.0  # 0=pure noise (no cover), 1=closest to src audio
 
@@ -580,6 +588,7 @@ def generate_music(
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation
         result = dit_handler.generate_music(
             captions=dit_input_caption,
+            global_caption=params.global_caption,
             lyrics=dit_input_lyrics,
             bpm=bpm,
             key_scale=key_scale,
@@ -610,6 +619,15 @@ def generate_music(
             timesteps=params.timesteps,
             latent_shift=params.latent_shift,
             latent_rescale=params.latent_rescale,
+            chunk_mask_mode=getattr(params, "chunk_mask_mode", "auto"),
+            repaint_latent_crossfade_frames=getattr(
+                params, "repaint_latent_crossfade_frames", 10,
+            ),
+            repaint_wav_crossfade_sec=getattr(
+                params, "repaint_wav_crossfade_sec", 0.0,
+            ),
+            repaint_mode=getattr(params, "repaint_mode", "balanced"),
+            repaint_strength=getattr(params, "repaint_strength", 0.5),
             progress=progress,
         )
 
@@ -686,6 +704,21 @@ def generate_music(
                  except Exception as e:
                      logger.error(f"Normalization failed: {e}")
             # -------------------------------
+
+            # --- FADE IN / FADE OUT ---
+            if params.fade_in_duration > 0.0 or params.fade_out_duration > 0.0:
+                try:
+                    fade_in_samples = round(params.fade_in_duration * sample_rate)
+                    fade_out_samples = round(params.fade_out_duration * sample_rate)
+                    audio_tensor = apply_fade(audio_tensor, fade_in_samples, fade_out_samples)
+                    logger.info(
+                        f"[Fade] Audio {idx}: fade_in={params.fade_in_duration:.2f}s "
+                        f"({fade_in_samples} samples), fade_out={params.fade_out_duration:.2f}s "
+                        f"({fade_out_samples} samples)"
+                    )
+                except Exception as e:
+                    logger.error(f"Fade application failed: {e}")
+            # --------------------------
 
             # Generate UUID for this audio (moved from handler)
             batch_seed = seed_list[idx] if idx < len(seed_list) else seed_list[0] if seed_list else -1

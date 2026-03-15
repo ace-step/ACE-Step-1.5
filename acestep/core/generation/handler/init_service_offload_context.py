@@ -1,5 +1,6 @@
 """Context manager for temporary model loading/offloading."""
 
+import gc
 import time
 from contextlib import contextmanager
 
@@ -61,6 +62,7 @@ class InitServiceOffloadContextMixin:
             else:
                 self._recursive_to_device(model, "cpu")
 
+            gc.collect()
             self._empty_cache()
             offload_time = time.time() - start_time
             self.current_offload_cost += offload_time

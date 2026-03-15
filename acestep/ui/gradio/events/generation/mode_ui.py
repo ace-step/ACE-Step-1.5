@@ -165,7 +165,9 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         repainting_header_update,                          # 30: repainting_header_html
         repainting_start_update,                           # 31: repainting_start
         repainting_end_update,                             # 32: repainting_end
-        mode,                                              # 33: previous_generation_mode
+        gr.skip(),                                         # 33: repaint_mode
+        gr.skip(),                                         # 34: repaint_strength
+        mode,                                              # 35: previous_generation_mode
         gr.update(visible=is_cover),                       # 34: remix_help_group
         gr.update(visible=(is_extract or is_lego)),        # 35: extract_help_group
         gr.update(visible=is_complete),                    # 36: complete_help_group

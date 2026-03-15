@@ -141,16 +141,18 @@ class GenerateMusicRequestMixin:
         processed_src_audio: Optional[torch.Tensor],
         audio_duration: Optional[float],
         captions: str,
-        lyrics: str,
-        vocal_language: str,
-        instruction: str,
-        bpm: Optional[int],
-        key_scale: str,
-        time_signature: str,
-        task_type: str,
-        audio_code_string: Union[str, List[str]],
-        repainting_start: float,
-        repainting_end: Optional[float],
+        global_caption: str = "",
+        lyrics: str = "",
+        vocal_language: str = "en",
+        instruction: str = "",
+        bpm: Optional[int] = None,
+        key_scale: str = "",
+        time_signature: str = "",
+        task_type: str = "text2music",
+        audio_code_string: Union[str, List[str]] = "",
+        repainting_start: float = 0.0,
+        repainting_end: Optional[float] = None,
+        chunk_mask_mode: str = "auto",
     ) -> Dict[str, Any]:
         """Prepare service inputs (batch text, repaint spans, and optional code hints)."""
         captions_batch, instructions_batch, lyrics_batch, vocal_languages_batch, metas_batch = self.prepare_batch_data(
@@ -165,6 +167,7 @@ class GenerateMusicRequestMixin:
             key_scale,
             time_signature,
         )
+        global_captions_batch = [global_caption] * actual_batch_size
 
         is_repaint_task, is_lego_task, is_cover_task, can_use_repainting = self.determine_task_type(task_type, audio_code_string)
         repainting_start_batch, repainting_end_batch, target_wavs_tensor = self.prepare_padding_info(
@@ -187,6 +190,7 @@ class GenerateMusicRequestMixin:
 
         return {
             "captions_batch": captions_batch,
+            "global_captions_batch": global_captions_batch,
             "instructions_batch": instructions_batch,
             "lyrics_batch": lyrics_batch,
             "vocal_languages_batch": vocal_languages_batch,
@@ -195,6 +199,7 @@ class GenerateMusicRequestMixin:
             "repainting_end_batch": repainting_end_batch,
             "target_wavs_tensor": target_wavs_tensor,
             "audio_code_hints_batch": audio_code_hints_batch,
+            "chunk_mask_modes_batch": [chunk_mask_mode] * actual_batch_size,
             "should_return_intermediate": True,
         }
 

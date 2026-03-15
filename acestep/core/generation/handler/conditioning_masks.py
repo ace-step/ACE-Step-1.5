@@ -4,6 +4,10 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 
+# Phrase unique to lego task instructions — used to detect lego items from instruction text.
+# Matches both TASK_INSTRUCTIONS["lego"] and TASK_INSTRUCTIONS["lego_default"].
+_LEGO_INSTRUCTION_MARKER = "based on the audio context"
+
 
 class ConditioningMaskMixin:
     """Mixin containing repaint mask/span and source-latent builders.
@@ -23,8 +27,21 @@ class ConditioningMaskMixin:
         repainting_start: Optional[List[float]],
         repainting_end: Optional[List[float]],
         silence_latent_tiled: torch.Tensor,
-    ) -> Tuple[torch.Tensor, List[Tuple[str, int, int]], torch.Tensor, torch.Tensor]:
-        """Create chunk masks/spans and corresponding source latents."""
+        chunk_mask_modes: Optional[List[str]] = None,
+    ) -> Tuple[
+        torch.Tensor,
+        List[Tuple[str, int, int]],
+        torch.Tensor,
+        torch.Tensor,
+        Optional[torch.Tensor],
+    ]:
+        """Create chunk masks/spans, source latents, and repaint injection mask.
+
+        Returns:
+            Tuple of (chunk_masks, spans, is_covers, src_latents, repaint_mask).
+            ``repaint_mask`` is a boolean ``[B, T]`` tensor (True = generate,
+            False = preserve source) when any item uses repainting, else ``None``.
+        """
         chunk_masks = []
         spans = []
         is_covers = []
@@ -63,6 +80,10 @@ class ConditioningMaskMixin:
             is_covers.append(is_cover)
 
         chunk_masks_tensor = torch.stack(chunk_masks)
+        if chunk_mask_modes:
+            for i, mode in enumerate(chunk_mask_modes):
+                if mode == "auto":
+                    chunk_masks_tensor[i] = 2.0
         is_covers_tensor = torch.BoolTensor(is_covers).to(self.device)
 
         src_latents_list = []
@@ -73,11 +94,24 @@ class ConditioningMaskMixin:
                 if i in repainting_ranges:
                     src_latent = target_latents[i].clone()
                     start_latent, end_latent = repainting_ranges[i]
-                    src_latent[start_latent:end_latent] = silence_latent_tiled[start_latent:end_latent]
+                    instruction_i = instructions[i] if instructions and i < len(instructions) else ""
+                    is_lego = _LEGO_INSTRUCTION_MARKER in instruction_i.lower()
+                    if not is_lego:
+                        src_latent[start_latent:end_latent] = silence_latent_tiled[start_latent:end_latent]
                     src_latents_list.append(src_latent)
                 else:
                     src_latents_list.append(target_latents[i].clone())
             else:
                 src_latents_list.append(silence_latent_tiled.clone())
         src_latents = torch.stack(src_latents_list)
-        return chunk_masks_tensor, spans, is_covers_tensor, src_latents
+
+        repaint_mask: Optional[torch.Tensor] = None
+        if repainting_ranges:
+            repaint_mask = torch.ones(
+                batch_size, max_latent_length, dtype=torch.bool, device=self.device,
+            )
+            for i, (start_latent, end_latent) in repainting_ranges.items():
+                repaint_mask[i] = False
+                repaint_mask[i, start_latent:end_latent] = True
+
+        return chunk_masks_tensor, spans, is_covers_tensor, src_latents, repaint_mask

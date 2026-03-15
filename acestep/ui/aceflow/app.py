@@ -742,7 +742,7 @@ def is_job_dir(p: Path) -> bool:
         return False
     return False
 
-def cleanup_old_job_dirs(base_dir: Path, ttl_seconds: int = 3600) -> dict:
+def cleanup_old_job_dirs(base_dir: Path, ttl_seconds: int | None = None) -> dict:
 
     """Delete per-job output directories older than ttl_seconds.
     Safety properties (HARD):
@@ -752,6 +752,8 @@ def cleanup_old_job_dirs(base_dir: Path, ttl_seconds: int = 3600) -> dict:
     - uses directory mtime (stat().st_mtime) as age
     - never raises; returns a small report
     """
+    if ttl_seconds is None:
+        ttl_seconds = ACEFLOW_DEFAULT_CLEANUP_TTL_SECONDS
     report = {"scanned": 0, "deleted": 0, "skipped": 0, "errors": 0}
     try:
         base_resolved = base_dir.resolve()
@@ -816,7 +818,7 @@ def cleanup_old_job_dirs(base_dir: Path, ttl_seconds: int = 3600) -> dict:
         logger.warning("[cleanup] iterdir failed base={} err={!r}", str(base_dir), exc)
     return report
 
-def cleanup_old_upload_files(uploads_dir: Path, ttl_seconds: int = 3600) -> dict:
+def cleanup_old_upload_files(uploads_dir: Path, ttl_seconds: int | None = None) -> dict:
 
     """Delete uploaded audio files older than ttl_seconds.
     Safety properties (HARD):
@@ -826,6 +828,8 @@ def cleanup_old_upload_files(uploads_dir: Path, ttl_seconds: int = 3600) -> dict
     - uses file mtime (stat().st_mtime) as age
     - never raises; returns a small report
     """
+    if ttl_seconds is None:
+        ttl_seconds = ACEFLOW_DEFAULT_CLEANUP_TTL_SECONDS
     report = {"scanned": 0, "deleted": 0, "skipped": 0, "errors": 0}
     try:
         uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -879,8 +883,10 @@ def cleanup_old_upload_files(uploads_dir: Path, ttl_seconds: int = 3600) -> dict
         logger.warning("[cleanup_uploads] iterdir failed base={} err={!r}", str(uploads_dir), exc)
     return report
 
-def cleanup_old_log_files(logs_dir: Path, ttl_seconds: int = 3600) -> dict:
+def cleanup_old_log_files(logs_dir: Path, ttl_seconds: int | None = None) -> dict:
 
+    if ttl_seconds is None:
+        ttl_seconds = ACEFLOW_DEFAULT_CLEANUP_TTL_SECONDS
     report = {"scanned": 0, "deleted": 0, "skipped": 0, "errors": 0}
     try:
         logs_dir.mkdir(parents=True, exist_ok=True)
@@ -1850,6 +1856,8 @@ def create_app() -> FastAPI:
 
         bypass_requested = _is_core_turbo_step_clamp_bypass_enabled()
         bypass_installed = _install_core_turbo_step_clamp_bypass_patch()
+        app.state._core_turbo_step_clamp_bypass_requested = bool(bypass_requested)
+        app.state._core_turbo_step_clamp_bypass_installed = bool(bypass_installed)
         if bypass_requested and not bypass_installed:
             logger.warning("[AceFlow] core turbo infer_steps clamp bypass requested but not installed; core clamp remains active")
 
@@ -2881,6 +2889,8 @@ def create_app() -> FastAPI:
     def health():
 
         active_model = str(getattr(app.state, "_active_model", config_path) or config_path)
+        bypass_requested = bool(getattr(app.state, "_core_turbo_step_clamp_bypass_requested", _is_core_turbo_step_clamp_bypass_enabled()))
+        bypass_installed = bool(getattr(app.state, "_core_turbo_step_clamp_bypass_installed", False))
         return {
             "status": "ok",
             "max_duration": max_duration,
@@ -2893,7 +2903,8 @@ def create_app() -> FastAPI:
                 "max_inference_steps_base": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE,
             },
             "cleanup_ttl_seconds": _get_cleanup_ttl_seconds(),
-            "core_turbo_step_clamp_bypass_enabled": _is_core_turbo_step_clamp_bypass_enabled(),
+            "core_turbo_step_clamp_bypass_enabled": bypass_installed,
+            "core_turbo_step_clamp_bypass_requested": bypass_requested,
         }
 
     @app.get("/api/options")
@@ -2901,6 +2912,11 @@ def create_app() -> FastAPI:
     def options():
 
         _sf2_path = find_first_soundfont()
+        active_model = str(getattr(app.state, "_active_model", config_path) or config_path)
+        bypass_requested = bool(getattr(app.state, "_core_turbo_step_clamp_bypass_requested", _is_core_turbo_step_clamp_bypass_enabled()))
+        bypass_installed = bool(getattr(app.state, "_core_turbo_step_clamp_bypass_installed", False))
+        default_shift = 1.0 if _is_sft_model(active_model) else 3.0
+        default_inference_steps = 8 if _is_turbo_model(active_model) else (50 if _is_sft_model(active_model) else 20)
         return {
             "valid_languages": VALID_LANGUAGES,
             "time_signatures": ["", "2/4", "3/4", "4/4", "6/8"],
@@ -2909,19 +2925,23 @@ def create_app() -> FastAPI:
             "soundfont_name": (_sf2_path.name if _sf2_path else ""),
             "lm_ready": bool(getattr(app.state, "_llm_ready", False)),
             "think_default": True,
+            "current_model": active_model,
             "limits": {
+                "max_inference_steps_current_model": _get_max_inference_steps_for_model(active_model),
                 "max_inference_steps_turbo": _get_max_inference_steps_for_model("turbo"),
                 "max_inference_steps_base": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE,
             },
             "infer_methods": ["ode", "sde"],
+            "core_turbo_step_clamp_bypass_enabled": bypass_installed,
+            "core_turbo_step_clamp_bypass_requested": bypass_requested,
             "defaults": {
-                "inference_steps": 8,
+                "inference_steps": default_inference_steps,
                 "infer_method": "ode",
                 "timesteps": "",
                 "source_start": 0.0,
                 "source_end": -1.0,
                 "guidance_scale": 7.0,
-                "shift": 3.0,
+                "shift": default_shift,
                 "cfg_interval_start": 0.0,
                 "cfg_interval_end": 1.0,
                 "latent_shift": 0.0,

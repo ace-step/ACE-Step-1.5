@@ -75,6 +75,14 @@ AceFlow supports optional user authentication controlled by environment variable
 - `ACEFLOW_AUTH_ENABLED=1` → login is required
 - `ACEFLOW_AUTH_ENABLED=0` → login is disabled, even if `_auth/users.json` and `_auth/access_log.jsonl` already exist
 
+
+### Bootstrap admin and session env
+
+- `ACEFLOW_ADMIN_EMAIL` → bootstrap admin email when auth is enabled and no users exist yet
+- `ACEFLOW_ADMIN_PASSWORD` → optional preset bootstrap password; if omitted, AceFlow generates a temporary password and requires a password change on first login
+- `ACEFLOW_SESSION_COOKIE` → cookie name (default: `aceflow_session`)
+- `ACEFLOW_SESSION_SECURE=1` → marks the auth cookie as Secure
+
 ### Auth storage
 
 When authentication is enabled, AceFlow stores auth data under:
@@ -85,13 +93,14 @@ When authentication is enabled, AceFlow stores auth data under:
 
 ### Auth behavior
 
-- bootstrap admin creation is supported
+- bootstrap admin creation is supported via `ACEFLOW_ADMIN_EMAIL` and optional `ACEFLOW_ADMIN_PASSWORD`
 - first-login password change is supported
 - one active session per user is enforced
 - session IP mismatch invalidates the session
 - admin users can create and delete users
 - deleting a user invalidates the deleted user's session and rewrites `users.json`
 - access events are appended to `access_log.jsonl`
+- session cookie name and secure flag can be controlled with `ACEFLOW_SESSION_COOKIE` and `ACEFLOW_SESSION_SECURE`
 
 ## 🎚️ DiT Model Behavior in the UI
 
@@ -106,7 +115,7 @@ When the model selector changes, AceFlow auto-fills some values for convenience:
 - models whose name contains `sft` → **Shift = 1**, **Inference steps = 50**, **UI max = 200**
 - other models → **Shift = 3**, **Inference steps = 20**, **UI max = 200**
 
-This is only a UI helper so the form starts from sensible values, but the Turbo UI is intentionally capped at **20**.
+This is only a UI helper so the form starts from sensible values, but the Turbo UI is intentionally capped at **20**. The static HTML now also starts from the Turbo-safe default (**8**) instead of briefly showing **20** before JavaScript normalization.
 
 ### Backend fallback and clamp
 When the request reaches the backend, `inference_steps` is normalized again. If the field is missing, backend fallbacks are:
@@ -452,7 +461,7 @@ This is useful for debugging model routing, LoRA loading, conditioning, backend 
 
 ## 🧹 Auto-Cleanup TTL
 
-AceFlow cleanup is now controlled by the environment variable `ACEFLOW_CLEANUP_TTL_SECONDS`.
+AceFlow cleanup is controlled by the environment variable `ACEFLOW_CLEANUP_TTL_SECONDS`.
 
 Default behavior:
 
@@ -512,6 +521,8 @@ Important limits:
 - this is still **AceFlow-only** and does **not** modify ACE-Step core files on disk
 - Turbo remains capped to **20** steps in AceFlow
 - the runtime patch is process-local and only affects the AceFlow process that started with the environment variable enabled
+- `/api/health` and `/api/options` now expose whether the bypass was merely requested by env or actually installed in the running AceFlow process
+- `/api/options` also reports the current backend model and model-aware defaults for `inference_steps` and `shift`
 
 ---
 

@@ -50,6 +50,11 @@
     "label": "Synth-funk pop - New jack swing"
   },
   {
+    "id": "marcotswift",
+    "trigger": "marcotswift",
+    "label": "Taylor Swift"
+  },
+  {
     "id": "marcopolice",
     "trigger": "marcopolice",
     "label": "The Police / Sting"

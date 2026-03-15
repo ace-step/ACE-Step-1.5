@@ -3083,6 +3083,35 @@ function applyInferenceStepLimit(modelName, options = {}) {
   stR.value = String(nextValue);
 }
 
+
+function bindModelSelectBehavior() {
+  if (!modelSelect || modelSelect.dataset.bound === '1') return;
+  modelSelect.dataset.bound = '1';
+  modelSelect.addEventListener('change', () => {
+    try {
+      const v = String(modelSelect.value || '').toLowerCase();
+      const shiftEl = el('shift');
+      if (shiftEl) {
+        shiftEl.value = v.includes('sft') ? '1' : '3';
+        shiftEl.dispatchEvent(new Event('input', { bubbles: true }));
+        shiftEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } catch (e) {}
+
+    try {
+      const v = String(modelSelect.value || '');
+      const desiredSteps = getDefaultInferenceStepsForModel(v);
+      applyInferenceStepLimit(v, {
+        preserveValue: __stepsTouched,
+        desiredValue: __stepsTouched ? undefined : desiredSteps,
+      });
+    } catch (e) {}
+
+    try { syncStepsPair(); } catch (e) {}
+    updateReadyStatus(window.__ACE_MAX_DURATION);
+  });
+}
+
 function syncStepsPair() {
   const st = el('steps');
   const stR = el('steps_range');
@@ -4764,6 +4793,8 @@ think.addEventListener('change', () => {
     }
 
     
+    try { bindModelSelectBehavior(); } catch (e) {}
+
     try {
       const activeModel = (modelSelect && modelSelect.value) ? modelSelect.value : '';
       applyInferenceStepLimit(activeModel, {
@@ -4780,6 +4811,10 @@ think.addEventListener('change', () => {
         ...__ACE_STEP_LIMITS,
         ...(h && h.limits ? h.limits : {}),
       };
+      const backendModel = String((h && h.model) || '').trim();
+      if (backendModel && modelSelect && Array.from(modelSelect.options || []).some((opt) => String(opt.value || '') === backendModel)) {
+        modelSelect.value = backendModel;
+      }
       window.__ACE_MAX_DURATION = h.max_duration;
       updateReadyStatus(h.max_duration);
       const dur = el('duration');
@@ -4796,43 +4831,6 @@ think.addEventListener('change', () => {
         });
       } catch (e) {}
 
-      
-      if (modelSelect && !modelSelect.dataset.bound) {
-        modelSelect.dataset.bound = '1';
-        modelSelect.addEventListener('change', () => {
-  
-  
-  
-  try {
-    const v = String(modelSelect.value || '').toLowerCase();
-    const shiftEl = el('shift');
-    if (shiftEl) {
-      shiftEl.value = v.includes('sft') ? '1' : '3';
-      shiftEl.dispatchEvent(new Event('input', { bubbles: true }));
-      shiftEl.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  } catch (e) {}
-  
-  
-  
-  try {
-    const v = String(modelSelect.value || '');
-    const desiredSteps = getDefaultInferenceStepsForModel(v);
-    applyInferenceStepLimit(v, {
-      preserveValue: __stepsTouched,
-      desiredValue: __stepsTouched ? undefined : desiredSteps,
-    });
-
-    if (!__stepsTouched) {
-      __stepsTouched = false;
-    }
-  } catch (e) {}
-
-  
-  try { syncStepsPair(); } catch (e) {}
-  updateReadyStatus(window.__ACE_MAX_DURATION);
-});
-      }
     } else {
       setStatusT('status.server_not_ready');
     }
@@ -4854,6 +4852,17 @@ async function loadOptions() {
       ...__ACE_STEP_LIMITS,
       ...(data && data.limits ? data.limits : {}),
     };
+    const backendModel = String((data && data.current_model) || '').trim();
+    if (backendModel && modelSelect && Array.from(modelSelect.options || []).some((opt) => String(opt.value || '') === backendModel)) {
+      modelSelect.value = backendModel;
+      try {
+        const desiredSteps = getDefaultInferenceStepsForModel(backendModel);
+        applyInferenceStepLimit(backendModel, {
+          preserveValue: __stepsTouched,
+          desiredValue: __stepsTouched ? undefined : desiredSteps,
+        });
+      } catch (e) {}
+    }
     const langs = (data && data.valid_languages) ? data.valid_languages : ["unknown","it","en","es","fr","de","pt","ja","ko","zh","ru"];
     chordReferenceSoundfontAvailable = !!(data && data.soundfont_available);
     chordReferenceSoundfontName = String((data && data.soundfont_name) || '');
@@ -5335,6 +5344,7 @@ ${el('lyrics')?.value || ''}`;
   } catch (e) {}
 
   try {
+    bindModelSelectBehavior();
     if (modelSelect) {
       modelSelect.dispatchEvent(new Event('change', { bubbles: true }));
     } else {

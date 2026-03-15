@@ -3366,6 +3366,32 @@ function destroyAllPlayers() {
   __activePlayers.clear();
 }
 
+function stopActiveMediaPlayers() {
+  for (const p of Array.from(__activePlayers)) {
+    try {
+      if (typeof p.stop === 'function') {
+        p.stop();
+        continue;
+      }
+    } catch (e) {  }
+    try {
+      if (p && p.audio) {
+        p.audio.pause();
+        try { p.audio.currentTime = 0; } catch (e2) {  }
+      }
+      if (typeof p._drawOverlay === 'function') p._drawOverlay();
+      if (typeof p._updateTime === 'function') p._updateTime();
+    } catch (e) {  }
+  }
+
+  document.querySelectorAll('audio, video').forEach((mediaEl) => {
+    try {
+      mediaEl.pause();
+      try { mediaEl.currentTime = 0; } catch (e2) {  }
+    } catch (e) {  }
+  });
+}
+
 class GradioLikePlayer {
   constructor({ url, index, jsonUrl, audioFilename, resolvedSeed }) {
     this.url = url;
@@ -4556,6 +4582,7 @@ function stopPolling() {
 
 async function triggerGenerateFromUi() {
   try {
+    stopActiveMediaPlayers();
     updateAbCompareBatchUi();
     if (!isAbCompareEnabled()) {
       await postJob();

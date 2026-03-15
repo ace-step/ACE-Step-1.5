@@ -138,6 +138,36 @@ class InProcessJobQueue:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def cancel(self, job_id: str) -> Optional[JobState]:
+        """Cancel a queued job before it starts running.
+
+        Args:
+            job_id: Identifier of the job to cancel.
+
+        Returns:
+            Optional[JobState]: The updated job state when known, else ``None``.
+
+        Notes:
+            Running jobs are not interrupted here; only queued jobs are removable.
+        """
+        with self._cv:
+            st = self._jobs.get(job_id)
+            if not st:
+                return None
+            if st.status != "queued":
+                return st
+            try:
+                self._q.remove(job_id)
+            except ValueError:
+                return st
+            st.status = "cancelled"
+            st.finished_at = time.time()
+            st.position = 0
+            st.error = None
+            self._recompute_positions_locked()
+            self._cv.notify_all()
+            return st
+
     def snapshot_queue(self) -> dict:
         """Return a lightweight snapshot of the current queue state.
 

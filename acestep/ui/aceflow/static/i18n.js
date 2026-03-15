@@ -310,9 +310,10 @@
       'status.running': 'Generating… please wait.',
       'status.error': 'Error: {msg}',
       'status.done_in': 'Completed in {sec}s.',
+      'status.cancelled': 'Reservation cancelled.',
+      'notice.queued_cancel_hint': 'Press Generate again to cancel the reservation.',
 
       
-      'limit.rate_limited': '⏳ Too many requests. Please wait {sec}s and try again.',
       'limit.queue_full': '🚦 Queue is busy (max {cap} active jobs). Please retry in a moment.',
 
       'error.request_failed': 'Request failed',
@@ -713,9 +714,10 @@
       'status.running': 'Generazione in corso, attendere…',
       'status.error': 'Errore: {msg}',
       'status.done_in': 'Completato in {sec}s.',
+      'status.cancelled': 'Prenotazione annullata.',
+      'notice.queued_cancel_hint': 'Premi di nuovo Genera per annullare la prenotazione.',
 
       
-      'limit.rate_limited': '⏳ Troppe richieste. Attendi {sec}s e riprova.',
       'limit.queue_full': '🚦 Coda piena (max {cap} job attivi). Riprova tra poco.',
 
       'error.request_failed': 'Errore nella richiesta',

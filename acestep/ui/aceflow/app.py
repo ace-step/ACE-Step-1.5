@@ -3661,6 +3661,25 @@ timesignature: {timesignature}
             "position": st.position,
         }
 
+    @app.post("/api/jobs/{job_id}/cancel")
+
+    def cancel_job(job_id: str, request: Request):
+
+        _require_token(request)
+        q: InProcessJobQueue = app.state.queue
+        st = q.cancel(job_id)
+        if not st:
+            raise HTTPException(status_code=404, detail="Job non trovato")
+        if st.status == "running":
+            raise HTTPException(status_code=409, detail={"error_code": "job_not_cancelable", "status": "running"})
+        if st.status not in ("queued", "cancelled"):
+            raise HTTPException(status_code=409, detail={"error_code": "job_not_cancelable", "status": st.status})
+        return {
+            "job_id": st.job_id,
+            "status": "cancelled",
+            "position": 0,
+        }
+
     @app.get("/api/jobs/{job_id}")
 
     def get_job(job_id: str, request: Request):

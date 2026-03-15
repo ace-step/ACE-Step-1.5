@@ -2773,6 +2773,8 @@ function syncLoraWeight(from, commit = false) {
 
 let currentJobId = null;
 let pollTimer = null;
+let currentJobUiState = 'idle';
+let currentJobCancelInFlight = false;
 
 let uploadedRefAudioPath = '';
 let uploadedLmAudioPath = '';
@@ -4206,9 +4208,6 @@ async function __submitSingleJob(payload) {
     if (detail && typeof detail === 'object' && detail.error_code) {
       const code = String(detail.error_code || '').trim();
       if (code === 'rate_limited') {
-        const ra = (detail.retry_after_s != null) ? Number(detail.retry_after_s) : null;
-        const sec = (ra != null && Number.isFinite(ra)) ? Math.max(0.0, ra) : 5.0;
-        setNoticeT('limit.rate_limited', { sec: sec.toFixed(1) });
         throw new Error(__tr('error.request_failed', 'Request failed', 'Richiesta fallita'));
       }
       if (code === 'queue_full') {
@@ -4463,7 +4462,72 @@ function buildPayloadForCurrentUi() {
     return __normalizeCustomModeConditioning(payload);
 }
 
+function updateGenerateButtonState() {
+  const btn = el('submit');
+  if (!btn) return;
+  const state = String(currentJobUiState || 'idle');
+  const isQueued = state === 'queued';
+  const isBusy = state === 'submitting' || state === 'running';
+  btn.disabled = !!isBusy;
+  btn.classList.toggle('is-busy', isBusy);
+  btn.classList.toggle('is-queued', isQueued);
+  btn.setAttribute('aria-pressed', isQueued ? 'true' : 'false');
+  btn.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+  btn.title = isQueued ? t('notice.queued_cancel_hint') : '';
+}
+
+function setCurrentJobUiState(nextState) {
+  currentJobUiState = String(nextState || 'idle');
+  updateGenerateButtonState();
+}
+
+function clearQueuedCancelNotice() {
+  if (_lastNotice && _lastNotice.kind === 'i18n' && _lastNotice.key === 'notice.queued_cancel_hint') {
+    clearNotice();
+  }
+}
+
+async function cancelQueuedCurrentJob() {
+  if (!currentJobId || currentJobCancelInFlight) return false;
+  currentJobCancelInFlight = true;
+  try {
+    const res = await fetch(`/api/jobs/${encodeURIComponent(currentJobId)}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    let detail = null;
+    try {
+      const j = await res.clone().json();
+      detail = (j && (j.detail != null)) ? j.detail : j;
+    } catch (_) {}
+    if (!res.ok) {
+      const code = detail && typeof detail === 'object' ? String(detail.error_code || '').trim() : '';
+      if (code === 'job_not_cancelable') {
+        setCurrentJobUiState('running');
+        clearQueuedCancelNotice();
+        return false;
+      }
+      throw new Error(t('error.request_failed'));
+    }
+    stopPolling();
+    currentJobId = null;
+    setCurrentJobUiState('idle');
+    clearQueuedCancelNotice();
+    setStatusT('status.cancelled');
+    return true;
+  } finally {
+    currentJobCancelInFlight = false;
+    updateGenerateButtonState();
+  }
+}
+
 async function postJob() {
+  if (currentJobUiState === 'queued' && currentJobId) {
+    await cancelQueuedCurrentJob();
+    return;
+  }
+  if (currentJobUiState === 'submitting' || currentJobUiState === 'running') return;
+  setCurrentJobUiState('submitting');
   const payload = buildPayloadForCurrentUi();
 
     console.log('[aceflow] /api/jobs payload', payload);
@@ -4486,9 +4550,17 @@ async function postJob() {
       bpm: payload.chord_debug_reference_bpm,
     });
     try { console.log('[aceflow] /api/jobs payload json', JSON.stringify(payload)); } catch(e) {}
-    const data = await __submitSingleJob(payload);
+    let data;
+    try {
+      data = await __submitSingleJob(payload);
+    } catch (err) {
+      setCurrentJobUiState('idle');
+      throw err;
+    }
   currentJobId = data.job_id;
+  setCurrentJobUiState('queued');
   setStatusT('status.request_queued', { pos: data.position });
+  setNoticeT('notice.queued_cancel_hint');
   startPolling();
 }
 
@@ -4535,39 +4607,61 @@ async function pollJob() {
 
   const res = await fetch(`/api/jobs/${currentJobId}`);
   if (!res.ok) {
+    setCurrentJobUiState('idle');
+    clearQueuedCancelNotice();
     setStatusT('status.cant_read_job');
     stopPolling();
+    currentJobId = null;
     return;
   }
 
   const st = await res.json();
 
   if (st.status === 'queued') {
+    setCurrentJobUiState('queued');
     setStatusT('status.queued_ahead', { pos: st.position });
+    setNoticeT('notice.queued_cancel_hint');
     return;
   }
 
+  clearQueuedCancelNotice();
+
   if (st.status === 'running') {
+    setCurrentJobUiState('running');
     setStatusT('status.running');
     return;
   }
 
+  if (st.status === 'cancelled') {
+    setCurrentJobUiState('idle');
+    setStatusT('status.cancelled');
+    stopPolling();
+    currentJobId = null;
+    return;
+  }
+
   if (st.status === 'error') {
+    setCurrentJobUiState('idle');
     setStatusT('status.error', { msg: st.error || t('error.unknown') });
     stopPolling();
+    currentJobId = null;
     return;
   }
 
   if (st.status === 'done') {
+    setCurrentJobUiState('idle');
     const r = st.result;
     setStatusT('status.done_in', { sec: (Math.round((r.seconds || 0) * 10) / 10) });
     const urls = Array.isArray(r.audio_urls) ? r.audio_urls : (r.audio_url ? [r.audio_url] : []);
     const jsons = urls.map(() => r.json_url || '');
     showResult(urls, jsons, r.audio_filenames, r.audio_resolved_seeds);
     stopPolling();
+    currentJobId = null;
     refreshFooterStats();
+    return;
   }
 }
+
 
 function startPolling() {
   stopPolling();
@@ -4589,6 +4683,8 @@ async function triggerGenerateFromUi() {
       return;
     }
 
+    setCurrentJobUiState('running');
+    clearQueuedCancelNotice();
     const loraSel = getSelectedLora();
     const loraId = String(loraSel.id || '').trim();
     if (!loraId) throw new Error(__tr('ab.need_lora', 'Select a LoRA before using A/B compare.', 'Seleziona una LoRA prima di usare il confronto A/B.'));
@@ -4645,11 +4741,16 @@ async function triggerGenerateFromUi() {
       a: __tr('ab.audio1', 'Audio 1', 'Audio 1'),
       b: __tr('ab.audio2', 'Audio 2', 'Audio 2'),
     });
+    setCurrentJobUiState('idle');
     refreshFooterStats();
   } catch (e) {
+    setCurrentJobUiState('idle');
     setStatusT('status.error', { msg: e.message });
+  } finally {
+    updateGenerateButtonState();
   }
 }
+
 
 el('submit').addEventListener('click', async () => {
   await triggerGenerateFromUi();
@@ -4667,6 +4768,7 @@ document.querySelectorAll('input[name="generation_mode"]').forEach((r) => {
   r.addEventListener('change', updateModeVisibility);
 });
 updateModeVisibility();
+updateGenerateButtonState();
 
 async function uploadAudioFile(file) {
   const fd = new FormData();

@@ -627,7 +627,6 @@ Some relevant practical limits are:
 - maximum duration: **600 seconds**
 - minimum duration in the UI: **10 seconds**
 - queue active cap: **30 jobs**
-- basic per-IP request interval guard: **5 seconds**
 
 So yes, it is a web UI, but it still keeps a club bouncer at the door.
 

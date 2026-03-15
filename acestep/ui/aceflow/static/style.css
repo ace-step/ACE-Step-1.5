@@ -314,6 +314,22 @@ input[type=range]::-moz-range-thumb {
 }
 .main-btn:hover { filter: brightness(1.09); }
 .main-btn:active { transform: translateY(1px); }
+.main-btn.is-busy,
+.main-btn.is-queued,
+.main-btn:disabled {
+  filter: brightness(.98);
+}
+.main-btn.is-busy,
+.main-btn:disabled {
+  opacity: .78;
+  cursor: wait;
+}
+.main-btn.is-queued {
+  transform: translateY(1px);
+  background: linear-gradient(180deg, rgba(78,161,255,.38), rgba(78,161,255,.18));
+  border-color: rgba(124,199,255,.42);
+  box-shadow: inset 0 2px 10px rgba(0,0,0,.24), 0 0 0 3px rgba(78,161,255,.10);
+}
 
 .dice-btn .ico { width: 17px; height: 17px; display: block; }
 .dice-btn .ico circle { fill: currentColor; }

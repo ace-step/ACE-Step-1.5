@@ -963,8 +963,8 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on", "y"}
 
 ACEFLOW_DEFAULT_CLEANUP_TTL_SECONDS = 3600
-ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO = 20
-ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE = 200
+ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT = 20
+ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_SFT = 200
 ACEFLOW_TURBO_CLAMP_BYPASS_ENV = "ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP"
 ACEFLOW_CLEANUP_TTL_ENV = "ACEFLOW_CLEANUP_TTL_SECONDS"
 
@@ -979,9 +979,9 @@ def _is_core_turbo_step_clamp_bypass_enabled() -> bool:
 
 def _get_max_inference_steps_for_model(model_name: Optional[str]) -> int:
 
-    if _is_turbo_model(model_name):
-        return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO
-    return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE
+    if _is_sft_model(model_name):
+        return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_SFT
+    return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT
 
 ACEFLOW_TURBO_VALID_TIMESTEPS = [
     1.0, 0.9545454545454546, 0.9333333333333333, 0.9, 0.875,
@@ -992,7 +992,7 @@ ACEFLOW_TURBO_VALID_TIMESTEPS = [
 
 def _get_turbo_timesteps_for_infer_steps(infer_steps: int) -> List[float]:
 
-    steps = max(1, min(int(infer_steps), ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO))
+    steps = max(1, min(int(infer_steps), ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT))
     return ACEFLOW_TURBO_VALID_TIMESTEPS[:steps]
 
 def _install_core_turbo_step_clamp_bypass_patch() -> bool:
@@ -1091,7 +1091,7 @@ def _install_core_turbo_step_clamp_bypass_patch() -> bool:
             return kwargs
         if infer_steps_int <= 8:
             return kwargs
-        effective_steps = max(1, min(infer_steps_int, ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO))
+        effective_steps = max(1, min(infer_steps_int, ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT))
         schedule = _get_turbo_timesteps_for_infer_steps(effective_steps)
         kwargs["timesteps"] = torch.tensor(schedule, dtype=torch.float32, device=self.device)
         kwargs["infer_steps"] = effective_steps
@@ -2035,7 +2035,7 @@ def create_app() -> FastAPI:
                 is_sft = _is_sft_model(config_name)
                 is_turbo = _is_turbo_model(config_name)
                 if inference_steps is None:
-                    inference_steps = 8 if is_turbo else (50 if is_sft else 32)
+                    inference_steps = 50 if is_sft else 8
                 if inference_steps is not None:
                     max_steps = _get_max_inference_steps_for_model(config_name)
                     inference_steps = max(1, min(inference_steps, max_steps))
@@ -2899,8 +2899,8 @@ def create_app() -> FastAPI:
             "audio_formats": ["flac","wav","mp3","opus","aac","wav32"],
             "limits": {
                 "max_inference_steps_current_model": _get_max_inference_steps_for_model(active_model),
-                "max_inference_steps_turbo": _get_max_inference_steps_for_model("turbo"),
-                "max_inference_steps_base": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE,
+                "max_inference_steps_sft": _get_max_inference_steps_for_model("sft"),
+                "max_inference_steps_other_dit": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT,
             },
             "cleanup_ttl_seconds": _get_cleanup_ttl_seconds(),
             "core_turbo_step_clamp_bypass_enabled": bypass_installed,
@@ -2916,7 +2916,7 @@ def create_app() -> FastAPI:
         bypass_requested = bool(getattr(app.state, "_core_turbo_step_clamp_bypass_requested", _is_core_turbo_step_clamp_bypass_enabled()))
         bypass_installed = bool(getattr(app.state, "_core_turbo_step_clamp_bypass_installed", False))
         default_shift = 1.0 if _is_sft_model(active_model) else 3.0
-        default_inference_steps = 8 if _is_turbo_model(active_model) else (50 if _is_sft_model(active_model) else 20)
+        default_inference_steps = 50 if _is_sft_model(active_model) else 8
         return {
             "valid_languages": VALID_LANGUAGES,
             "time_signatures": ["", "2/4", "3/4", "4/4", "6/8"],
@@ -2928,8 +2928,8 @@ def create_app() -> FastAPI:
             "current_model": active_model,
             "limits": {
                 "max_inference_steps_current_model": _get_max_inference_steps_for_model(active_model),
-                "max_inference_steps_turbo": _get_max_inference_steps_for_model("turbo"),
-                "max_inference_steps_base": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE,
+                "max_inference_steps_sft": _get_max_inference_steps_for_model("sft"),
+                "max_inference_steps_other_dit": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT,
             },
             "infer_methods": ["ode", "sde"],
             "core_turbo_step_clamp_bypass_enabled": bypass_installed,

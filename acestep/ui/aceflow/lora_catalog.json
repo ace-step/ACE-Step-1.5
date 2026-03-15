@@ -30,7 +30,7 @@
     "label": "Michael Jackson (high-epoch)"
   },
   {
-    "id": "marcomjl_2",
+    "id": "marcomj_2",
     "trigger": "marcomj",
     "label": "Michael Jackson (low-epoch)"
   },
@@ -53,6 +53,16 @@
     "id": "marcotswift",
     "trigger": "marcotswift",
     "label": "Taylor Swift"
+  },
+  {
+    "id": "marcoqueen_1",
+    "trigger": "marcoqueen",
+    "label": "The Queen / Freddie Mercury (high-epoch)"
+  },
+  {
+    "id": "marcoqueen_2",
+    "trigger": "marcoqueen",
+    "label": "The Queen / Freddie Mercury (low-epoch)"
   },
   {
     "id": "marcopolice",

@@ -380,7 +380,7 @@
       'help.lm_overview': 'These controls affect the Language Model that can generate/convert audio codes. Defaults are safe.',
       'help.advanced_overview': 'Advanced controls for diffusion/inference. Defaults are recommended unless you are tuning quality vs speed.',
 
-      'help.inference_steps': 'Number of inference steps. More steps can improve quality but makes generation slower. Suggested: Turbo 8–20, SFT 30–60 (if supported).',
+      'help.inference_steps': 'Number of inference steps. More steps can improve quality but makes generation slower. Suggested: SFT/SFT Turbo 50 within a 1–200 range; other DiT models 8 within a 1–20 range.',
       'help.guidance_scale': 'Higher values follow text more closely.',
       'help.shift': 'Timestep shift factor for base models (range 1.0~5.0, default 3.0). Not effective for turbo models.',
       'help.infer_method': 'Diffusion inference method. ODE is the default; SDE can change the trajectory.',
@@ -784,7 +784,7 @@
       'help.lm_overview': 'Questi controlli influenzano il Language Model che genera/converti i codici audio. I default sono sicuri.',
       'help.advanced_overview': 'Controlli avanzati per diffusione/inferenza. Consigliati i default se non stai ottimizzando qualità vs velocità.',
 
-      'help.inference_steps': 'Numero di step di inferenza. Più step può aumentare la qualità ma rende la generazione più lenta. Consigliato: Turbo 8–20, SFT 30–60 (se supportato).',
+      'help.inference_steps': 'Numero di step di inferenza. Più step può aumentare la qualità ma rende la generazione più lenta. Consigliato: SFT/SFT Turbo 50 in un range 1–200; gli altri modelli DiT 8 in un range 1–20.',
       'help.guidance_scale': 'Valori più alti seguono il testo/prompt più da vicino.',
       'help.shift': 'Fattore di shift dei timestep per i modelli base (1.0–5.0, default 3.0). Non ha effetto sui modelli turbo.',
       'help.infer_method': 'Metodo di inferenza della diffusione. ODE è il default; SDE può cambiare la traiettoria.',

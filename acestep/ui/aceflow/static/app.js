@@ -523,6 +523,7 @@ async function loadAuthStatus() {
   updateAuthChrome();
   if (!authState.enabled) {
     setAuthOverlayMode('hidden');
+    await ensureProtectedBootstrap();
     return data;
   }
   if (!authState.authenticated) {
@@ -3034,8 +3035,8 @@ function syncRangeNumber(rangeId, numId, { decimals = null } = {}) {
 
 
 let __ACE_STEP_LIMITS = {
-  max_inference_steps_turbo: 20,
-  max_inference_steps_base: 200,
+  max_inference_steps_sft: 200,
+  max_inference_steps_other_dit: 20,
   max_inference_steps_current_model: 20,
 };
 
@@ -3050,14 +3051,13 @@ function isTurboModelName(modelName) {
 }
 
 function getCurrentStepLimit(modelName) {
-  if (isTurboModelName(modelName)) return Number(__ACE_STEP_LIMITS.max_inference_steps_turbo || 20);
-  return Number(__ACE_STEP_LIMITS.max_inference_steps_base || 200);
+  if (isSftModelName(modelName)) return Number(__ACE_STEP_LIMITS.max_inference_steps_sft || 200);
+  return Number(__ACE_STEP_LIMITS.max_inference_steps_other_dit || 20);
 }
 
 function getDefaultInferenceStepsForModel(modelName) {
   if (isSftModelName(modelName)) return 50;
-  if (isTurboModelName(modelName)) return 8;
-  return 20;
+  return 8;
 }
 
 function applyInferenceStepLimit(modelName, options = {}) {
@@ -3079,8 +3079,13 @@ function applyInferenceStepLimit(modelName, options = {}) {
   }
   if (nextValue == null) nextValue = maxSteps;
   nextValue = Math.max(minSteps, Math.min(maxSteps, Math.round(Number(nextValue) || minSteps)));
-  writeNumericInputValue(st, nextValue, { decimals: 0, preferValueAsNumber: true });
-  stR.value = String(nextValue);
+  __suppressStepTouchTracking = true;
+  try {
+    writeNumericInputValue(st, nextValue, { decimals: 0, preferValueAsNumber: true });
+    stR.value = String(nextValue);
+  } finally {
+    __suppressStepTouchTracking = false;
+  }
 }
 
 
@@ -3102,8 +3107,8 @@ function bindModelSelectBehavior() {
       const v = String(modelSelect.value || '');
       const desiredSteps = getDefaultInferenceStepsForModel(v);
       applyInferenceStepLimit(v, {
-        preserveValue: __stepsTouched,
-        desiredValue: __stepsTouched ? undefined : desiredSteps,
+        preserveValue: false,
+        desiredValue: desiredSteps,
       });
     } catch (e) {}
 
@@ -3127,20 +3132,20 @@ function syncStepsPair() {
     const v = clamp(stR.value);
     if (v == null) return;
     writeNumericInputValue(st, v, { decimals: 0, preferValueAsNumber: true });
-    __stepsTouched = true;
+    if (!__suppressStepTouchTracking) __stepsTouched = true;
   };
   const fromNumInput = () => {
     const v = clamp(readNumericInputValue(st));
     if (v == null) return;
     stR.value = String(v);
-    __stepsTouched = true;
+    if (!__suppressStepTouchTracking) __stepsTouched = true;
   };
   const fromNumCommit = () => {
     const v = clamp(readNumericInputValue(st));
     if (v == null) return;
     writeNumericInputValue(st, v, { decimals: 0, preferValueAsNumber: true });
     stR.value = String(v);
-    __stepsTouched = true;
+    if (!__suppressStepTouchTracking) __stepsTouched = true;
   };
   if (!st.dataset.bound) {
     st.dataset.bound = '1';
@@ -3241,6 +3246,7 @@ const __activePlayers = new Set();
 
 
 let __stepsTouched = false;
+let __suppressStepTouchTracking = false;
 
 let __sharedDecodeCtx = null;
 
@@ -4798,8 +4804,8 @@ think.addEventListener('change', () => {
     try {
       const activeModel = (modelSelect && modelSelect.value) ? modelSelect.value : '';
       applyInferenceStepLimit(activeModel, {
-        preserveValue: __stepsTouched,
-        desiredValue: __stepsTouched ? undefined : getDefaultInferenceStepsForModel(activeModel),
+        preserveValue: false,
+        desiredValue: getDefaultInferenceStepsForModel(activeModel),
       });
     } catch (e) {}
 
@@ -4826,8 +4832,8 @@ think.addEventListener('change', () => {
       try {
         const uiModel = modelSelect?.value || h.model || '';
         applyInferenceStepLimit(uiModel, {
-          preserveValue: __stepsTouched,
-          desiredValue: __stepsTouched ? undefined : getDefaultInferenceStepsForModel(uiModel),
+          preserveValue: false,
+          desiredValue: getDefaultInferenceStepsForModel(uiModel),
         });
       } catch (e) {}
 
@@ -4858,8 +4864,8 @@ async function loadOptions() {
       try {
         const desiredSteps = getDefaultInferenceStepsForModel(backendModel);
         applyInferenceStepLimit(backendModel, {
-          preserveValue: __stepsTouched,
-          desiredValue: __stepsTouched ? undefined : desiredSteps,
+          preserveValue: false,
+          desiredValue: desiredSteps,
         });
       } catch (e) {}
     }
@@ -5338,7 +5344,7 @@ ${el('lyrics')?.value || ''}`;
   try {
     const st = el('steps');
     const stR = el('steps_range');
-    const mark = () => { __stepsTouched = true; };
+    const mark = (ev) => { if (!__suppressStepTouchTracking && ev?.isTrusted) __stepsTouched = true; };
     if (st) { st.addEventListener('input', mark); st.addEventListener('change', mark); }
     if (stR) { stR.addEventListener('input', mark); stR.addEventListener('change', mark); }
   } catch (e) {}
@@ -5350,8 +5356,8 @@ ${el('lyrics')?.value || ''}`;
     } else {
       const initialModel = el('model_select')?.value || '';
       applyInferenceStepLimit(initialModel, {
-        preserveValue: __stepsTouched,
-        desiredValue: __stepsTouched ? undefined : getDefaultInferenceStepsForModel(initialModel),
+        preserveValue: false,
+        desiredValue: getDefaultInferenceStepsForModel(initialModel),
       });
     }
   } catch (e) {}

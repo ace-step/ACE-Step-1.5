@@ -115,7 +115,7 @@ When the model selector changes, AceFlow auto-fills some values for convenience:
 - models whose name contains `sft` → **Shift = 1**, **Inference steps = 50**, **UI max = 200**
 - other models → **Shift = 3**, **Inference steps = 20**, **UI max = 200**
 
-This is only a UI helper so the form starts from sensible values, but the Turbo UI is intentionally capped at **20**. The static HTML now also starts from the Turbo-safe default (**8**) instead of briefly showing **20** before JavaScript normalization.
+This is only a UI helper so the form starts from sensible values. AceFlow now applies **50 / 200** for **SFT** and **SFT Turbo**, and **8 / 20** for every other DiT model. The static HTML starts from the safe non-SFT default (**8**) before JavaScript normalizes to the active model.
 
 ### Backend fallback and clamp
 When the request reaches the backend, `inference_steps` is normalized again. If the field is missing, backend fallbacks are:
@@ -126,7 +126,8 @@ When the request reaches the backend, `inference_steps` is normalized again. If 
 
 Then the backend clamps the final value to the allowed range used by AceFlow:
 
-- **Turbo** → max **20**
+- **SFT / SFT Turbo** → max **200**
+- **all other DiT models** → max **20**
 - **Other models** → max **200**
 
 So the frontend suggests defaults, while the backend remains the final safety layer.
@@ -519,7 +520,8 @@ When enabled, AceFlow does two things for Turbo models:
 Important limits:
 
 - this is still **AceFlow-only** and does **not** modify ACE-Step core files on disk
-- Turbo remains capped to **20** steps in AceFlow
+- SFT / SFT Turbo remain capped to **200** steps in AceFlow
+- all other DiT models remain capped to **20** steps in AceFlow
 - the runtime patch is process-local and only affects the AceFlow process that started with the environment variable enabled
 - `/api/health` and `/api/options` now expose whether the bypass was merely requested by env or actually installed in the running AceFlow process
 - `/api/options` also reports the current backend model and model-aware defaults for `inference_steps` and `shift`

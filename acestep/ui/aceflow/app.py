@@ -129,6 +129,39 @@ def _is_turbo_model(model_name: Optional[str]) -> bool:
     name_lower = (model_name or "").lower()
     return ("turbo" in name_lower) and (not _is_sft_model(name_lower))
 
+
+def _parse_lora_weight_value(value: Any, default: float = 0.5) -> float:
+
+    if isinstance(value, (int, float)):
+        try:
+            n = float(value)
+        except Exception:
+            return default
+    else:
+        raw = str(value or '').strip()
+        if not raw:
+            return default
+        raw = re.sub(r"[\s\u00A0\u202F]+", "", raw)
+        raw = re.sub(r"[^0-9,\.\-\+]", "", raw)
+        if not raw or raw in {'-', '+', '.', ',', '-.', '-,', '+.', '+,'}:
+            return default
+        last_comma = raw.rfind(',')
+        last_dot = raw.rfind('.')
+        if last_comma >= 0 and last_dot >= 0:
+            if last_comma > last_dot:
+                raw = raw.replace('.', '').replace(',', '.')
+            else:
+                raw = raw.replace(',', '')
+        elif last_comma >= 0:
+            raw = raw.replace('.', '').replace(',', '.')
+        try:
+            n = float(raw)
+        except Exception:
+            return default
+    if n != n:
+        return default
+    return max(0.0, min(n, 1.0))
+
 def _parse_timesteps_input(value):
 
     """Parse custom timestep input from UI/API into a float list or None."""
@@ -1930,11 +1963,7 @@ def create_app() -> FastAPI:
         instrumental = bool(req.get('instrumental', False))
         lora_id = (req.get('lora_id') or '').strip()
         lora_trigger = (req.get('lora_trigger') or req.get('lora_tag') or '').strip()
-        lora_weight = req.get('lora_weight', 0.5)
-        try:
-            lora_weight = float(lora_weight)
-        except Exception:
-            lora_weight = 0.5
+        lora_weight = _parse_lora_weight_value(req.get('lora_weight', 0.5), default=0.5)
         lora_path = ''
         lora_loaded_for_job = False
         try:
@@ -1963,14 +1992,7 @@ def create_app() -> FastAPI:
                 instrumental = bool(req.get("instrumental", False))
                 lora_id = (req.get("lora_id") or "").strip()
                 lora_trigger = (req.get("lora_trigger") or req.get("lora_tag") or "").strip()
-                lora_weight = req.get("lora_weight", 0.5)
-                try:
-                    lora_weight = float(lora_weight)
-                except Exception:
-                    lora_weight = 0.5
-                if not (lora_weight == lora_weight):
-                    lora_weight = 0.5
-                lora_weight = max(0.0, min(lora_weight, 1.0))
+                lora_weight = _parse_lora_weight_value(req.get("lora_weight", 0.5), default=0.5)
                 try:
                     logger.info(
                         f"[LoRA] requested id='{lora_id or ''}' trigger='{lora_trigger or ''}' weight={lora_weight:.2f}"
@@ -3390,12 +3412,7 @@ timesignature: {timesignature}
         seed = payload.get("seed", -1)
         lora_id = (payload.get("lora_id") or "").strip()
         lora_trigger = (payload.get("lora_trigger") or payload.get("lora_tag") or "").strip()
-        lora_weight = payload.get("lora_weight", 0.5)
-        try:
-            lora_weight = float(lora_weight)
-        except Exception:
-            lora_weight = 0.5
-        lora_weight = max(0.0, min(lora_weight, 1.0))
+        lora_weight = _parse_lora_weight_value(payload.get("lora_weight", 0.5), default=0.5)
         _keys = sorted([str(k) for k in payload.keys()]) if isinstance(payload, dict) else []
         payload.pop('_aceflow_compare_key', None)
         payload.pop('_aceflow_compare_step', None)

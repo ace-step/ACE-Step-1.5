@@ -124,6 +124,27 @@ const __browserNumberLocale = (() => {
   }
 })();
 
+function parseLocaleSafeDecimal(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  let raw = String(value ?? '').trim();
+  if (!raw) return null;
+  raw = raw.replace(/[\s  ]+/g, '');
+  raw = raw.replace(/[^\d,\.\-\+]/g, '');
+  if (!raw || raw === '-' || raw === '+' || raw === '.' || raw === ',' || raw === '-.' || raw === '-,' || raw === '+.' || raw === '+,') return null;
+  const lastComma = raw.lastIndexOf(',');
+  const lastDot = raw.lastIndexOf('.');
+  if (lastComma >= 0 && lastDot >= 0) {
+    const decimalSep = lastComma > lastDot ? ',' : '.';
+    raw = decimalSep === ','
+      ? raw.replace(/\./g, '').replace(',', '.')
+      : raw.replace(/,/g, '');
+  } else if (lastComma >= 0) {
+    raw = raw.replace(/\./g, '').replace(',', '.');
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function readNumericInputValue(node) {
   if (!node) return null;
   try {
@@ -132,17 +153,13 @@ function readNumericInputValue(node) {
       if (Number.isFinite(viaNumber)) return viaNumber;
     }
   } catch (_) {}
-  const raw = String(node.value ?? '').trim().replace(',', '.');
-  if (raw === '' || raw === '-' || raw === '.' || raw === '-.') return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
+  return parseLocaleSafeDecimal(node.value);
 }
 
 function writeNumericInputValue(node, value, { decimals = null, preferValueAsNumber = true } = {}) {
   if (!node) return;
   const n = Number(value);
   if (!Number.isFinite(n)) return;
-  try { node.setAttribute('lang', __browserNumberLocale); } catch (_) {}
   try {
     if (node.type === 'number' && preferValueAsNumber) {
       node.valueAsNumber = n;
@@ -155,17 +172,20 @@ function writeNumericInputValue(node, value, { decimals = null, preferValueAsNum
 
 function getNumericDecimals(node) {
   if (!node) return null;
-  const stepRaw = String(node.step ?? '').trim().replace(',', '.');
+  const stepSource = (node.step != null && String(node.step).trim() !== '') ? node.step : node.getAttribute('data-step');
+  const stepRaw = String(stepSource ?? '').trim().replace(',', '.');
   if (!stepRaw || stepRaw === 'any') return null;
   const idx = stepRaw.indexOf('.');
   return idx >= 0 ? Math.max(0, stepRaw.length - idx - 1) : 0;
 }
 
 function clampNumericValueToAttrs(node, value) {
-  const parsed = (typeof value === 'number') ? value : readNumericInputValue({ value, type: 'text' });
+  const parsed = (typeof value === 'number') ? value : parseLocaleSafeDecimal(value);
   if (!Number.isFinite(parsed)) return null;
-  const minRaw = String(node?.min ?? '').trim().replace(',', '.');
-  const maxRaw = String(node?.max ?? '').trim().replace(',', '.');
+  const minSource = (node?.min != null && String(node.min).trim() !== '') ? node.min : node?.getAttribute?.('data-min');
+  const maxSource = (node?.max != null && String(node.max).trim() !== '') ? node.max : node?.getAttribute?.('data-max');
+  const minRaw = String(minSource ?? '').trim().replace(',', '.');
+  const maxRaw = String(maxSource ?? '').trim().replace(',', '.');
   const min = minRaw !== '' ? Number(minRaw) : null;
   const max = maxRaw !== '' ? Number(maxRaw) : null;
   let out = parsed;
@@ -272,12 +292,30 @@ function commitNumericFieldOnEnter(e, node, commitFn) {
   return true;
 }
 
+function getPreferredBrowserLocale() {
+  try {
+    const lang = String(document?.documentElement?.lang || navigator?.language || '').trim();
+    return lang || 'en-US';
+  } catch (_) {
+    return 'en-US';
+  }
+}
+
 function configureNumericInputsForLocale() {
   document.querySelectorAll('input[type="number"]').forEach((node) => {
-    try { node.setAttribute('lang', __browserNumberLocale); } catch (_) {}
     try { node.setAttribute('inputmode', 'decimal'); } catch (_) {}
     bindStandaloneNumericCommit(node);
   });
+}
+
+function configureLoraWeightNumericLocale() {
+  if (!loraWeightNum) return;
+  try {
+    loraWeightNum.setAttribute('lang', getPreferredBrowserLocale());
+  } catch (_) {}
+  try {
+    loraWeightNum.setAttribute('inputmode', 'decimal');
+  } catch (_) {}
 }
 
 
@@ -4975,7 +5013,7 @@ function setupImportJson() {
   const safeNum = (v) => {
     if (typeof v === 'number' && Number.isFinite(v)) return v;
     if (typeof v === 'string' && v.trim() !== '') {
-      const n = Number(v);
+      const n = parseLocaleSafeDecimal(v);
       return Number.isFinite(n) ? n : null;
     }
     return null;
@@ -5289,6 +5327,7 @@ window.addEventListener('load', async () => {
 
   setupAutoToggles();
   configureNumericInputsForLocale();
+  configureLoraWeightNumericLocale();
   
   syncRangeNumber('lm_temperature_range', 'lm_temperature', { decimals: 2 });
   syncRangeNumber('lm_cfg_scale_range', 'lm_cfg_scale', { decimals: 1 });

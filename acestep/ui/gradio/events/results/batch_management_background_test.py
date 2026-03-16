@@ -152,6 +152,62 @@ class BatchManagementBackgroundTests(unittest.TestCase):
         self.assertEqual(result[0][1]["status"], "error")
         self.assertTrue(state["warning_messages"])
 
+    # ------------------------------------------------------------------
+    # MPS cache-clearing regression tests (macOS audio-mute fix)
+    # ------------------------------------------------------------------
+
+    def test_mps_cache_cleared_before_generation_on_mac(self):
+        """On MPS, empty_cache must be called before generation to release memory."""
+        module, state = load_batch_management_module(is_windows=False, mps_available=True)
+
+        def _gen(*_args, **_kwargs):
+            """Yield one result for MPS cache-clearing path."""
+            yield build_progress_result(length=48)
+
+        with patch.dict(module.generate_next_batch_background.__globals__, {"generate_with_progress": _gen}):
+            module.generate_next_batch_background(
+                None,
+                None,
+                autogen_enabled=True,
+                generation_params={"batch_size_input": 1, "allow_lm_batch": False, "auto_lrc": False},
+                current_batch_index=0,
+                total_batches=1,
+                batch_queue={},
+                is_format_caption=False,
+            )
+
+        self.assertGreater(
+            state["mps_empty_cache_calls"],
+            0,
+            "torch.mps.empty_cache() must be called before generation on macOS to prevent system audio mute",
+        )
+
+    def test_mps_cache_not_called_when_mps_unavailable(self):
+        """MPS cache clear must not be called when MPS is absent (non-Mac hosts)."""
+        module, state = load_batch_management_module(is_windows=False, mps_available=False)
+
+        def _gen(*_args, **_kwargs):
+            """Yield one result for non-MPS path."""
+            yield build_progress_result(length=48)
+
+        with patch.dict(module.generate_next_batch_background.__globals__, {"generate_with_progress": _gen}):
+            module.generate_next_batch_background(
+                None,
+                None,
+                autogen_enabled=True,
+                generation_params={"batch_size_input": 1, "allow_lm_batch": False, "auto_lrc": False},
+                current_batch_index=0,
+                total_batches=1,
+                batch_queue={},
+                is_format_caption=False,
+            )
+
+        self.assertEqual(
+            state["mps_empty_cache_calls"],
+            0,
+            "torch.mps.empty_cache() must not be called when MPS is unavailable",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

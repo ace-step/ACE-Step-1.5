@@ -162,6 +162,14 @@ def build_generation_setup(
         repainting_start=req.repainting_start,
         repainting_end=req.repainting_end if req.repainting_end else -1,
         chunk_mask_mode=getattr(req, "chunk_mask_mode", "auto"),
+        repaint_latent_crossfade_frames=getattr(
+            req, "repaint_latent_crossfade_frames", 10,
+        ),
+        repaint_wav_crossfade_sec=getattr(
+            req, "repaint_wav_crossfade_sec", 0.0,
+        ),
+        repaint_mode=getattr(req, "repaint_mode", "balanced"),
+        repaint_strength=getattr(req, "repaint_strength", 0.5),
         audio_cover_strength=req.audio_cover_strength,
         cover_noise_strength=req.cover_noise_strength,
         thinking=thinking,

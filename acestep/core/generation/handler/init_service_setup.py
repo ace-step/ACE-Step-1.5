@@ -160,6 +160,7 @@ class InitServiceSetupMixin:
         mlx_compile_requested: bool,
         offload_to_cpu: bool,
         offload_dit_to_cpu: bool,
+        quantization: Optional[str],
         mlx_dit_status: str,
         mlx_vae_status: str,
     ) -> str:
@@ -172,8 +173,10 @@ class InitServiceSetupMixin:
         status_msg += f"Attention: {attention}\n"
         compiled_label = "mx.compile (MLX)" if mlx_compile_requested else str(compile_model)
         status_msg += f"Compiled: {compiled_label}\n"
+        status_msg += f"Quantization: {quantization or 'Disabled'}\n"
         status_msg += f"Offload to CPU: {offload_to_cpu}\n"
         status_msg += f"Offload DiT to CPU: {offload_dit_to_cpu}\n"
         status_msg += f"MLX DiT: {mlx_dit_status}\n"
         status_msg += f"MLX VAE: {mlx_vae_status}"
         return status_msg
+

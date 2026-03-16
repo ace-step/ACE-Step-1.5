@@ -286,10 +286,12 @@ class InitServiceMixinTests(unittest.TestCase):
             mlx_compile_requested=True,
             offload_to_cpu=False,
             offload_dit_to_cpu=False,
+            quantization="w8a8_dynamic",
             mlx_dit_status="Active",
             mlx_vae_status="Active",
         )
         self.assertIn("Compiled: mx.compile (MLX)", msg)
+        self.assertIn("Quantization: w8a8_dynamic", msg)
 
     def test_initialize_mlx_backends_disables_dit_when_requested(self):
         """It disables MLX DiT state when caller explicitly opts out."""
@@ -714,3 +716,4 @@ class RocmDtypeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

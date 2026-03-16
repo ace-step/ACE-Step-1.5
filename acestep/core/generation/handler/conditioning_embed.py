@@ -122,6 +122,8 @@ class ConditioningEmbedMixin:
                 logger.info("[preprocess_batch] Inferring non-cover text embeddings...")
                 non_cover_text_hidden_states = self.infer_text_embeddings(non_cover_text_input_ids)
 
+        repaint_mask = batch.get("repaint_mask", None)
+
         return (
             keys,
             text_inputs,
@@ -142,4 +144,5 @@ class ConditioningEmbedMixin:
             precomputed_lm_hints_25hz,
             non_cover_text_hidden_states,
             non_cover_text_attention_masks,
+            repaint_mask,
         )

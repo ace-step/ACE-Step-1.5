@@ -80,7 +80,7 @@ class ConditioningBatchMixin:
         wav_lengths = torch.tensor([target_wavs.shape[-1]] * batch_size, dtype=torch.long)
 
         instructions = self._normalize_instructions(instructions, batch_size, DEFAULT_DIT_INSTRUCTION)
-        chunk_masks, spans, is_covers, src_latents = self._build_chunk_masks_and_src_latents(
+        chunk_masks, spans, is_covers, src_latents, repaint_mask = self._build_chunk_masks_and_src_latents(
             batch_size,
             max_latent_length,
             instructions,
@@ -138,6 +138,7 @@ class ConditioningBatchMixin:
             "precomputed_lm_hints_25Hz": precomputed_lm_hints_25hz,
             "non_cover_text_input_ids": padded_non_cover_text_input_ids,
             "non_cover_text_attention_masks": padded_non_cover_text_attention_masks,
+            "repaint_mask": repaint_mask,
         }
         for k, v in batch.items():
             if isinstance(v, torch.Tensor):

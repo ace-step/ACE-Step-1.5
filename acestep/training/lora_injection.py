@@ -186,7 +186,9 @@ def inject_lora_into_dit(
     decoder = _unwrap_decoder(model.decoder)
     model.decoder = decoder
 
-    if hasattr(decoder, "enable_input_require_grads"):
+    if hasattr(decoder, "enable_input_require_grads") and not hasattr(
+        decoder, "_acestep_orig_enable_input_require_grads"
+    ):
         orig = decoder.enable_input_require_grads
         decoder._acestep_orig_enable_input_require_grads = orig
         decoder.enable_input_require_grads = types.MethodType(

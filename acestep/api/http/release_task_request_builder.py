@@ -67,6 +67,14 @@ def build_generate_music_request(
         src_audio_path=src_audio,
         task_type=parser.str("task_type", "text2music"),
         chunk_mask_mode=parser.str("chunk_mask_mode", "auto"),
+        repaint_latent_crossfade_frames=parser.int(
+            "repaint_latent_crossfade_frames", 10,
+        ),
+        repaint_wav_crossfade_sec=parser.float(
+            "repaint_wav_crossfade_sec", 0.0,
+        ),
+        repaint_mode=parser.str("repaint_mode", "balanced"),
+        repaint_strength=parser.float("repaint_strength", 0.5),
         use_adg=parser.bool("use_adg"),
         cfg_interval_start=parser.float("cfg_interval_start", 0.0),
         cfg_interval_end=parser.float("cfg_interval_end", 1.0),

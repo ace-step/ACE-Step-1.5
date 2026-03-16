@@ -63,6 +63,24 @@ class GenerateMusicRequest(BaseModel):
     )
     task_type: str = "text2music"
     chunk_mask_mode: Literal["explicit", "auto"] = "auto"
+    repaint_latent_crossfade_frames: int = Field(
+        default=10,
+        description="Latent-level boundary blend width in frames (25Hz, 10~0.4s)",
+    )
+    repaint_wav_crossfade_sec: float = Field(
+        default=0.0,
+        description="Waveform-level splice crossfade in seconds (0=hard cut)",
+    )
+    repaint_mode: Literal["conservative", "balanced", "aggressive"] = Field(
+        default="balanced",
+        description="Repaint preservation mode: conservative (max src retention), balanced (tunable), aggressive (pure diffusion)",
+    )
+    repaint_strength: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Balanced-mode repaint intensity: 0.0=conservative (max source preservation), 1.0=aggressive (pure diffusion). Only used in balanced mode.",
+    )
     analysis_only: bool = False
     full_analysis_only: bool = False
 

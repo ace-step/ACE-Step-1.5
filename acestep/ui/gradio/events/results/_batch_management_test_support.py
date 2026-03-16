@@ -33,14 +33,24 @@ def build_progress_result(*, length: int = 48, all_audio_paths: Any = _MISSING) 
     return tuple(result)
 
 
-def load_batch_management_module(*, is_windows: bool = False) -> Tuple[Any, Dict[str, Any]]:
-    """Load ``batch_management.py`` with dependency stubs and trackers."""
+def load_batch_management_module(
+    *, is_windows: bool = False, mps_available: bool = False
+) -> Tuple[Any, Dict[str, Any]]:
+    """Load ``batch_management.py`` with dependency stubs and trackers.
+
+    Args:
+        is_windows: Simulate Windows platform flag in ``generation_info`` stub.
+        mps_available: When True, the fake ``torch`` stub will expose
+            ``torch.mps.empty_cache`` so MPS code-paths can be exercised.
+    """
     state: Dict[str, Any] = {
         "store_calls": [],
         "info_messages": [],
         "warning_messages": [],
         "log_info": [],
         "log_warning": [],
+        "cuda_empty_cache_calls": 0,
+        "mps_empty_cache_calls": 0,
     }
 
     def _gr_update(**kwargs):
@@ -91,6 +101,30 @@ def load_batch_management_module(*, is_windows: bool = False) -> Tuple[Any, Dict
         """Return predictable translation output with formatted kwargs."""
         return f"{key}|{kwargs}" if kwargs else key
 
+    # --- Fake torch stub --------------------------------------------------
+    # Provides just enough of the torch API used by batch-management modules
+    # (torch.cuda.is_available, torch.cuda.empty_cache, torch.mps.empty_cache).
+    # Call counts are recorded in ``state`` for assertion in tests.
+    def _cuda_empty_cache():
+        state["cuda_empty_cache_calls"] += 1
+
+    fake_cuda = types.SimpleNamespace(
+        is_available=lambda: False,
+        empty_cache=_cuda_empty_cache,
+    )
+
+    fake_torch = types.ModuleType("torch")
+    fake_torch.cuda = fake_cuda
+
+    if mps_available:
+        def _mps_empty_cache():
+            state["mps_empty_cache_calls"] += 1
+
+        fake_torch.mps = types.SimpleNamespace(empty_cache=_mps_empty_cache)
+    # When mps_available is False, ``torch.mps`` is absent, so
+    # ``hasattr(torch, "mps")`` returns False and the cache call is skipped.
+    # -----------------------------------------------------------------------
+
     acestep_pkg = types.ModuleType("acestep")
     ui_pkg = types.ModuleType("acestep.ui")
     gradio_pkg = types.ModuleType("acestep.ui.gradio")
@@ -124,6 +158,7 @@ def load_batch_management_module(*, is_windows: bool = False) -> Tuple[Any, Dict
 
     modules = {
         "gradio": fake_gradio,
+        "torch": fake_torch,
         "loguru": types.SimpleNamespace(logger=fake_logger),
         "acestep": acestep_pkg,
         "acestep.ui": ui_pkg,

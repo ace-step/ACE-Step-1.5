@@ -28,8 +28,20 @@ class ConditioningMaskMixin:
         repainting_end: Optional[List[float]],
         silence_latent_tiled: torch.Tensor,
         chunk_mask_modes: Optional[List[str]] = None,
-    ) -> Tuple[torch.Tensor, List[Tuple[str, int, int]], torch.Tensor, torch.Tensor]:
-        """Create chunk masks/spans and corresponding source latents."""
+    ) -> Tuple[
+        torch.Tensor,
+        List[Tuple[str, int, int]],
+        torch.Tensor,
+        torch.Tensor,
+        Optional[torch.Tensor],
+    ]:
+        """Create chunk masks/spans, source latents, and repaint injection mask.
+
+        Returns:
+            Tuple of (chunk_masks, spans, is_covers, src_latents, repaint_mask).
+            ``repaint_mask`` is a boolean ``[B, T]`` tensor (True = generate,
+            False = preserve source) when any item uses repainting, else ``None``.
+        """
         chunk_masks = []
         spans = []
         is_covers = []
@@ -92,4 +104,14 @@ class ConditioningMaskMixin:
             else:
                 src_latents_list.append(silence_latent_tiled.clone())
         src_latents = torch.stack(src_latents_list)
-        return chunk_masks_tensor, spans, is_covers_tensor, src_latents
+
+        repaint_mask: Optional[torch.Tensor] = None
+        if repainting_ranges:
+            repaint_mask = torch.ones(
+                batch_size, max_latent_length, dtype=torch.bool, device=self.device,
+            )
+            for i, (start_latent, end_latent) in repainting_ranges.items():
+                repaint_mask[i] = False
+                repaint_mask[i, start_latent:end_latent] = True
+
+        return chunk_masks_tensor, spans, is_covers_tensor, src_latents, repaint_mask

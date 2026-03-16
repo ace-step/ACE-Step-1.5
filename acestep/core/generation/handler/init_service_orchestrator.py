@@ -145,6 +145,7 @@ class InitServiceOrchestratorMixin:
                 mlx_compile_requested=mlx_compile_requested,
                 offload_to_cpu=offload_to_cpu,
                 offload_dit_to_cpu=offload_dit_to_cpu,
+                quantization=self.quantization,
                 mlx_dit_status=mlx_dit_status,
                 mlx_vae_status=mlx_vae_status,
             )

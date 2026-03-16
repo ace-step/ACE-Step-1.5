@@ -60,6 +60,8 @@ MODE_OUTPUT_EXPECTED = [
     "repainting_header_html",
     "repainting_start",
     "repainting_end",
+    "repaint_mode",
+    "repaint_strength",
     "previous_generation_mode",
     "remix_help_group",
     "extract_help_group",

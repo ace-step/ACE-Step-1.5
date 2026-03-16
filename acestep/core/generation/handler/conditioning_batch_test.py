@@ -56,12 +56,13 @@ class _Host(ConditioningBatchMixin):
         repainting_start: Optional[List[float]],
         repainting_end: Optional[List[float]],
         silence_latent_tiled: torch.Tensor,
-    ) -> Tuple[torch.Tensor, List[Tuple[str, int, int]], torch.Tensor, torch.Tensor]:
+        chunk_mask_modes: Optional[List[str]] = None,
+    ) -> Tuple[torch.Tensor, List[Tuple[str, int, int]], torch.Tensor, torch.Tensor, None]:
         chunk_masks = torch.ones(batch_size, max_latent_length, dtype=torch.bool)
         spans: List[Tuple[str, int, int]] = [("full", 0, max_latent_length)] * batch_size
         is_covers = torch.zeros(batch_size, dtype=torch.bool)
         src_latents = target_latents.clone()
-        return chunk_masks, spans, is_covers, src_latents
+        return chunk_masks, spans, is_covers, src_latents, None
 
     def _prepare_precomputed_lm_hints(
         self,
@@ -83,6 +84,8 @@ class _Host(ConditioningBatchMixin):
         parsed_metas: List[str],
         vocal_languages: List[str],
         audio_cover_strength: float,
+        global_captions: Optional[List[str]] = None,
+        chunk_mask_modes: Optional[List[str]] = None,
     ):
         text_inputs = [f"{captions[i]}::{lyrics[i]}" for i in range(batch_size)]
         text_ids = torch.ones(batch_size, 8, dtype=torch.long)

@@ -76,7 +76,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
         host = _make_host()
         target_latents = torch.ones(1, 100, 16) * 2.5
         lego_instruction = "Generate the GUITAR track based on the audio context:"
-        chunk_masks, spans, is_covers, src_latents = _build(
+        chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
             instructions=[lego_instruction],
             target_latents=target_latents,
@@ -94,7 +94,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
         host = _make_host()
         target_latents = torch.ones(1, 100, 16) * 1.7
         lego_default_instruction = "Generate the track based on the audio context:"
-        chunk_masks, spans, is_covers, src_latents = _build(
+        chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
             instructions=[lego_default_instruction],
             target_latents=target_latents,
@@ -114,7 +114,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
         """
         host = _make_host()
         target_latents = torch.ones(1, 100, 16) * 2.5
-        chunk_masks, spans, is_covers, src_latents = _build(
+        chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
             target_latents=target_latents,
             repainting_start=[0.0],
@@ -134,7 +134,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
         host = _make_host()
         target_latents = torch.ones(1, 100, 16) * 3.0
         # Repaint 1s-2s (roughly latents 25-50 at 48000/1920=25 latents/sec)
-        chunk_masks, spans, is_covers, src_latents = _build(
+        chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
             target_latents=target_latents,
             repainting_start=[1.0],
@@ -176,7 +176,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
         target_latents = torch.ones(1, 100, 16) * 2.5
         # Use mixed-case version of the instruction
         mixed_case_instruction = "Generate the GUITAR Track BASED ON THE AUDIO CONTEXT:"
-        chunk_masks, spans, is_covers, src_latents = _build(
+        chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
             instructions=[mixed_case_instruction],
             target_latents=target_latents,
@@ -193,7 +193,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
         host = _make_host()
         target_latents = torch.ones(1, 100, 16) * 2.5
         # Empty instructions list — instructions[i] lookup falls back to ""
-        chunk_masks, spans, is_covers, src_latents = _build(
+        chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
             instructions=[],
             target_latents=target_latents,
@@ -209,7 +209,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
         host = _make_host()
         target_latents = torch.ones(1, 100, 16) * 2.5
         repaint_instruction = "Repaint the mask area based on the given conditions:"
-        chunk_masks, spans, is_covers, src_latents = _build(
+        chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
             instructions=[repaint_instruction],
             target_latents=target_latents,
@@ -226,7 +226,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
         """Without source audio, src_latents should be silence (text2music behavior)."""
         host = _make_host()
         target_wavs = torch.zeros(1, 2, 48000)
-        chunk_masks, spans, is_covers, src_latents = _build(
+        chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
             target_wavs=target_wavs,
             repainting_start=None,

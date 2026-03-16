@@ -71,6 +71,7 @@ class _Host(GenerateMusicMixin):
         self.text_tokenizer = object()
         self.text_encoder = object()
         self.offload_to_cpu = offload_to_cpu
+        self.sample_rate = 48000
         self.calls: Dict[str, Any] = {}
         self._final_payload = {"audios": [{"tensor": torch.zeros(1, 4), "sample_rate": 48000}], "success": True}
         self._readiness_error = {
@@ -149,6 +150,9 @@ class _Host(GenerateMusicMixin):
         """Capture payload-builder args and return deterministic success payload."""
         self.calls["_build_generate_music_success_payload"] = kwargs
         return self._final_payload
+
+    def _empty_cache(self):
+        """No-op cache clear for test host."""
 
 
 class GenerateMusicMixinTests(unittest.TestCase):

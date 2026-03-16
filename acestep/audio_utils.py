@@ -164,10 +164,14 @@ class AudioSaver:
                 self.MP3_BITRATE,
                 str(output_path),
             ]
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=120)
         except FileNotFoundError as e:
             raise RuntimeError(
                 "ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files."
+            ) from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                "ffmpeg MP3 export timed out after 120 seconds."
             ) from e
         except subprocess.CalledProcessError as e:
             stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else str(e)
@@ -225,18 +229,16 @@ class AudioSaver:
                 # numpy already [channels, samples]
                 audio_tensor = torch.from_numpy(audio_data).float()
             else:
-                # numpy [samples, channels] -> tensor [samples, channels] -> [channels, samples] (if transposed)
+                # numpy [samples, channels] -> [channels, samples]
                 audio_tensor = torch.from_numpy(audio_data).float()
-                if audio_tensor.dim() == 2 and audio_tensor.shape[0] > audio_tensor.shape[1]:
-                     # Assume [samples, channels] if dim0 > dim1 (heuristic)
-                     audio_tensor = audio_tensor.T
+                if audio_tensor.dim() == 2:
+                    audio_tensor = audio_tensor.T
         else:
             # torch tensor
             audio_tensor = audio_data.cpu().float()
             if not channels_first and audio_tensor.dim() == 2:
                 # [samples, channels] -> [channels, samples]
-                if audio_tensor.shape[0] > audio_tensor.shape[1]:
-                    audio_tensor = audio_tensor.T
+                audio_tensor = audio_tensor.T
         
         # Ensure memory is contiguous
         audio_tensor = audio_tensor.contiguous()
@@ -355,10 +357,21 @@ class AudioSaver:
             channels_first=True
         )
         
-        # Delete input file if needed
+        # Delete input file if needed, but never delete the converted output.
         if remove_input:
-            input_path.unlink()
-            logger.debug(f"[AudioSaver] Removed input file: {input_path}")
+            same_file = False
+            try:
+                same_file = input_path.resolve() == Path(output_path).resolve()
+            except FileNotFoundError:
+                same_file = input_path.absolute() == Path(output_path).absolute()
+
+            if same_file:
+                logger.warning(
+                    f"[AudioSaver] Skipping input removal because input and output are the same file: {input_path}"
+                )
+            else:
+                input_path.unlink()
+                logger.debug(f"[AudioSaver] Removed input file: {input_path}")
         
         return output_path
     

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+import subprocess
 
 import torch
 import numpy as np
@@ -228,6 +229,52 @@ class AudioSaverFormatTests(unittest.TestCase):
             )
 
             self.assertTrue(result.endswith('.aac'))
+
+
+    def test_save_audio_mp3_uses_explicit_ffmpeg_export_settings(self):
+        """MP3 export should force 44.1 kHz and 320 kbps via ffmpeg."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with patch('acestep.audio_utils.torchaudio.save') as mock_save, \
+             patch('acestep.audio_utils.subprocess.run') as mock_run:
+            result = saver.save_audio(
+                self.sample_audio,
+                output_path,
+                sample_rate=self.sample_rate,
+                format="mp3"
+            )
+
+            mock_save.assert_called_once()
+            save_args = mock_save.call_args[0]
+            self.assertEqual(save_args[2], 44100)
+            save_kwargs = mock_save.call_args[1]
+            self.assertEqual(save_kwargs.get('backend'), 'soundfile')
+
+            mock_run.assert_called_once()
+            cmd = mock_run.call_args[0][0]
+            self.assertIn('ffmpeg', cmd)
+            self.assertIn('libmp3lame', cmd)
+            self.assertIn('44100', cmd)
+            self.assertIn('320k', cmd)
+            self.assertTrue(result.endswith('.mp3'))
+
+    def test_save_audio_mp3_reports_missing_ffmpeg_cleanly(self):
+        """MP3 export should raise a clear error when ffmpeg is unavailable."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "missing_ffmpeg.mp3"
+
+        with patch('acestep.audio_utils.torchaudio.save'), \
+             patch('acestep.audio_utils.subprocess.run', side_effect=FileNotFoundError()):
+            with self.assertRaises(RuntimeError) as ctx:
+                saver.save_audio(
+                    self.sample_audio,
+                    output_path,
+                    sample_rate=self.sample_rate,
+                    format="mp3"
+                )
+
+        self.assertIn('ffmpeg executable not found', str(ctx.exception))
 
 
 class ApplyFadeTests(unittest.TestCase):

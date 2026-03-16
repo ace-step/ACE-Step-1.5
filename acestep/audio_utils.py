@@ -12,6 +12,7 @@ import io
 import json
 import os
 import subprocess
+import tempfile
 import hashlib
 from pathlib import Path
 from typing import Union, Optional, List, Tuple
@@ -113,6 +114,9 @@ def normalize_audio(audio_data: Union[torch.Tensor, np.ndarray], target_db: floa
 class AudioSaver:
     """Audio saving and transcoding utility class"""
     
+    MP3_SAMPLE_RATE = 44100
+    MP3_BITRATE = "320k"
+    
     def __init__(self, default_format: str = "flac"):
         """
         Initialize audio saver
@@ -125,6 +129,55 @@ class AudioSaver:
             logger.warning(f"Unsupported format {default_format}, using 'flac'")
             self.default_format = "flac"
     
+    def _save_mp3(self, audio_tensor: torch.Tensor, output_path: Path, sample_rate: int) -> None:
+        """Save MP3 with explicit ffmpeg settings: 44.1 kHz, 320 kbps."""
+        target_sample_rate = self.MP3_SAMPLE_RATE
+
+        if sample_rate != target_sample_rate:
+            audio_tensor = torchaudio.functional.resample(audio_tensor, sample_rate, target_sample_rate)
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+            temp_wav_path = Path(temp_wav.name)
+
+        try:
+            torchaudio.save(
+                str(temp_wav_path),
+                audio_tensor,
+                target_sample_rate,
+                channels_first=True,
+                backend='soundfile',
+            )
+
+            cmd = [
+                'ffmpeg',
+                '-y',
+                '-hide_banner',
+                '-loglevel',
+                'error',
+                '-i',
+                str(temp_wav_path),
+                '-codec:a',
+                'libmp3lame',
+                '-ar',
+                str(target_sample_rate),
+                '-b:a',
+                self.MP3_BITRATE,
+                str(output_path),
+            ]
+            subprocess.run(cmd, check=True, capture_output=True)
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                "ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files."
+            ) from e
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else str(e)
+            raise RuntimeError(f"ffmpeg MP3 export failed: {stderr}") from e
+        finally:
+            try:
+                temp_wav_path.unlink(missing_ok=True)
+            except Exception:
+                logger.warning(f"[AudioSaver] Failed to remove temporary WAV file: {temp_wav_path}")
+
     def save_audio(
         self,
         audio_data: Union[torch.Tensor, np.ndarray],
@@ -190,8 +243,10 @@ class AudioSaver:
         
         # Select backend and save
         try:
-            if format in ["mp3", "opus", "aac"]:
-                # MP3, Opus, and AAC use ffmpeg backend
+            if format == "mp3":
+                self._save_mp3(audio_tensor, output_path, sample_rate)
+            elif format in ["opus", "aac"]:
+                # Opus and AAC use ffmpeg backend
                 torchaudio.save(
                     str(output_path),
                     audio_tensor,

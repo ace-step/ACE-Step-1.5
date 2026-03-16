@@ -293,10 +293,16 @@ class AudioSaver:
             return str(output_path)
             
         except Exception as e:
+            # Preserve explicit ffmpeg-backed export failures for compressed formats.
+            # soundfile fallback is only appropriate for PCM containers.
+            if format in ["mp3", "opus", "aac"]:
+                logger.error(f"[AudioSaver] Failed to save {format} audio: {e}")
+                raise
+
             try:
                 import soundfile as sf
                 audio_np = audio_tensor.transpose(0, 1).numpy()  # -> [samples, channels]
-                
+
                 # Handle wav32 fallback formatting
                 if format == "wav32":
                     sf_format = "WAV"
@@ -304,7 +310,7 @@ class AudioSaver:
                 else:
                     sf_format = format.upper()
                     subtype = None
-                    
+
                 sf.write(str(output_path), audio_np, sample_rate, format=sf_format, subtype=subtype)
                 logger.debug(f"[AudioSaver] Fallback soundfile Saved audio to {output_path} ({format}, {sample_rate}Hz)")
                 return str(output_path)

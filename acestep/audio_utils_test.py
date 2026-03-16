@@ -379,5 +379,26 @@ class ApplyFadeTests(unittest.TestCase):
         self.assertAlmostEqual(float(result[0, -1]), 0.0, places=5)
 
 
+    def test_save_audio_mp3_preserves_ffmpeg_failure(self):
+        """MP3 ffmpeg export errors should not be replaced by soundfile fallback errors."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "fail.mp3"
+
+        with patch('acestep.audio_utils.torchaudio.save'), \
+             patch('acestep.audio_utils.subprocess.run', side_effect=RuntimeError('ffmpeg MP3 export failed: boom')), \
+             patch('acestep.audio_utils.logger.error') as mock_log_error:
+            with self.assertRaisesRegex(RuntimeError, 'ffmpeg MP3 export failed: boom'):
+                saver.save_audio(
+                    self.sample_audio,
+                    output_path,
+                    sample_rate=self.sample_rate,
+                    format="mp3"
+                )
+
+            mock_log_error.assert_called()
+            logged = " ".join(str(arg) for call in mock_log_error.call_args_list for arg in call.args)
+            self.assertIn('Failed to save mp3 audio', logged)
+
+
 if __name__ == '__main__':
     unittest.main()

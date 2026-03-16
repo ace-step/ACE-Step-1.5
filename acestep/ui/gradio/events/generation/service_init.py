@@ -17,6 +17,34 @@ from acestep.gpu_config import (
 from .model_config import is_pure_base_model, get_model_type_ui_settings
 
 
+def _select_quantization_value(
+    *,
+    quantization_enabled: bool,
+    device: str,
+) -> str | None:
+    """Return the DiT quantization mode selected for the current UI state."""
+    quant_value = "int8_weight_only" if quantization_enabled else None
+    if not quantization_enabled or device not in {"auto", "cuda"}:
+        return quant_value
+
+    try:
+        import torch
+    except ImportError:
+        return quant_value
+
+    try:
+        if torch.cuda.is_available():
+            major, _ = torch.cuda.get_device_capability(0)
+            if major < 7:
+                logger.info(
+                    "Pre-Ampere CUDA detected: using w8a8_dynamic quantization for stability"
+                )
+                return "w8a8_dynamic"
+    except Exception:
+        return quant_value
+    return quant_value
+
+
 def refresh_checkpoints(dit_handler):
     """Refresh available checkpoints."""
     choices = dit_handler.get_available_checkpoints()
@@ -38,7 +66,10 @@ def init_service_wrapper(
         current_batch_size: Current batch size value from UI to preserve
             after reinitialization (optional).
     """
-    quant_value = "int8_weight_only" if quantization else None
+    quant_value = _select_quantization_value(
+        quantization_enabled=quantization,
+        device=device,
+    )
 
     gpu_config = get_global_gpu_config()
 

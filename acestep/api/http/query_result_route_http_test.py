@@ -116,6 +116,44 @@ class QueryResultRouteHttpTests(unittest.TestCase):
         result_json = json.loads(payload["data"][0]["result"])
         self.assertEqual("Full Hardware Analysis Success", result_json[0]["status_message"])
 
+    def test_query_result_returns_extract_codes_result_directly(self):
+        """POST /query_result should preserve extract-codes payload with audio_codes field."""
+
+        record = SimpleNamespace(
+            status="succeeded",
+            created_at=100.0,
+            result={
+                "status_message": "Audio Codes Extraction Success",
+                "audio_codes": "<|audio_code_1|><|audio_code_2|>",
+                "audio_paths": [],
+                "raw_audio_paths": [],
+                "first_audio_path": None,
+                "metas": {},
+            },
+            progress_text="done",
+            progress=1.0,
+            stage="succeeded",
+            error=None,
+            env="development",
+        )
+        client = self._build_client(records={"task-ec": record})
+        response = client.post(
+            "/query_result",
+            json={"ai_token": "test-token", "task_id_list": ["task-ec"]},
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        result_json = json.loads(payload["data"][0]["result"])
+        self.assertEqual(
+            "Audio Codes Extraction Success",
+            result_json[0]["status_message"],
+        )
+        self.assertEqual(
+            "<|audio_code_1|><|audio_code_2|>",
+            result_json[0]["audio_codes"],
+        )
+
     def test_query_result_accepts_form_encoded_payload(self):
         """POST /query_result should accept form payloads and parse task IDs from JSON text."""
 

@@ -270,6 +270,9 @@ if exist "%~dp0python_embedded\python.exe" (
         echo.
     )
 
+    call :EnsureLegacyNvidiaTorchCompat
+    if !ERRORLEVEL! NEQ 0 exit /b !ERRORLEVEL!
+
     echo Starting ACE-Step API Server...
     echo.
 
@@ -279,12 +282,12 @@ if exist "%~dp0python_embedded\python.exe" (
     if not "%DOWNLOAD_SOURCE%"=="" set "ACESTEP_ARGS=!ACESTEP_ARGS! %DOWNLOAD_SOURCE%"
     if not "%LM_MODEL_PATH%"=="" set "ACESTEP_ARGS=!ACESTEP_ARGS! %LM_MODEL_PATH%"
 
-    uv run !ACESTEP_ARGS!
+    uv run --no-sync !ACESTEP_ARGS!
     if !ERRORLEVEL! NEQ 0 (
         echo.
         echo [Retry] Online dependency resolution failed, retrying in offline mode...
         echo.
-        uv run --offline !ACESTEP_ARGS!
+        uv run --offline --no-sync !ACESTEP_ARGS!
         if !ERRORLEVEL! NEQ 0 (
             echo.
             echo ========================================
@@ -305,3 +308,50 @@ if exist "%~dp0python_embedded\python.exe" (
 
 pause
 endlocal
+goto :eof
+
+REM ==================== Helper Functions ====================
+
+:EnsureLegacyNvidiaTorchCompat
+REM Auto-fix PyTorch for legacy NVIDIA GPUs (e.g., Pascal sm_61 on Quadro P1000)
+if /i "%ACESTEP_SKIP_LEGACY_TORCH_FIX%"=="true" exit /b 0
+if not exist "%~dp0.venv\Scripts\python.exe" exit /b 0
+
+pushd "%~dp0"
+".venv\Scripts\python.exe" -c "import os,sys; sys.path.insert(0, os.getcwd()); from acestep.launcher_compat import legacy_torch_fix_probe_exit_code; raise SystemExit(legacy_torch_fix_probe_exit_code())" >nul 2>&1
+set "LEGACY_CHECK_EXIT=!ERRORLEVEL!"
+
+if "!LEGACY_CHECK_EXIT!"=="0" (
+    popd
+    exit /b 0
+)
+if not "!LEGACY_CHECK_EXIT!"=="42" (
+    echo [Compatibility] Error: legacy NVIDIA compatibility probe failed with exit code !LEGACY_CHECK_EXIT!.
+    popd
+    exit /b !LEGACY_CHECK_EXIT!
+)
+
+echo [Compatibility] Legacy NVIDIA GPU detected with unsupported torch arch.
+echo [Compatibility] Installing CUDA 12.1 torch build with sm_61 support...
+uv pip install --python .venv\Scripts\python.exe --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121
+if !ERRORLEVEL! EQU 0 (
+    echo [Compatibility] Legacy torch install complete.
+    REM Keep a legacy-compatible torchao so INT8 quantization remains available
+    REM on low-VRAM Pascal/Quadro GPUs.
+    uv pip install --python .venv\Scripts\python.exe --force-reinstall torchao==0.11.0 >nul 2>&1
+    if !ERRORLEVEL! EQU 0 (
+        echo [Compatibility] Installed torchao==0.11.0 (legacy-compatible).
+    ) else (
+        echo [Compatibility] Warning: failed to install torchao==0.11.0. Quantization may be unavailable.
+        popd
+        exit /b !ERRORLEVEL!
+    )
+) else (
+    echo [Compatibility] Warning: automatic legacy torch install failed.
+    echo [Compatibility] Run manually:
+    echo   uv pip install --python .venv\Scripts\python.exe --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121
+    popd
+    exit /b !ERRORLEVEL!
+)
+popd
+exit /b 0

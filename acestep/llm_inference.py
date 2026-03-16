@@ -570,8 +570,14 @@ class LLMHandler:
             )
             logger.info(f"Constrained processor initialized in {time.time() - processor_start:.2f} seconds")
 
-            # Disable CUDA/HIP graph capture on ROCm (unverified on RDNA3 Windows)
-            # and on Jetson (SDPA paged-cache decode calls .item() during capture).
+            # Disable CUDA/HIP graph capture on ROCm (unverified on RDNA3 Windows),
+            # on Jetson (SDPA paged-cache decode calls .item() during capture),
+            # and when flash_attn is not installed (same .item() incompatibility on all CUDA hardware).
+            # When flash_attn is unavailable, nano-vllm falls back to _sdpa_decode_with_paged_cache
+            # which contains a Python loop with .item() calls.  These force CPU-GPU
+            # synchronisation that is forbidden inside torch.cuda.CUDAGraph capture,
+            # corrupting the CUDA context and causing downstream errors such as:
+            #   RuntimeError: Offset increment outside graph capture encountered unexpectedly
             is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
             is_jetson = False
             if device == "cuda" and torch.cuda.is_available():
@@ -582,7 +588,19 @@ class LLMHandler:
                         logger.info(f"Jetson GPU detected ({dev_name}): disabling CUDA graph capture for nano-vllm")
                 except Exception:
                     pass
-            enforce_eager_for_vllm = bool(is_rocm or is_jetson)
+            _has_flash_attn = False
+            try:
+                import importlib.util
+                _has_flash_attn = importlib.util.find_spec("flash_attn") is not None
+            except Exception:
+                pass
+            if not _has_flash_attn:
+                logger.info(
+                    "flash_attn not installed: disabling CUDA graph capture for nano-vllm "
+                    "(SDPA fallback uses .item() calls in paged-cache decode that are "
+                    "incompatible with CUDA graph capture)"
+                )
+            enforce_eager_for_vllm = bool(is_rocm or is_jetson or not _has_flash_attn)
 
             # Auto-detect best backend on Apple Silicon
             if backend == "mlx" or (backend == "vllm" and device == "mps"):

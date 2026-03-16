@@ -3,6 +3,7 @@
 import importlib
 import importlib.util
 import os
+import tempfile
 import builtins
 import sys
 import types
@@ -45,6 +46,7 @@ INIT_SERVICE_MODULE = _load_init_service_module()
 InitServiceMixin = INIT_SERVICE_MODULE.InitServiceMixin
 INIT_SERVICE_DOWNLOADS_MODULE = importlib.import_module("acestep.core.generation.handler.init_service_downloads")
 INIT_SERVICE_MEMORY_BASIC_MODULE = importlib.import_module("acestep.core.generation.handler.init_service_memory_basic")
+INIT_SERVICE_LOADER_MODULE = importlib.import_module("acestep.core.generation.handler.init_service_loader")
 
 
 class _Host(InitServiceMixin):
@@ -117,6 +119,50 @@ class InitServiceMixinTests(unittest.TestCase):
         with patch.object(INIT_SERVICE_MEMORY_BASIC_MODULE.logger, "warning") as warning:
             self.assertFalse(host._is_on_target_device(t, ":0"))
         warning.assert_called_once()
+
+
+    def test_get_auto_decode_chunk_size_uses_cuda_device_index(self):
+        """It probes effective VRAM on the selected CUDA device index."""
+        host = types.SimpleNamespace(
+            device="cuda:1",
+            VAE_DECODE_MAX_CHUNK_SIZE=512,
+            _get_effective_mps_memory_gb=lambda: None,
+            _get_system_memory_gb=lambda: None,
+        )
+
+        with patch.object(
+            MEMORY_UTILS_MODULE,
+            "get_effective_free_vram_gb",
+            return_value=24.0,
+        ) as free_mock:
+            self.assertEqual(MEMORY_UTILS_MODULE.MemoryUtilsMixin._get_auto_decode_chunk_size(host), 512)
+
+        free_mock.assert_called_once_with(1)
+
+    def test_vram_guard_reduce_batch_uses_cuda_device_index(self):
+        """It queries VRAM against the requested CUDA device when reducing batch size."""
+        host = types.SimpleNamespace(
+            device="cuda:1",
+            offload_to_cpu=False,
+            model=None,
+            config_path="",
+        )
+
+        with patch.object(
+            MEMORY_UTILS_MODULE,
+            "get_effective_free_vram_gb",
+            return_value=1.0,
+        ) as free_mock:
+            self.assertEqual(
+                MEMORY_UTILS_MODULE.MemoryUtilsMixin._vram_guard_reduce_batch(
+                    host,
+                    2,
+                    audio_duration=60,
+                ),
+                1,
+            )
+
+        free_mock.assert_called_once_with(1)
 
     def test_move_module_recursive_preserves_parameter_type(self):
         """It preserves ``torch.nn.Parameter`` objects during recursive device moves."""
@@ -196,11 +242,11 @@ class InitServiceMixinTests(unittest.TestCase):
         host = _Host(project_root="K:/fake_root", device="cuda")
         real_import = builtins.__import__
 
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        def fake_import(name, globals_=None, locals_=None, fromlist=(), level=0):
             """Raise ImportError for flash_attn while delegating all other imports."""
             if name == "flash_attn":
                 raise ImportError("flash_attn missing")
-            return real_import(name, globals, locals, fromlist, level)
+            return real_import(name, globals_, locals_, fromlist, level)
 
         with patch("torch.cuda.is_available", return_value=True):
             with patch("torch.cuda.get_device_capability", return_value=(8, 0)):
@@ -255,10 +301,18 @@ class InitServiceMixinTests(unittest.TestCase):
                 with patch("torch.xpu", new=types.SimpleNamespace(is_available=lambda: True), create=True):
                     self.assertEqual(host._resolve_initialize_device("cuda"), "mps")
 
-    def test_validate_quantization_setup_requires_compile_model(self):
-        """It raises ValueError when quantization is requested without compile mode."""
+    def test_validate_quantization_setup_allows_quantization_without_compile_model(self):
+        """It allows quantization checks even when compile mode is disabled."""
         host = _Host(project_root="K:/fake_root", device="cpu")
-        with self.assertRaises(ValueError):
+        real_import = builtins.__import__
+
+        def fake_import(name, globals_=None, locals_=None, fromlist=(), level=0):
+            """Return a torchao stub so the check can pass without real dependency."""
+            if name == "torchao":
+                return types.ModuleType("torchao")
+            return real_import(name, globals_, locals_, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=fake_import):
             host._validate_quantization_setup(quantization="int8_weight_only", compile_model=False)
 
     def test_ensure_models_present_returns_download_error_when_main_model_fails(self):
@@ -286,10 +340,12 @@ class InitServiceMixinTests(unittest.TestCase):
             mlx_compile_requested=True,
             offload_to_cpu=False,
             offload_dit_to_cpu=False,
+            quantization="w8a8_dynamic",
             mlx_dit_status="Active",
             mlx_vae_status="Active",
         )
         self.assertIn("Compiled: mx.compile (MLX)", msg)
+        self.assertIn("Quantization: w8a8_dynamic", msg)
 
     def test_initialize_mlx_backends_disables_dit_when_requested(self):
         """It disables MLX DiT state when caller explicitly opts out."""
@@ -439,16 +495,132 @@ class InitServiceMixinTests(unittest.TestCase):
         self.assertIn("Traceback:", status)
         self.assertIn("RuntimeError: load failed", status)
 
+    def test_load_main_model_ignores_cuda_sync_cleanup_error(self):
+        """It continues model loading when pre-load ``cuda.synchronize`` raises."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+        host.offload_to_cpu = True
+        host.offload_dit_to_cpu = True
+
+        class _DummyModel:
+            """Minimal model stub matching loader expectations."""
+
+            def __init__(self):
+                self.config = types.SimpleNamespace(_attn_implementation="sdpa")
+
+            def to(self, *_args, **_kwargs):
+                return self
+
+            def eval(self):
+                return self
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint_dir = os.path.join(tmpdir, "acestep-v15-turbo")
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            torch.save(torch.zeros(1, 1, 1), os.path.join(checkpoint_dir, "silence_latent.pt"))
+
+            with patch("torch.cuda.is_available", return_value=True), \
+                    patch("torch.cuda.empty_cache"), \
+                    patch("torch.cuda.synchronize", side_effect=RuntimeError("oom during sync")), \
+                    patch("transformers.AutoModel.from_pretrained", return_value=_DummyModel()), \
+                    patch.object(host, "is_flash_attention_available", return_value=False):
+                attn = host._load_main_model_from_checkpoint(
+                    model_checkpoint_path=checkpoint_dir,
+                    device="cpu",
+                    use_flash_attention=False,
+                    compile_model=False,
+                    quantization=None,
+                )
+
+        self.assertEqual(attn, "sdpa")
+        self.assertIsNotNone(host.model)
+        self.assertIsNotNone(host.silence_latent)
+
+    def test_apply_cuda_bool_argsort_workaround_patches_pack_sequences(self):
+        """It monkey-patches dynamic ``pack_sequences`` when CUDA bool argsort is unsupported."""
+        host = _Host(project_root="K:/fake_root", device="cuda")
+
+        class _DummyModel:
+            """Model stub exposing a dynamic module path."""
+
+        _DummyModel.__module__ = "dummy_cuda_pack_module"
+        host.model = _DummyModel()
+
+        def _pack_sequences(_h1, _h2, _m1, _m2):
+            """Original no-op function used for patch detection."""
+            return "ok"
+
+        dummy_module = types.SimpleNamespace(pack_sequences=_pack_sequences)
+
+        with patch.object(host, "_cuda_supports_bool_argsort", return_value=False), \
+                patch.object(INIT_SERVICE_LOADER_MODULE.importlib, "import_module", return_value=dummy_module):
+            host._apply_cuda_bool_argsort_workaround()
+
+        self.assertIsNot(dummy_module.pack_sequences, _pack_sequences)
+        self.assertTrue(getattr(dummy_module.pack_sequences, "__acestep_bool_argsort_patched__", False))
+
+    def test_cuda_supports_bool_argsort_returns_false_for_unexpected_runtime_error(self):
+        """It treats any CUDA bool argsort RuntimeError as unsupported."""
+        host = _Host(project_root="K:/fake_root", device="cuda")
+        mask_cat = Mock()
+        mask_cat.argsort.side_effect = RuntimeError("unexpected argsort failure")
+
+        with patch("torch.cuda.is_available", return_value=True), patch(
+            "torch.tensor",
+            return_value=mask_cat,
+        ):
+            self.assertFalse(host._cuda_supports_bool_argsort())
+
+        mask_cat.argsort.assert_called_once_with(dim=1, descending=True, stable=True)
+
+
+    def test_apply_dit_quantization_filters_to_decoder_linear_layers(self):
+        """It quantizes only decoder-side linear layers."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+        host.model = object()
+        observed = {}
+
+        class _DummyConfig:
+            pass
+
+        def fake_quantize(_model, _config, filter_fn):
+            observed["decoder"] = filter_fn(object(), "decoder.layers.0.fc")
+            observed["encoder"] = filter_fn(object(), "encoder.layers.0.fc")
+            observed["tokenizer"] = filter_fn(object(), "decoder.tokenizer.proj")
+            observed["detokenizer"] = filter_fn(object(), "decoder.detokenizer.proj")
+
+        quantization_module = types.ModuleType("torchao.quantization")
+        quantization_module.Int8WeightOnlyConfig = _DummyConfig
+        quantization_module.quantize_ = fake_quantize
+        quant_api_module = types.ModuleType("torchao.quantization.quant_api")
+        quant_api_module._is_linear = lambda _module, _fqn: True
+        torchao_module = types.ModuleType("torchao")
+        torchao_module.quantization = quantization_module
+
+        with patch.dict(
+            sys.modules,
+            {
+                "torchao": torchao_module,
+                "torchao.quantization": quantization_module,
+                "torchao.quantization.quant_api": quant_api_module,
+            },
+        ):
+            host._apply_dit_quantization("int8_weight_only")
+
+        self.assertTrue(observed["decoder"])
+        self.assertFalse(observed["encoder"])
+        self.assertFalse(observed["tokenizer"])
+        self.assertFalse(observed["detokenizer"])
+
     def test_validate_quantization_setup_raises_import_error_when_torchao_missing(self):
         """It raises ImportError with guidance when torchao is unavailable."""
         host = _Host(project_root="K:/fake_root", device="cpu")
         real_import = builtins.__import__
 
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        def fake_import(name, globals_=None, locals_=None, fromlist=(), level=0):
             """Raise ImportError only for torchao imports."""
             if name == "torchao":
                 raise ImportError("torchao missing")
-            return real_import(name, globals, locals, fromlist, level)
+            return real_import(name, globals_, locals_, fromlist, level)
 
         with patch("builtins.__import__", side_effect=fake_import):
             with self.assertRaises(ImportError) as ctx:
@@ -457,6 +629,49 @@ class InitServiceMixinTests(unittest.TestCase):
                     compile_model=True,
                 )
         self.assertIn("torchao is required", str(ctx.exception))
+
+    def test_initialize_service_disables_quantization_when_torchao_is_incompatible(self):
+        """It falls back to non-quantized initialization when torchao checks fail."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+
+        def _fake_load_main_model(**_kwargs):
+            host.config = types.SimpleNamespace(_attn_implementation="sdpa")
+            host.model = object()
+
+        with patch.object(host, "_ensure_models_present", return_value=None), \
+                patch.object(host, "_sync_model_code_if_needed"), \
+                patch.object(host, "_validate_quantization_setup", side_effect=ImportError("torchao incompatible")), \
+                patch.object(host, "_load_main_model_from_checkpoint", side_effect=_fake_load_main_model), \
+                patch.object(host, "_load_vae_model", return_value="vae"), \
+                patch.object(host, "_load_text_encoder_and_tokenizer", return_value="te"), \
+                patch.object(host, "_initialize_mlx_backends", return_value=("Disabled", "Disabled")):
+            status, ok = host.initialize_service(
+                project_root="K:/fake_root",
+                config_path="acestep-v15-turbo",
+                device="cpu",
+                quantization="int8_weight_only",
+            )
+        self.assertTrue(ok)
+        self.assertIsNone(host.quantization)
+        self.assertIn("Model initialized successfully on cpu", status)
+
+    def test_get_affine_quantized_tensor_class_returns_none_on_torchao_attr_error(self):
+        """It treats torchao runtime import errors as unavailable quantization support."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+        real_import = builtins.__import__
+
+        def fake_import(name, globals_=None, locals_=None, fromlist=(), level=0):
+            """Simulate incompatible torchao module imports raising AttributeError."""
+            if name in {
+                "torchao.dtypes.affine_quantized_tensor",
+                "torchao.quantization.affine_quantized",
+            }:
+                raise AttributeError("incompatible torchao build")
+            return real_import(name, globals_, locals_, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            result = host._get_affine_quantized_tensor_class()
+        self.assertIsNone(result)
 
     def test_load_model_context_yields_immediately_when_offload_disabled(self):
         """It does not move models when offload_to_cpu is disabled."""
@@ -661,7 +876,8 @@ class RocmDtypeTests(unittest.TestCase):
             host.model = object()
 
         with patch.object(GPU_CONFIG_MODULE, "is_cuda_available", return_value=True), \
-                patch.object(GPU_CONFIG_MODULE, "is_rocm_available", return_value=False):
+                patch.object(GPU_CONFIG_MODULE, "is_rocm_available", return_value=False), \
+                patch.object(GPU_CONFIG_MODULE, "cuda_supports_bfloat16", return_value=True):
             with patch.object(host, "_ensure_models_present", return_value=None):
                 with patch.object(host, "_sync_model_code_if_needed"):
                     with patch.object(
@@ -688,6 +904,43 @@ class RocmDtypeTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(host.dtype, torch.bfloat16)
 
+    def test_initialize_service_uses_float16_on_pre_ampere_cuda(self):
+        """It falls back to float16 on pre-Ampere CUDA GPUs."""
+        host = self._make_rocm_host()
+
+        def _fake_load_main_model(**_kwargs):
+            host.config = types.SimpleNamespace(_attn_implementation="sdpa")
+            host.model = object()
+
+        with patch.object(GPU_CONFIG_MODULE, "is_cuda_available", return_value=True), \
+                patch.object(GPU_CONFIG_MODULE, "is_rocm_available", return_value=False), \
+                patch.object(GPU_CONFIG_MODULE, "cuda_supports_bfloat16", return_value=False):
+            with patch.object(host, "_ensure_models_present", return_value=None):
+                with patch.object(host, "_sync_model_code_if_needed"):
+                    with patch.object(
+                        host,
+                        "_load_main_model_from_checkpoint",
+                        side_effect=_fake_load_main_model,
+                    ):
+                        with patch.object(host, "_load_vae_model", return_value="vae"):
+                            with patch.object(
+                                host,
+                                "_load_text_encoder_and_tokenizer",
+                                return_value="te",
+                            ):
+                                with patch.object(
+                                    host,
+                                    "_initialize_mlx_backends",
+                                    return_value=("Disabled", "Disabled"),
+                                ):
+                                    _, ok = host.initialize_service(
+                                        project_root="K:/fake_root",
+                                        config_path="acestep-v15-turbo",
+                                        device="cuda",
+                                    )
+        self.assertTrue(ok)
+        self.assertEqual(host.dtype, torch.float16)
+
     def test_get_vae_dtype_returns_self_dtype_on_rocm(self):
         """It defers to self.dtype for VAE when ROCm is active."""
         host = _VaeHost(project_root="K:/fake_root", device="cuda")
@@ -708,9 +961,30 @@ class RocmDtypeTests(unittest.TestCase):
         """It returns bfloat16 for VAE on standard CUDA (non-ROCm) devices."""
         host = _VaeHost(project_root="K:/fake_root", device="cuda")
         host.dtype = torch.float32
-        with patch.object(MEMORY_UTILS_MODULE, "is_rocm_available", return_value=False):
+        with patch.object(MEMORY_UTILS_MODULE, "is_rocm_available", return_value=False), \
+                patch.object(MEMORY_UTILS_MODULE, "cuda_supports_bfloat16", return_value=True):
             result = host._get_vae_dtype("cuda")
         self.assertEqual(result, torch.bfloat16)
 
+    def test_get_vae_dtype_returns_float16_on_pre_ampere_cuda(self):
+        """It returns float16 for VAE on pre-Ampere CUDA devices."""
+        host = _VaeHost(project_root="K:/fake_root", device="cuda")
+        host.dtype = torch.float32
+        with patch.object(MEMORY_UTILS_MODULE, "is_rocm_available", return_value=False), \
+                patch.object(MEMORY_UTILS_MODULE, "cuda_supports_bfloat16", return_value=False):
+            result = host._get_vae_dtype("cuda")
+        self.assertEqual(result, torch.float16)
+
+    def test_get_vae_dtype_treats_cuda_index_device_as_cuda(self):
+        """It treats device strings like ``cuda:1`` as CUDA for VAE dtype selection."""
+        host = _VaeHost(project_root="K:/fake_root", device="cuda:1")
+        host.dtype = torch.float32
+        with patch.object(MEMORY_UTILS_MODULE, "is_rocm_available", return_value=False), \
+                patch.object(MEMORY_UTILS_MODULE, "cuda_supports_bfloat16", return_value=True) as bf16_mock:
+            result = host._get_vae_dtype("cuda:1")
+        self.assertEqual(result, torch.bfloat16)
+        bf16_mock.assert_called_once_with(1)
+
 if __name__ == "__main__":
     unittest.main()
+

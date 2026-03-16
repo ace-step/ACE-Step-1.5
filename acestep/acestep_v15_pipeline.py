@@ -43,6 +43,7 @@ os.environ["TORCHAUDIO_USE_BACKEND"] = "ffmpeg"
 
 try:
     # When executed as a module: `python -m acestep.acestep_v15_pipeline`
+    from .cli_args import parse_quantization_arg
     from .handler import AceStepHandler
     from .llm_inference import LLMHandler
     from .dataset_handler import DatasetHandler
@@ -63,6 +64,7 @@ except ImportError:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
+    from acestep.cli_args import parse_quantization_arg
     from acestep.handler import AceStepHandler
     from acestep.llm_inference import LLMHandler
     from acestep.dataset_handler import DatasetHandler
@@ -134,10 +136,10 @@ def main():
     gpu_memory_gb = gpu_config.gpu_memory_gb
     _is_mac = is_mps_platform()
     # Enable auto-offload for GPUs below 20 GB.  16 GB GPUs cannot hold all
-    # models simultaneously (DiT ~4.7 + VAE ~0.3 + text_enc ~1.2 + LM ≥1.2 +
+    # models simultaneously (DiT ~4.7 + VAE ~0.3 + text_enc ~1.2 + LM â‰¥1.2 +
     # activations) so they *must* offload.  The old threshold of 16 GB caused
     # 16 GB GPUs to never offload, leading to OOM.
-    # Mac (Apple Silicon) uses unified memory — offloading provides no benefit.
+    # Mac (Apple Silicon) uses unified memory â€” offloading provides no benefit.
     auto_offload = (
         (not _is_mac)
         and gpu_memory_gb > 0
@@ -165,7 +167,7 @@ def main():
 
     if _is_mac:
         print(
-            f"Apple Silicon (MPS) detected — unified memory {gpu_memory_gb:.1f}GB, no CPU offload needed, backend={_default_backend}"
+            f"Apple Silicon (MPS) detected â€” unified memory {gpu_memory_gb:.1f}GB, no CPU offload needed, backend={_default_backend}"
         )
     elif auto_offload:
         print(
@@ -305,17 +307,29 @@ def main():
         default=_default_offload_dit,
         help=f"Offload DiT to CPU after diffusion (default: {_default_offload_dit}, auto-detected based on GPU tier)",
     )
-    _default_quantization = (
-        "int8_weight_only"
-        if (gpu_config.quantization_default and not _is_mac)
-        else None
-    )
+    _default_quantization = None
+    if gpu_config.quantization_default and not _is_mac:
+        _default_quantization = "int8_weight_only"
+        try:
+            import torch
+            if torch.cuda.is_available():
+                major, _ = torch.cuda.get_device_capability(0)
+                if major < 7:
+                    _default_quantization = "w8a8_dynamic"
+        except Exception as exc:
+            logger.warning(
+                "[parse_args] CUDA capability probe failed while resolving quantization default: {}",
+                exc,
+            )
     parser.add_argument(
         "--quantization",
-        type=str,
+        type=parse_quantization_arg,
         default=_default_quantization,
-        choices=["int8_weight_only", "int4_weight_only", None],
-        help=f"DiT quantization method (default: {_default_quantization}, auto-detected based on GPU tier)",
+        help=(
+            "DiT quantization method: int8_weight_only, fp8_weight_only, "
+            "w8a8_dynamic, or none "
+            f"(default: {_default_quantization}, auto-detected based on GPU tier)"
+        ),
     )
     parser.add_argument(
         "--download-source",
@@ -466,9 +480,6 @@ def main():
             compile_model = os.environ.get(
                 "ACESTEP_COMPILE_MODEL", ""
             ).strip().lower() in {"1", "true", "yes", "y", "on"}
-            # compile_model must be True when quantization is used
-            if args.quantization and not compile_model:
-                compile_model = True
 
             init_status, enable_generate = dit_handler.initialize_service(
                 project_root=project_root,

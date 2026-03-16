@@ -35,6 +35,22 @@ def maybe_handle_analysis_only_modes(
         RuntimeError: If analysis execution fails.
     """
 
+    if req.extract_codes_only:
+        if not params.src_audio:
+            raise ValueError("extract_codes_only requires src_audio_path to be set.")
+        store.update_progress_text(job_id, "Extracting Audio Codes...")
+        audio_codes = dit_handler.convert_src_audio_to_codes(params.src_audio)
+        if not audio_codes or audio_codes.startswith("❌"):
+            raise RuntimeError(f"Audio extraction failed: {audio_codes}")
+        return {
+            "status_message": "Audio Codes Extraction Success",
+            "audio_codes": audio_codes,
+            "audio_paths": [],
+            "raw_audio_paths": [],
+            "first_audio_path": None,
+            "metas": {},
+        }
+
     if req.full_analysis_only:
         store.update_progress_text(job_id, "Starting Deep Analysis...")
         audio_codes = dit_handler.convert_src_audio_to_codes(params.src_audio)
@@ -61,6 +77,7 @@ def maybe_handle_analysis_only_modes(
             "lyrics": metadata_dict.get("lyrics", ""),
             "language": metadata_dict.get("language", "unknown"),
             "metas": metadata_dict,
+            "audio_codes": audio_codes,
             "audio_paths": [],
         }
 

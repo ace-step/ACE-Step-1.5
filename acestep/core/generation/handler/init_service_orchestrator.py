@@ -17,6 +17,11 @@ _ROCM_DTYPE_MAP = {
 }
 
 
+def _cuda_supports_bfloat16() -> bool:
+    """Return whether the active CUDA device supports native bfloat16 kernels."""
+    return gpu_config.cuda_supports_bfloat16()
+
+
 def _resolve_rocm_dtype() -> torch.dtype:
     """Return a safe model dtype for ROCm/HIP devices.
 
@@ -82,13 +87,32 @@ class InitServiceOrchestratorMixin:
                     f"[initialize_service] ROCm/HIP device detected: using dtype={self.dtype} "
                     "(set ACESTEP_ROCM_DTYPE=bfloat16 or float16 to override)"
                 )
+            elif resolved_device == "cuda":
+                if gpu_config.cuda_supports_bfloat16():
+                    self.dtype = torch.bfloat16
+                else:
+                    self.dtype = torch.float16
+                    logger.info(
+                        "[initialize_service] Pre-Ampere CUDA detected: "
+                        "using float16 instead of bfloat16."
+                    )
             else:
-                self.dtype = torch.bfloat16 if resolved_device in ["cuda", "xpu"] else torch.float32
+                self.dtype = torch.bfloat16 if resolved_device == "xpu" else torch.float32
             self.quantization = normalized_quantization
-            self._validate_quantization_setup(
-                quantization=self.quantization,
-                compile_model=normalized_compile,
-            )
+            try:
+                self._validate_quantization_setup(
+                    quantization=self.quantization,
+                    compile_model=normalized_compile,
+                )
+            except ImportError as exc:
+                if self.quantization is not None:
+                    logger.warning(
+                        "[initialize_service] Quantization disabled: {}",
+                        exc,
+                    )
+                    self.quantization = None
+                else:
+                    raise
 
             base_root = project_root or self._get_project_root()
             checkpoint_dir = os.path.join(base_root, "checkpoints")
@@ -145,6 +169,7 @@ class InitServiceOrchestratorMixin:
                 mlx_compile_requested=mlx_compile_requested,
                 offload_to_cpu=offload_to_cpu,
                 offload_dit_to_cpu=offload_dit_to_cpu,
+                quantization=self.quantization,
                 mlx_dit_status=mlx_dit_status,
                 mlx_vae_status=mlx_vae_status,
             )
@@ -173,4 +198,3 @@ class InitServiceOrchestratorMixin:
             error_msg = f"Error initializing model: {str(exc)}\n\nTraceback:\n{traceback.format_exc()}"
             logger.exception(error_msg)
             return error_msg, False
-

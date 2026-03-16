@@ -51,7 +51,10 @@ def update_local_cache(
     status_int = map_status(status)
 
     if status == "succeeded" and result:
-        if result.get("status_message") == "Full Hardware Analysis Success":
+        if result.get("status_message") in (
+            "Full Hardware Analysis Success",
+            "Audio Codes Extraction Success",
+        ):
             result_data = [result]
         else:
             audio_paths = result.get("audio_paths", [])

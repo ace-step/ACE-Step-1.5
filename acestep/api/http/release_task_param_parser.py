@@ -12,6 +12,7 @@ PARAM_ALIASES: Dict[str, list[str]] = {
     "thinking": ["thinking"],
     "analysis_only": ["analysis_only", "analysisOnly"],
     "full_analysis_only": ["full_analysis_only", "fullAnalysisOnly"],
+    "extract_codes_only": ["extract_codes_only", "extractCodesOnly"],
     "sample_mode": ["sample_mode", "sampleMode"],
     "sample_query": ["sample_query", "sampleQuery", "description", "desc"],
     "use_format": ["use_format", "useFormat", "format"],

@@ -6,7 +6,39 @@ from typing import Optional
 import torch
 from loguru import logger
 
-from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config, is_rocm_available
+from acestep.gpu_config import (
+    cuda_supports_bfloat16,
+    get_effective_free_vram_gb,
+    get_global_gpu_config,
+    is_rocm_available,
+)
+
+
+def _is_cuda_device(device: object) -> bool:
+    """Return whether a device identifier refers to any CUDA device."""
+    if device is None:
+        return False
+    try:
+        return torch.device(str(device)).type == "cuda"
+    except (TypeError, RuntimeError, ValueError):
+        return isinstance(device, str) and device.split(":", 1)[0] == "cuda"
+
+def _cuda_device_index(device: object) -> int:
+    """Return the CUDA device index implied by a device identifier."""
+    if isinstance(device, torch.device):
+        return 0 if device.index is None else device.index
+    try:
+        parsed = torch.device(str(device))
+        if parsed.type == "cuda":
+            return 0 if parsed.index is None else parsed.index
+    except (TypeError, RuntimeError, ValueError):
+        pass
+    if isinstance(device, str) and device.startswith("cuda:"):
+        try:
+            return int(device.split(":", 1)[1])
+        except ValueError:
+            return 0
+    return 0
 
 
 class MemoryUtilsMixin:
@@ -67,9 +99,9 @@ class MemoryUtilsMixin:
                     return min(1024, max_chunk)
             return min(512, max_chunk)
 
-        if self.device == "cuda" or (isinstance(self.device, str) and self.device.startswith("cuda")):
+        if _is_cuda_device(self.device):
             try:
-                free_gb = get_effective_free_vram_gb()
+                free_gb = get_effective_free_vram_gb(_cuda_device_index(self.device))
             except Exception:
                 free_gb = 0
             logger.debug(f"[_get_auto_decode_chunk_size] Effective free VRAM: {free_gb:.2f} GB")
@@ -92,9 +124,9 @@ class MemoryUtilsMixin:
             if mem_gb is not None and mem_gb >= 32:
                 return False
             return True
-        if self.device == "cuda" or (isinstance(self.device, str) and self.device.startswith("cuda")):
+        if _is_cuda_device(self.device):
             try:
-                free_gb = get_effective_free_vram_gb()
+                free_gb = get_effective_free_vram_gb(_cuda_device_index(self.device))
                 logger.debug(f"[_should_offload_wav_to_cpu] Effective free VRAM: {free_gb:.2f} GB")
                 if free_gb >= 24.0:
                     return False
@@ -123,12 +155,12 @@ class MemoryUtilsMixin:
                 if batch_size <= tier_max:
                     logger.debug(
                         f"[VRAM guard] offload_to_cpu=True, batch_size={batch_size} <= "
-                        f"tier limit {tier_max} — skipping dynamic VRAM check"
+                        f"tier limit {tier_max} - skipping dynamic VRAM check"
                     )
                     return batch_size
 
         try:
-            free_gb = get_effective_free_vram_gb()
+            free_gb = get_effective_free_vram_gb(_cuda_device_index(device))
         except Exception:
             return batch_size
 
@@ -142,7 +174,9 @@ class MemoryUtilsMixin:
         safety_margin_gb = 1.5
         available_for_batch = free_gb - safety_margin_gb
         if available_for_batch <= 0:
-            logger.warning(f"[VRAM guard] Only {free_gb:.1f} GB free — reducing batch_size to 1")
+            logger.warning(
+                f"[VRAM guard] Only {free_gb:.1f} GB free - reducing batch_size to 1"
+            )
             return 1
 
         max_safe_batch = max(1, int(available_for_batch / per_sample_gb))
@@ -157,11 +191,15 @@ class MemoryUtilsMixin:
     def _get_vae_dtype(self, device: Optional[str] = None) -> torch.dtype:
         """Get VAE dtype based on target device and GPU tier."""
         target_device = device or self.device
-        if target_device in ["cuda", "xpu"]:
-            if target_device == "cuda" and is_rocm_available():
+        if _is_cuda_device(target_device):
+            if is_rocm_available():
                 # On ROCm, defer to self.dtype which is already set to a safe
                 # value (float32 by default, or ACESTEP_ROCM_DTYPE override).
                 return getattr(self, "dtype", torch.float32)
+            if cuda_supports_bfloat16(_cuda_device_index(target_device)):
+                return torch.bfloat16
+            return torch.float16
+        if target_device == "xpu":
             return torch.bfloat16
         if target_device == "mps":
             return torch.float16

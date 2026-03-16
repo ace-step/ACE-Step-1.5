@@ -66,13 +66,19 @@ class InitServiceMemoryBasicMixin:
         try:
             from torchao.dtypes.affine_quantized_tensor import AffineQuantizedTensor
             return AffineQuantizedTensor
-        except ImportError:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "[_get_affine_quantized_tensor_class] failed to import AffineQuantizedTensor from torchao.dtypes.affine_quantized_tensor: {}",
+                exc,
+            )
         try:
             from torchao.quantization.affine_quantized import AffineQuantizedTensor
             return AffineQuantizedTensor
-        except ImportError:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "[_get_affine_quantized_tensor_class] failed to import AffineQuantizedTensor from torchao.quantization.affine_quantized: {}",
+                exc,
+            )
         return None
 
     def _is_quantized_tensor(self, t):

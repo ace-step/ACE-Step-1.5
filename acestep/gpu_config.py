@@ -105,6 +105,19 @@ def is_rocm_available() -> bool:
         return False
 
 
+def cuda_supports_bfloat16(device_index: int | None = None) -> bool:
+    """Return whether a CUDA device supports native bfloat16 kernels."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return False
+        major, _ = torch.cuda.get_device_capability(device_index)
+        return major >= 8
+    except Exception:
+        return False
+
+
 # ===========================================================================
 # Empirical VRAM measurements (GB) -- model weights only, bf16 precision
 # These values should be calibrated using scripts/profile_vram.py
@@ -1014,15 +1027,23 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
 
 def get_effective_free_vram_gb(device_index: int = 0) -> float:
     """
-    Get the effective free VRAM in GB, accounting for per-process memory fraction.
+    Get the effective free VRAM in GB, accounting for PyTorch allocator cache and
+    per-process memory fraction.
 
-    torch.cuda.mem_get_info() reports *device-level* free memory, which ignores
-    the per-process cap set by torch.cuda.set_per_process_memory_fraction().
+    torch.cuda.mem_get_info() reports *device-level* free memory.  After models
+    are loaded, the PyTorch caching allocator may have reserved nearly all VRAM
+    from the OS perspective, making device_free_bytes appear near zero even though
+    the allocator can freely reuse its cached (reserved-but-not-allocated) blocks
+    for new tensors without going back to the OS.
 
     This function computes:
-        effective_free = min(device_free, process_allowed - process_allocated)
+        effective_free = device_free_bytes + pytorch_cache_free_bytes
 
-    where process_allowed = total_memory * memory_fraction.
+    where pytorch_cache_free_bytes = memory_reserved - memory_allocated.
+
+    When the MAX_CUDA_VRAM debug cap is active it additionally clamps to the
+    simulated allocator budget:
+        effective_free = min(effective_free, allocator_budget - memory_allocated)
 
     Returns 0 if no GPU is available or on error.
     """
@@ -1031,6 +1052,14 @@ def get_effective_free_vram_gb(device_index: int = 0) -> float:
 
         if hasattr(torch, "cuda") and torch.cuda.is_available():
             device_free_bytes, total_bytes = torch.cuda.mem_get_info(device_index)
+
+            # Memory reserved by the PyTorch caching allocator from the OS but not
+            # actively used by live tensors.  This can be reused without a new OS
+            # allocation, so it counts as "available" from our perspective.
+            reserved_bytes = torch.cuda.memory_reserved(device_index)
+            allocated_bytes = torch.cuda.memory_allocated(device_index)
+            pytorch_cache_free_bytes = max(0, reserved_bytes - allocated_bytes)
+            effective_free_bytes = device_free_bytes + pytorch_cache_free_bytes
 
             # Check if a per-process memory fraction has been set
             # We detect this by checking MAX_CUDA_VRAM env var (our simulation mechanism)
@@ -1045,15 +1074,14 @@ def get_effective_free_vram_gb(device_index: int = 0) -> float:
                         ref_context_gb = MODEL_VRAM.get("cuda_context", 0.5)
                         allocator_budget_gb = max(0.5, simulated_gb - ref_context_gb)
                         allocator_budget_bytes = allocator_budget_gb * (1024**3)
-                        reserved_bytes = torch.cuda.memory_reserved(device_index)
-                        # Free = what the allocator is allowed minus what it has reserved
-                        process_free = allocator_budget_bytes - reserved_bytes
-                        effective_free = min(device_free_bytes, process_free)
-                        return max(0.0, effective_free / (1024**3))
+                        # Free = what the allocator is allowed minus what it has allocated
+                        process_free = allocator_budget_bytes - allocated_bytes
+                        effective_free_bytes = min(effective_free_bytes, process_free)
+                        return max(0.0, effective_free_bytes / (1024**3))
                 except (ValueError, TypeError):
                     pass
 
-            return device_free_bytes / (1024**3)
+            return max(0.0, effective_free_bytes / (1024**3))
 
         elif hasattr(torch, "xpu") and torch.xpu.is_available():
             # Support for Intel XPU (IPEX)

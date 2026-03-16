@@ -73,7 +73,10 @@ def _build_store_result_payload(
     status_int = map_status(record.status)
 
     if record.result and record.status == "succeeded":
-        if record.result.get("status_message") == "Full Hardware Analysis Success":
+        if record.result.get("status_message") in (
+            "Full Hardware Analysis Success",
+            "Audio Codes Extraction Success",
+        ):
             result_data = [record.result]
         else:
             audio_paths = record.result.get("audio_paths", [])

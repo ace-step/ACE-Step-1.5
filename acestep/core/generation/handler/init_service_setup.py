@@ -103,14 +103,12 @@ class InitServiceSetupMixin:
         """Validate quantization prerequisites before model loading."""
         if quantization is None:
             return
-        if not compile_model:
-            raise ValueError("Quantization requires compile_model to be True")
         try:
             import torchao  # noqa: F401
-        except ImportError as exc:
+        except Exception as exc:
             raise ImportError(
-                "torchao is required for quantization but is not installed. "
-                "Please install torchao to use quantization features."
+                "torchao is required for quantization but is unavailable or incompatible "
+                "with this PyTorch build. Please install a compatible torchao version."
             ) from exc
 
     def _initialize_mlx_backends(
@@ -160,6 +158,7 @@ class InitServiceSetupMixin:
         mlx_compile_requested: bool,
         offload_to_cpu: bool,
         offload_dit_to_cpu: bool,
+        quantization: Optional[str],
         mlx_dit_status: str,
         mlx_vae_status: str,
     ) -> str:
@@ -172,8 +171,10 @@ class InitServiceSetupMixin:
         status_msg += f"Attention: {attention}\n"
         compiled_label = "mx.compile (MLX)" if mlx_compile_requested else str(compile_model)
         status_msg += f"Compiled: {compiled_label}\n"
+        status_msg += f"Quantization: {quantization or 'Disabled'}\n"
         status_msg += f"Offload to CPU: {offload_to_cpu}\n"
         status_msg += f"Offload DiT to CPU: {offload_dit_to_cpu}\n"
         status_msg += f"MLX DiT: {mlx_dit_status}\n"
         status_msg += f"MLX VAE: {mlx_vae_status}"
         return status_msg
+

@@ -191,6 +191,47 @@ class BatchManagementWrapperTests(unittest.TestCase):
         self.assertTrue(state["warning_messages"])
         self.assertIn("messages.batch_failed", state["warning_messages"][0])
 
+    # ------------------------------------------------------------------
+    # MPS cache-clearing regression tests (macOS audio-mute fix)
+    # ------------------------------------------------------------------
+
+    def test_mps_cache_cleared_before_and_after_generation_on_mac(self):
+        """On MPS, empty_cache must be called both before and after generation."""
+        module, state = load_batch_management_module(is_windows=False, mps_available=True)
+
+        def _gen(*_args, **_kwargs):
+            """Yield one result for MPS cache-clearing path."""
+            yield build_progress_result(length=48)
+
+        kwargs = _build_call_kwargs(module)
+        with patch.dict(module.generate_with_batch_management.__globals__, {"generate_with_progress": _gen}):
+            list(module.generate_with_batch_management(None, None, **kwargs))
+
+        self.assertGreaterEqual(
+            state["mps_empty_cache_calls"],
+            2,
+            "torch.mps.empty_cache() must be called before and after generation "
+            "on macOS to prevent system audio mute",
+        )
+
+    def test_mps_cache_not_called_when_mps_unavailable(self):
+        """MPS cache clear must not be called when MPS is absent (non-Mac hosts)."""
+        module, state = load_batch_management_module(is_windows=False, mps_available=False)
+
+        def _gen(*_args, **_kwargs):
+            """Yield one result for non-MPS path."""
+            yield build_progress_result(length=48)
+
+        kwargs = _build_call_kwargs(module)
+        with patch.dict(module.generate_with_batch_management.__globals__, {"generate_with_progress": _gen}):
+            list(module.generate_with_batch_management(None, None, **kwargs))
+
+        self.assertEqual(
+            state["mps_empty_cache_calls"],
+            0,
+            "torch.mps.empty_cache() must not be called when MPS is unavailable",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

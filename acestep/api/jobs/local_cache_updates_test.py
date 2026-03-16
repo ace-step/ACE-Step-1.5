@@ -70,6 +70,42 @@ class LocalCacheUpdatesTests(unittest.TestCase):
         self.assertEqual(600, ttl)
         self.assertEqual([result], payload)
 
+    def test_update_local_cache_writes_extract_codes_payload(self):
+        """Extract-codes success payload should be cached unchanged inside list wrapper."""
+
+        cache = _FakeLocalCache()
+        store = _FakeStore(
+            {"job-ec": SimpleNamespace(created_at=150.0, env="development")}
+        )
+        result = {
+            "status_message": "Audio Codes Extraction Success",
+            "audio_codes": "<|audio_code_1|>",
+            "audio_paths": [],
+            "raw_audio_paths": [],
+            "first_audio_path": None,
+            "metas": {},
+        }
+
+        update_local_cache(
+            local_cache=cache,
+            store=store,
+            job_id="job-ec",
+            result=result,
+            status="succeeded",
+            map_status=_map_status,
+            result_key_prefix="prefix:",
+            result_expire_seconds=600,
+        )
+
+        self.assertEqual(1, len(cache.calls))
+        key, payload, ttl = cache.calls[0]
+        self.assertEqual("prefix:job-ec", key)
+        self.assertEqual(600, ttl)
+        self.assertEqual([result], payload)
+        self.assertEqual(
+            "<|audio_code_1|>", payload[0]["audio_codes"]
+        )
+
     def test_update_local_cache_writes_success_audio_payload(self):
         """Succeeded payload should include transformed audio entries and preserved metadata fields."""
 

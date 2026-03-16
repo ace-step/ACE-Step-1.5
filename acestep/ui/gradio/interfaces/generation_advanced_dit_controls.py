@@ -80,7 +80,9 @@ def build_dit_controls(ui_config: dict[str, Any]) -> dict[str, Any]:
                 value=0.0,
                 step=0.01,
                 label=t("generation.cfg_interval_start"),
+                info=t("generation.cfg_interval_start_info"),
                 visible=ui_config["cfg_interval_start_visible"],
+                elem_classes=["has-info-container"],
             )
             cfg_interval_end = gr.Slider(
                 minimum=0.0,
@@ -88,7 +90,9 @@ def build_dit_controls(ui_config: dict[str, Any]) -> dict[str, Any]:
                 value=1.0,
                 step=0.01,
                 label=t("generation.cfg_interval_end"),
+                info=t("generation.cfg_interval_end_info"),
                 visible=ui_config["cfg_interval_end_visible"],
+                elem_classes=["has-info-container"],
             )
         with gr.Row():
             with gr.Column():

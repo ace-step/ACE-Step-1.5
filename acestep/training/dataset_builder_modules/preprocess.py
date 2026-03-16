@@ -53,6 +53,7 @@ class PreprocessMixin:
         max_duration: float = 240.0,
         preprocess_mode: str = "lora",
         progress_callback=None,
+        skip_existing: bool = False,
     ) -> Tuple[List[str], str]:
         """Preprocess all labeled samples to tensor files for efficient training.
 
@@ -66,6 +67,7 @@ class PreprocessMixin:
             max_duration: Maximum audio duration in seconds.
             preprocess_mode: ``"lora"`` or ``"lokr"``.
             progress_callback: Optional ``(message) -> None`` callback.
+            skip_existing: Skip samples whose tensor file already exists.
 
         Returns:
             ``(output_paths, status_message)`` tuple.
@@ -110,6 +112,16 @@ class PreprocessMixin:
         for i, sample in enumerate(labeled_samples):
             try:
                 debug_log_verbose_for("dataset", f"sample[{i}] id={sample.id} file={sample.filename}")
+
+                if skip_existing:
+                    existing_path = os.path.join(output_dir, f"{sample.id}.pt")
+                    if os.path.isfile(existing_path):
+                        output_paths.append(existing_path)
+                        success_count += 1
+                        if progress_callback:
+                            progress_callback(f"Skipping {i+1}/{len(labeled_samples)}: {sample.filename} (exists)")
+                        continue
+
                 if progress_callback:
                     progress_callback(f"Preprocessing {i+1}/{len(labeled_samples)}: {sample.filename}")
 

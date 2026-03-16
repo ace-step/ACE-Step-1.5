@@ -43,6 +43,7 @@ def build_generate_music_request(
         thinking=parser.bool("thinking"),
         analysis_only=parser.bool("analysis_only"),
         full_analysis_only=parser.bool("full_analysis_only"),
+        extract_codes_only=parser.bool("extract_codes_only"),
         sample_mode=parser.bool("sample_mode"),
         sample_query=parser.str("sample_query"),
         use_format=parser.bool("use_format"),

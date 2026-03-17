@@ -2,19 +2,12 @@
 
 import unittest
 
-try:
-    from acestep.ui.gradio.events.generation.model_config import (
-        is_sft_model,
-        get_ui_control_config,
-    )
-    _IMPORT_ERROR = None
-except ImportError as exc:  # pragma: no cover - dependency guard
-    is_sft_model = None
-    get_ui_control_config = None
-    _IMPORT_ERROR = exc
+from acestep.ui.gradio.events.generation.model_config import (
+    is_sft_model,
+    get_ui_control_config,
+)
 
 
-@unittest.skipIf(is_sft_model is None, f"model_config import unavailable: {_IMPORT_ERROR}")
 class IsSftModelTests(unittest.TestCase):
     """Verify is_sft_model correctly identifies SFT model paths."""
 
@@ -31,7 +24,6 @@ class IsSftModelTests(unittest.TestCase):
         self.assertFalse(is_sft_model("acestep-base-1b"))
 
 
-@unittest.skipIf(get_ui_control_config is None, f"model_config import unavailable: {_IMPORT_ERROR}")
 class GetUiControlConfigTests(unittest.TestCase):
     """Verify get_ui_control_config returns correct defaults per model type."""
 

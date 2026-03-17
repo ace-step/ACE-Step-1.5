@@ -136,7 +136,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         gr.update(visible=show_custom_group),              # 1: custom_mode_group
         generate_btn_update,                               # 2: generate_btn
         False,                                             # 3: simple_sample_created
-        gr.Accordion(visible=show_optional, open=False),   # 4: optional_params_accordion
+        gr.update(visible=show_optional, open=False),       # 4: optional_params_accordion
         gr.update(value=task_type, elem_classes=["has-info-container"]),  # 5: task_type
         gr.update(visible=show_src_audio),                 # 6: src_audio_row
         gr.update(visible=show_repainting),                # 7: repainting_group

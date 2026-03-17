@@ -54,7 +54,9 @@ def generate_next_batch_background(
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+        if (hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache")
+                and hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_available()):
             torch.mps.empty_cache()
 
         generator = generate_with_progress(

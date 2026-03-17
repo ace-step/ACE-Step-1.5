@@ -25,6 +25,7 @@ def _build_left_generate_toggles(
         think_checkbox = gr.Checkbox(
             label=t("generation.think_label"),
             value=lm_initialized,
+            visible=True,
             scale=1,
             interactive=lm_initialized,
         )

@@ -16,7 +16,7 @@ cd "$SCRIPT_DIR"
 : "${PORT:=7861}"
 : "${SERVER_NAME:=127.0.0.1}"
 : "${ACEFLOW_CONFIG_PATH:=acestep-v15-turbo}"
-: "${ACEFLOW_LM_MODEL_PATH:=acestep-5Hz-lm-4B}"
+: "${ACEFLOW_LM_MODEL_PATH:=acestep-5Hz-lm-1.7B}"
 : "${ACEFLOW_DEVICE:=auto}"
 : "${ACEFLOW_RESULTS_DIR:=$SCRIPT_DIR/aceflow_outputs}"
 

@@ -14,7 +14,7 @@ REM   set ACEFLOW_RESULTS_DIR=%CD%\aceflow_outputs
 if not defined PORT set PORT=7861
 if not defined SERVER_NAME set SERVER_NAME=127.0.0.1
 if not defined ACEFLOW_CONFIG_PATH set ACEFLOW_CONFIG_PATH=acestep-v15-turbo
-if not defined ACEFLOW_LM_MODEL_PATH set ACEFLOW_LM_MODEL_PATH=acestep-5Hz-lm-4B
+if not defined ACEFLOW_LM_MODEL_PATH set ACEFLOW_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
 if not defined ACEFLOW_DEVICE set ACEFLOW_DEVICE=auto
 if not defined ACEFLOW_RESULTS_DIR set ACEFLOW_RESULTS_DIR=%~dp0aceflow_outputs
 

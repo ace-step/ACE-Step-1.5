@@ -10,6 +10,7 @@
 - [Quick Start (All Platforms)](#quick-start-all-platforms)
 - [Launch Scripts](#-launch-scripts)
 - [Windows Portable Package](#-windows-portable-package)
+- [macOS Portable Package](#-macos-portable-package)
 - [AMD / ROCm GPUs](#amd--rocm-gpus)
 - [Intel GPUs](#intel-gpus)
 - [CPU-Only Mode](#cpu-only-mode)
@@ -353,6 +354,55 @@ Features: 10s timeout protection, smart conflict detection & backup, automatic r
 1. `python_embedded\python.exe` (if exists)
 2. `uv run acestep` (if uv is installed)
 3. Auto-install uv via winget or PowerShell
+
+---
+
+## 🍎 macOS Portable Package
+
+For macOS users (Apple Silicon), we provide a portable package with pre-installed dependencies:
+
+1. Download and extract: [ACE-Step-1.5.zip](https://files.acemusic.ai/acemusic/mac/ACE-Step-1.5.zip)
+2. The package includes all dependencies pre-installed with MLX backend support
+3. **Requirements:** Apple Silicon (M1/M2/M3/M4) with macOS
+
+### Quick Start Scripts
+
+| Script | Description |
+|--------|-------------|
+| `start_gradio_ui_macos.sh` | Launch Gradio Web UI (MLX) |
+| `start_api_server_macos.sh` | Launch REST API Server (MLX) |
+
+```bash
+# Make executable (first time only)
+chmod +x start_gradio_ui_macos.sh start_api_server_macos.sh
+
+# Launch Gradio Web UI with MLX backend
+./start_gradio_ui_macos.sh
+
+# Launch REST API Server with MLX backend
+./start_api_server_macos.sh
+```
+
+The macOS scripts automatically set `ACESTEP_LM_BACKEND=mlx` and `--backend mlx` for native Apple Silicon acceleration.
+
+### Configuration
+
+Configurable options are defined as variables at the top of each script. Open the script with a text editor to customize:
+
+```bash
+# UI language (en, zh, he, ja)
+LANGUAGE="en"
+
+# Download source (auto, huggingface, modelscope)
+DOWNLOAD_SOURCE="--download-source auto"
+
+# Git update check (true/false)
+CHECK_UPDATE="true"
+
+# Model configuration
+CONFIG_PATH="--config_path acestep-v15-turbo"
+LM_MODEL_PATH="--lm_model_path acestep-5Hz-lm-1.7B"
+```
 
 ---
 

@@ -55,6 +55,24 @@ def is_mps_platform() -> bool:
         return False
 
 
+def is_blackwell_gpu() -> bool:
+    """Check if the GPU is NVIDIA Blackwell architecture (RTX 50-series).
+
+    Blackwell GPUs have compute capability 12.x and are known to have
+    compatibility issues with vLLM/nano-vllm (hangs, segfaults). The PyTorch
+    native backend should be used instead.
+    """
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return False
+        major, _ = torch.cuda.get_device_capability(0)
+        return major >= 12
+    except Exception:
+        return False
+
+
 def is_cuda_available() -> bool:
     """Return whether CUDA runtime is available."""
     try:

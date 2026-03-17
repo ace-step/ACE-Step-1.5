@@ -11,6 +11,7 @@ import warnings
 from typing import Optional, Dict, Any, Tuple, List, Union
 from contextlib import contextmanager
 
+import threading
 import yaml
 import torch
 from loguru import logger
@@ -23,7 +24,7 @@ from transformers.generation.logits_process import (
 )
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config, is_blackwell_gpu
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -630,9 +631,20 @@ class LLMHandler:
                     status_msg = f"✅ 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
                     return status_msg, True
 
+            logger.info(f"[initialize] LM backend={backend}, device={device}, model={lm_model_path}")
+
             if backend == "vllm" and device != "cuda":
                 logger.info(
                     f"[initialize] vllm backend requires CUDA, using PyTorch backend for device={device}."
+                )
+                backend = "pt"
+
+            # Blackwell GPUs (RTX 50-series, compute capability 12.x) have known
+            # compatibility issues with vLLM/nano-vllm (hangs, segfaults).
+            if backend == "vllm" and device == "cuda" and is_blackwell_gpu():
+                logger.warning(
+                    "[initialize] Blackwell GPU detected (compute capability ≥12). "
+                    "vLLM may hang on this architecture — switching to PyTorch backend."
                 )
                 backend = "pt"
 
@@ -724,14 +736,41 @@ class LLMHandler:
 
             logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: {enforce_eager}, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
             start_time = time.time()
-            self.llm = LLM(
-                model=model_path,
-                enforce_eager=enforce_eager,
-                tensor_parallel_size=1,
-                max_model_len=self.max_model_len,
-                gpu_memory_utilization=gpu_memory_utilization,
-                tokenizer=self.llm_tokenizer,
-            )
+
+            # Run LLM() in a thread with a timeout to detect hangs (e.g. on Blackwell GPUs)
+            vllm_timeout_s = 180
+            init_result = [None, None]  # [llm_instance, exception]
+
+            def _init_vllm():
+                try:
+                    init_result[0] = LLM(
+                        model=model_path,
+                        enforce_eager=enforce_eager,
+                        tensor_parallel_size=1,
+                        max_model_len=self.max_model_len,
+                        gpu_memory_utilization=gpu_memory_utilization,
+                        tokenizer=self.llm_tokenizer,
+                    )
+                except Exception as exc:
+                    init_result[1] = exc
+
+            init_thread = threading.Thread(target=_init_vllm, daemon=True)
+            init_thread.start()
+            init_thread.join(timeout=vllm_timeout_s)
+
+            if init_thread.is_alive():
+                logger.error(
+                    f"vLLM initialization timed out after {vllm_timeout_s}s "
+                    "(may indicate GPU compatibility issue). "
+                    "The daemon thread will be abandoned."
+                )
+                self.llm_initialized = False
+                return f"❌ vLLM initialization timed out after {vllm_timeout_s}s — try setting LM Backend to 'pt' (PyTorch)"
+
+            if init_result[1] is not None:
+                raise init_result[1]
+
+            self.llm = init_result[0]
             logger.info(f"5Hz LM initialized successfully in {time.time() - start_time:.2f} seconds")
             self.llm_initialized = True
             self.llm_backend = "vllm"

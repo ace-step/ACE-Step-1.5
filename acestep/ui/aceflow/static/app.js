@@ -396,6 +396,29 @@ function localizeApiErrorMessage(detail, kind) {
   return raw;
 }
 
+
+function getMp3BitrateValue() {
+  return String(el('mp3_bitrate')?.value || '128k').trim().toLowerCase() || '128k';
+}
+
+function getMp3SampleRateValue() {
+  const raw = String(el('mp3_sample_rate')?.value || '48000').trim();
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 48000;
+}
+
+function refreshMp3ExportControls() {
+  const audioFormat = String(el('audio_format')?.value || 'flac').trim().toLowerCase();
+  const wrap = el('mp3_export_controls');
+  if (!wrap) return;
+  const enabled = audioFormat === 'mp3';
+  wrap.classList.toggle('hidden', !enabled);
+  const bitrate = el('mp3_bitrate');
+  const sampleRate = el('mp3_sample_rate');
+  if (bitrate) bitrate.disabled = !enabled;
+  if (sampleRate) sampleRate.disabled = !enabled;
+}
+
 function formatAuthTime(value) {
   if (!value) return '—';
   try {
@@ -2395,6 +2418,8 @@ function __snapshotUiForExport(payload) {
     src_audio: payload?.src_audio ?? null,
     batch_size: payload?.batch_size ?? (el('batch_size') ? Number(el('batch_size').value || '') : null),
     audio_format: payload?.audio_format ?? (el('audio_format') ? el('audio_format').value : null),
+    mp3_bitrate: payload?.mp3_bitrate ?? getMp3BitrateValue(),
+    mp3_sample_rate: (payload?.mp3_sample_rate != null) ? payload.mp3_sample_rate : getMp3SampleRateValue(),
 
     
     duration_auto: !!payload?.duration_auto,
@@ -4435,6 +4460,10 @@ function buildPayloadForCurrentUi() {
 
       batch_size,
       audio_format,
+      ...(audio_format === 'mp3' ? {
+        mp3_bitrate: getMp3BitrateValue(),
+        mp3_sample_rate: getMp3SampleRateValue(),
+      } : {}),
       inference_steps,
       infer_method,
       timesteps,
@@ -4918,6 +4947,34 @@ async function initializeProtectedBootstrap() {
       chordReferenceSoundfontName = String(opt.soundfont_name || '');
       updateChordReferenceRendererUi();
 
+      const mp3BitrateSel = el('mp3_bitrate');
+      const mp3Bitrates = Array.isArray(opt.mp3_bitrate_options) ? opt.mp3_bitrate_options : ['128k','192k','256k','320k'];
+      if (mp3BitrateSel) {
+        mp3BitrateSel.innerHTML = '';
+        mp3Bitrates.forEach((v) => {
+          const o = document.createElement('option');
+          o.value = String(v).toLowerCase();
+          o.textContent = String(v).replace(/^([0-9]+k)$/i, (_, n) => `${n} kbps`);
+          mp3BitrateSel.appendChild(o);
+        });
+        mp3BitrateSel.value = String((opt.defaults && opt.defaults.mp3_bitrate) || '128k').toLowerCase();
+      }
+
+      const mp3SampleRateSel = el('mp3_sample_rate');
+      const mp3SampleRates = Array.isArray(opt.mp3_sample_rate_options) ? opt.mp3_sample_rate_options : [48000, 44100];
+      if (mp3SampleRateSel) {
+        mp3SampleRateSel.innerHTML = '';
+        mp3SampleRates.forEach((v) => {
+          const n = Number(v);
+          const o = document.createElement('option');
+          o.value = String(n);
+          o.textContent = (n === 44100) ? '44.1 kHz' : `${(n / 1000).toFixed(0)} kHz`;
+          mp3SampleRateSel.appendChild(o);
+        });
+        mp3SampleRateSel.value = String((opt.defaults && opt.defaults.mp3_sample_rate) || 48000);
+      }
+      refreshMp3ExportControls();
+
       const tsSel = el('timesignature');
       const tss = Array.isArray(opt.time_signatures) ? opt.time_signatures : ['','2/4','3/4','4/4','6/8'];
       if (tsSel) {
@@ -5059,6 +5116,12 @@ async function loadOptions() {
     
     const norm = document.getElementById('enable_normalization');
     if (norm) norm.checked = true;
+
+    const mp3BitrateSel = document.getElementById('mp3_bitrate');
+    if (mp3BitrateSel && data?.defaults?.mp3_bitrate) mp3BitrateSel.value = String(data.defaults.mp3_bitrate).toLowerCase();
+    const mp3SampleRateSel = document.getElementById('mp3_sample_rate');
+    if (mp3SampleRateSel && data?.defaults?.mp3_sample_rate != null) mp3SampleRateSel.value = String(data.defaults.mp3_sample_rate);
+    refreshMp3ExportControls();
 
   } catch (e) {}
 }
@@ -5311,6 +5374,9 @@ function setupImportJson() {
       if (batchSel && !isAbCompareEnabled()) batchSel.dataset.abPrevValue = String(batchSel.value || '1');
     } catch (e) {}
     if (req.audio_format != null) setVal('audio_format', req.audio_format);
+    if (req.mp3_bitrate != null) setVal('mp3_bitrate', String(req.mp3_bitrate).toLowerCase());
+    if (req.mp3_sample_rate != null) setVal('mp3_sample_rate', String(req.mp3_sample_rate));
+    refreshMp3ExportControls();
     if (req.inference_steps != null) setVal('steps', safeInt(req.inference_steps) ?? req.inference_steps);
     if (req.infer_method != null) setVal('infer_method', String(req.infer_method).toLowerCase());
     if (req.timesteps != null) setVal('timesteps', Array.isArray(req.timesteps) ? req.timesteps.join(',') : req.timesteps);
@@ -5507,6 +5573,11 @@ ${el('lyrics')?.value || ''}`;
   syncRangeNumber('cover_noise_strength_range', 'cover_noise_strength', { decimals: 2 });
   syncRangeNumber('cover_conditioning_balance_range', 'cover_conditioning_balance', { decimals: 2 });
   updateChordReferenceRendererUi();
+  try {
+    const af = el('audio_format');
+    if (af) af.addEventListener('change', refreshMp3ExportControls);
+    refreshMp3ExportControls();
+  } catch (e) {}
 
   
   try {

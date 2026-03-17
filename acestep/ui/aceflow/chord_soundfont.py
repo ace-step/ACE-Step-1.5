@@ -27,6 +27,8 @@ _BASS_CHANNEL = 1
 _PATCH_ACOUSTIC_GRAND_PIANO = 0
 _PATCH_ACOUSTIC_BASS = 32
 
+_LOGGED_SOUNDFONT_PATHS: set[str] = set()
+
 
 def find_first_soundfont() -> Optional[Path]:
     """Return the first optional SoundFont file found in standard folders."""
@@ -59,9 +61,12 @@ def find_first_soundfont() -> Optional[Path]:
                 ", ".join(p.name for p in deduped[1:]),
             )
         else:
-            logger.info("[chord-sf2] using soundfont: {}", deduped[0])
+            resolved = str(deduped[0].resolve()) if deduped[0].exists() else str(deduped[0])
+            if resolved not in _LOGGED_SOUNDFONT_PATHS:
+                logger.info("[chord-sf2] using soundfont: {}", deduped[0])
+                _LOGGED_SOUNDFONT_PATHS.add(resolved)
         return deduped[0]
-    logger.info("[chord-sf2] no optional soundfont found under package root")
+    logger.debug("[chord-sf2] no optional soundfont found under package root")
     return None
 
 

@@ -115,6 +115,23 @@ from .chord_reference import render_reference_wav_file
 from .chord_soundfont import find_first_soundfont
 import subprocess
 
+ACEFLOW_MP3_BITRATE_OPTIONS = ("128k", "192k", "256k", "320k")
+ACEFLOW_MP3_SAMPLE_RATE_OPTIONS = (48000, 44100)
+ACEFLOW_MP3_DEFAULT_BITRATE = "128k"
+ACEFLOW_MP3_DEFAULT_SAMPLE_RATE = 48000
+
+
+
+def _log_export_request(prefix: str, requested_format, requested_bitrate, requested_sample_rate, final_format: str, final_bitrate: str, final_sample_rate: int) -> None:
+    """Emit one compact export log line focused on engine vs final export rate."""
+    try:
+        logger.info(
+            f"{prefix} export request: requested=(format={requested_format!r}, bitrate={requested_bitrate!r}, rate={requested_sample_rate!r}) "
+            f"engine_rate=48000Hz -> final=(format={final_format!r}, bitrate={final_bitrate!r}, rate={final_sample_rate}Hz)"
+        )
+    except Exception:
+        pass
+
 def _is_sft_model(model_name: Optional[str]) -> bool:
 
     """Return True for SFT models.
@@ -2187,8 +2204,8 @@ def create_app() -> FastAPI:
                     vocal_language = "unknown"
                 try:
                     logger.info(
-                        "[worker] metas duration=%r duration_auto=%r bpm=%r bpm_auto=%r keyscale=%r key_auto=%r timesignature=%r timesig_auto=%r vocal_language=%r language_auto=%r"
-                        % (duration, duration_auto, bpm, bpm_auto, keyscale, key_auto, timesignature, timesig_auto, vocal_language, language_auto)
+                        "[worker] metas duration=%r bpm=%r keyscale=%r timesignature=%r vocal_language=%r"
+                        % (duration, bpm, keyscale, timesignature, vocal_language)
                     )
                 except Exception:
                     pass
@@ -2244,6 +2261,27 @@ def create_app() -> FastAPI:
                 audio_format = (req.get("audio_format") or "flac").strip().lower()
                 if audio_format not in ("mp3", "wav", "flac", "wav32", "opus", "aac"):
                     audio_format = "flac"
+                mp3_bitrate = str(req.get("mp3_bitrate") or ACEFLOW_MP3_DEFAULT_BITRATE).strip().lower()
+                if mp3_bitrate not in ACEFLOW_MP3_BITRATE_OPTIONS:
+                    mp3_bitrate = ACEFLOW_MP3_DEFAULT_BITRATE
+                try:
+                    mp3_sample_rate = int(req.get("mp3_sample_rate") or ACEFLOW_MP3_DEFAULT_SAMPLE_RATE)
+                except Exception:
+                    mp3_sample_rate = ACEFLOW_MP3_DEFAULT_SAMPLE_RATE
+                if mp3_sample_rate not in ACEFLOW_MP3_SAMPLE_RATE_OPTIONS:
+                    mp3_sample_rate = ACEFLOW_MP3_DEFAULT_SAMPLE_RATE
+                if audio_format != "mp3":
+                    mp3_bitrate = ACEFLOW_MP3_DEFAULT_BITRATE
+                    mp3_sample_rate = ACEFLOW_MP3_DEFAULT_SAMPLE_RATE
+                _log_export_request(
+                    "[api/jobs]",
+                    req.get("audio_format"),
+                    req.get("mp3_bitrate"),
+                    req.get("mp3_sample_rate"),
+                    audio_format,
+                    mp3_bitrate,
+                    mp3_sample_rate,
+                )
                 generation_mode = str(req.get("generation_mode") or "").strip() or "Custom"
                 if generation_mode not in {"Simple", "Custom", "Cover", "Remix"}:
                     generation_mode = "Custom"
@@ -2333,6 +2371,8 @@ def create_app() -> FastAPI:
                     allow_lm_batch=parallel_thinking,
                     constrained_decoding_debug=constrained_decoding_debug,
                     audio_format=audio_format,
+                    mp3_bitrate=mp3_bitrate,
+                    mp3_sample_rate=mp3_sample_rate,
                 )
                 lora_loaded_for_job = False
                 lora_path = ""
@@ -2385,22 +2425,16 @@ def create_app() -> FastAPI:
                     f"reference_present={bool(reference_audio_abs)} src_present={bool(src_audio_abs)} "
                     f"audio_codes_present={bool(_audio_codes_trim)}"
                 )
-                logger.debug(
-                    f"[job {job_id}] mode={generation_mode} task_type={task_type} seed={seed} "
-                    f"use_random_seed={bool(getattr(config,'use_random_seed',False))} seeds={_seed_list}"
+                _log_export_request(
+                    f"[job {job_id}]",
+                    req.get("audio_format"),
+                    req.get("mp3_bitrate"),
+                    req.get("mp3_sample_rate"),
+                    audio_format,
+                    mp3_bitrate,
+                    mp3_sample_rate,
                 )
-                logger.debug(f"[job {job_id}] conditioning mode={str(req.get('chord_debug_mode') or req.get('generation_mode') or '')!r}")
-                logger.debug(f"[job {job_id}] conditioning reference_present={bool(reference_audio_abs)} reference_audio_raw={reference_audio_abs!r}")
-                logger.debug(f"[job {job_id}] conditioning src_present={bool(src_audio_abs)} src_audio_raw={src_audio_abs!r}")
-                logger.debug(f"[job {job_id}] conditioning audio_codes_present={bool(_audio_codes_trim)} audio_codes_len={len(_audio_codes_trim)}")
-                logger.debug(f"[job {job_id}] conditioning audio_cover_strength={_audio_cover_strength!r} cover_noise_strength={_cover_noise_strength!r} cover_conditioning_balance={_cover_conditioning_balance!r}")
-                logger.debug(f"[job {job_id}] conditioning reference_only={_reference_only}")
                 _conditioning_route, _conditioning_source = _compute_conditioning_route(generation_mode, reference_audio_rel, src_audio_rel, _audio_codes_trim)
-                logger.info(f"[job {job_id}] conditioning_route route={_conditioning_route!r} source={_conditioning_source!r} generation_mode={generation_mode!r} task_type={task_type!r}")
-                logger.debug(f"[job {job_id}] chord_debug reference_only_raw={req.get('chord_debug_reference_only', False)!r}")
-                logger.debug(f"[job {job_id}] chord_debug bpm={req.get('chord_debug_reference_bpm', None)!r} target_duration={req.get('chord_debug_reference_target_duration', None)!r}")
-                logger.debug(f"[job {job_id}] chord_debug sequence={str(req.get('chord_debug_reference_sequence') or '')[:1200]!r}")
-                logger.debug(f"[job {job_id}] chord_debug section_plan={str(req.get('chord_debug_section_plan') or '')[:1200]!r}")
                 t0 = time.time()
                 try:
                     result = generate_music(
@@ -2570,6 +2604,8 @@ def create_app() -> FastAPI:
                         "lora_loaded": bool(lora_loaded_for_job),
                         "batch_size": batch_size,
                         "audio_format": audio_format,
+                        "mp3_bitrate": mp3_bitrate,
+                        "mp3_sample_rate": mp3_sample_rate,
                         "inference_steps": inference_steps,
                         "infer_method": infer_method,
                         "timesteps": timesteps_raw if isinstance(timesteps_raw, str) else (parsed_timesteps if parsed_timesteps is not None else ""),
@@ -2919,6 +2955,8 @@ def create_app() -> FastAPI:
             "model": active_model,
             "max_batch_size": 4,
             "audio_formats": ["flac","wav","mp3","opus","aac","wav32"],
+            "mp3_bitrate_options": list(ACEFLOW_MP3_BITRATE_OPTIONS),
+            "mp3_sample_rate_options": list(ACEFLOW_MP3_SAMPLE_RATE_OPTIONS),
             "limits": {
                 "max_inference_steps_current_model": _get_max_inference_steps_for_model(active_model),
                 "max_inference_steps_sft": _get_max_inference_steps_for_model("sft"),
@@ -2954,6 +2992,8 @@ def create_app() -> FastAPI:
                 "max_inference_steps_other_dit": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT,
             },
             "infer_methods": ["ode", "sde"],
+            "mp3_bitrate_options": list(ACEFLOW_MP3_BITRATE_OPTIONS),
+            "mp3_sample_rate_options": list(ACEFLOW_MP3_SAMPLE_RATE_OPTIONS),
             "core_turbo_step_clamp_bypass_enabled": bypass_installed,
             "core_turbo_step_clamp_bypass_requested": bypass_requested,
             "defaults": {
@@ -2974,6 +3014,8 @@ def create_app() -> FastAPI:
                 "cover_noise_strength": 0.0,
                 "cover_conditioning_balance": 0.5,
                 "chord_reference_renderer": "soundfont",
+                "mp3_bitrate": ACEFLOW_MP3_DEFAULT_BITRATE,
+                "mp3_sample_rate": ACEFLOW_MP3_DEFAULT_SAMPLE_RATE,
             },
         }
     examples_path = os.path.join(os.path.dirname(__file__), "examples.json").replace("\\", "/")
@@ -3431,18 +3473,6 @@ timesignature: {timesignature}
             lora_id,
             payload.get('lora_weight', None),
         )
-        logger.debug(f"[api/jobs] payload keys={_keys}")
-        logger.debug(f"[api/jobs] lora id={lora_id!r} trigger={lora_trigger!r} weight={payload.get('lora_weight', None)!r}")
-        logger.debug(f"[api/jobs] conditioning mode={str(payload.get('chord_debug_mode') or payload.get('generation_mode') or '')!r}")
-        logger.debug(f"[api/jobs] conditioning reference_audio_present={bool(_reference_audio)} reference_audio_raw={_reference_audio!r}")
-        logger.debug(f"[api/jobs] conditioning src_audio_present={bool(_src_audio)} src_audio_raw={_src_audio!r}")
-        logger.debug(f"[api/jobs] conditioning audio_codes_present={bool(_audio_codes_trim)} audio_codes_len={len(_audio_codes_trim)}")
-        logger.debug(f"[api/jobs] conditioning audio_cover_strength={payload.get('audio_cover_strength', None)!r} cover_noise_strength={payload.get('cover_noise_strength', None)!r} cover_conditioning_balance={payload.get('cover_conditioning_balance', None)!r}")
-        logger.debug(f"[api/jobs] conditioning reference_only={_reference_only}")
-        logger.debug(f"[api/jobs] chord_debug reference_only_raw={payload.get('chord_debug_reference_only', False)!r}")
-        logger.debug(f"[api/jobs] chord_debug bpm={payload.get('chord_debug_reference_bpm', None)!r} target_duration={payload.get('chord_debug_reference_target_duration', None)!r}")
-        logger.debug(f"[api/jobs] chord_debug sequence={str(payload.get('chord_debug_reference_sequence') or '')[:1200]!r}")
-        logger.debug(f"[api/jobs] chord_debug section_plan={str(payload.get('chord_debug_section_plan') or '')[:1200]!r}")
         model_choice = _normalize_model_choice(payload.get("model"))
         lora_entry = None
         if lora_id:
@@ -3533,7 +3563,6 @@ timesignature: {timesignature}
             reference_audio = ""
             payload["reference_audio"] = ""
         _conditioning_route, _conditioning_source = _compute_conditioning_route(generation_mode, reference_audio, src_audio, audio_codes)
-        logger.info(f"[api/jobs] conditioning_route route={_conditioning_route!r} source={_conditioning_source!r} generation_mode={generation_mode!r} task_type={task_type!r}")
         if duration_auto:
             duration = -1
         if bpm_auto:
@@ -3575,8 +3604,8 @@ timesignature: {timesignature}
             vocal_language = "unknown"
         try:
             logger.info(
-                "[api/jobs] metas duration=%r duration_auto=%r bpm=%r bpm_auto=%r keyscale=%r key_auto=%r timesignature=%r timesig_auto=%r vocal_language=%r language_auto=%r"
-                % (d, duration_auto, bpm, bpm_auto, keyscale, key_auto, timesignature, timesig_auto, vocal_language, language_auto)
+                "[api/jobs] metas duration=%r bpm=%r keyscale=%r timesignature=%r vocal_language=%r"
+                % (d, bpm, keyscale, timesignature, vocal_language)
             )
         except Exception:
             pass
@@ -3600,6 +3629,8 @@ timesignature: {timesignature}
                 "lora_weight": lora_weight,
                 "batch_size": batch_size,
                 "audio_format": audio_format,
+                "mp3_bitrate": payload.get("mp3_bitrate", None),
+                "mp3_sample_rate": payload.get("mp3_sample_rate", None),
                 "inference_steps": inference_steps,
                 "infer_method": infer_method,
                 "timesteps": timesteps,

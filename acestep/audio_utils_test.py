@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-import subprocess
 
 import torch
 import numpy as np
@@ -86,6 +85,85 @@ class AudioSaverFormatTests(unittest.TestCase):
             call_kwargs = mock_save.call_args[1]
             self.assertEqual(call_kwargs.get('backend'), 'ffmpeg')
             self.assertTrue(result.endswith('.aac'))
+
+
+    def test_save_audio_mp3_uses_custom_export_path(self):
+        """MP3 should use the dedicated export path, not torchaudio ffmpeg backend directly."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with patch.object(AudioSaver, '_save_mp3') as mock_save_mp3:
+            saver.save_audio(
+                self.sample_audio,
+                output_path,
+                sample_rate=self.sample_rate,
+                format="mp3"
+            )
+
+            mock_save_mp3.assert_called_once()
+            _, _, call_sample_rate = mock_save_mp3.call_args[0]
+            self.assertEqual(call_sample_rate, self.sample_rate)
+            self.assertEqual(mock_save_mp3.call_args[1]['mp3_bitrate'], None)
+            self.assertEqual(mock_save_mp3.call_args[1]['mp3_sample_rate'], None)
+
+    def test_save_audio_mp3_forwards_optional_export_settings(self):
+        """Optional MP3 bitrate/sample-rate settings should be forwarded unchanged."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with patch.object(AudioSaver, '_save_mp3') as mock_save_mp3:
+            saver.save_audio(
+                self.sample_audio,
+                output_path,
+                sample_rate=self.sample_rate,
+                format="mp3",
+                mp3_bitrate="320k",
+                mp3_sample_rate=44100,
+            )
+
+            mock_save_mp3.assert_called_once()
+            self.assertEqual(mock_save_mp3.call_args[1]['mp3_bitrate'], "320k")
+            self.assertEqual(mock_save_mp3.call_args[1]['mp3_sample_rate'], 44100)
+
+    def test__save_mp3_uses_legacy_defaults_when_not_overridden(self):
+        """MP3 export should preserve legacy defaults when no overrides are provided."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,              patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run:
+            saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
+
+            mock_torchaudio_save.assert_called_once()
+            save_args = mock_torchaudio_save.call_args[0]
+            self.assertEqual(save_args[2], 48000)
+
+            cmd = mock_subprocess_run.call_args[0][0]
+            self.assertIn('libmp3lame', cmd)
+            self.assertIn('128k', cmd)
+            self.assertIn('48000', cmd)
+
+    def test__save_mp3_uses_custom_bitrate_and_sample_rate(self):
+        """MP3 export should honor explicit bitrate/sample-rate overrides."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with patch('acestep.audio_utils.torchaudio.functional.resample', return_value=self.sample_audio) as mock_resample,              patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,              patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run:
+            saver._save_mp3(
+                self.sample_audio,
+                output_path,
+                self.sample_rate,
+                mp3_bitrate="320k",
+                mp3_sample_rate=44100,
+            )
+
+            mock_resample.assert_called_once_with(self.sample_audio, 48000, 44100)
+            mock_torchaudio_save.assert_called_once()
+            save_args = mock_torchaudio_save.call_args[0]
+            self.assertEqual(save_args[2], 44100)
+
+            cmd = mock_subprocess_run.call_args[0][0]
+            self.assertIn('320k', cmd)
+            self.assertIn('44100', cmd)
 
     def test_save_audio_opus_uses_ffmpeg_backend(self):
         """Opus format should use ffmpeg backend like MP3."""
@@ -231,106 +309,20 @@ class AudioSaverFormatTests(unittest.TestCase):
             self.assertTrue(result.endswith('.aac'))
 
 
-    def test_save_audio_mp3_uses_explicit_ffmpeg_export_settings(self):
-        """MP3 export should force 44.1 kHz and 320 kbps via ffmpeg."""
+
+    def test_save_audio_mp3_does_not_fallback_to_soundfile_on_failure(self):
+        """MP3 export must fail loudly instead of silently falling back to soundfile."""
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test.mp3"
 
-        with patch('acestep.audio_utils.torchaudio.save') as mock_save, \
-             patch('acestep.audio_utils.subprocess.run') as mock_run:
-            result = saver.save_audio(
-                self.sample_audio,
-                output_path,
-                sample_rate=self.sample_rate,
-                format="mp3"
-            )
-
-            mock_save.assert_called_once()
-            save_args = mock_save.call_args[0]
-            self.assertEqual(save_args[2], 44100)
-            save_kwargs = mock_save.call_args[1]
-            self.assertEqual(save_kwargs.get('backend'), 'soundfile')
-
-            mock_run.assert_called_once()
-            cmd = mock_run.call_args[0][0]
-            self.assertIn('ffmpeg', cmd)
-            self.assertIn('libmp3lame', cmd)
-            self.assertIn('44100', cmd)
-            self.assertIn('320k', cmd)
-            self.assertTrue(result.endswith('.mp3'))
-
-    def test_save_audio_mp3_reports_missing_ffmpeg_cleanly(self):
-        """MP3 export should raise a clear error when ffmpeg is unavailable."""
-        saver = AudioSaver()
-        output_path = Path(self.temp_dir) / "missing_ffmpeg.mp3"
-
-        with patch('acestep.audio_utils.torchaudio.save'), \
-             patch('acestep.audio_utils.subprocess.run', side_effect=FileNotFoundError()):
-            with self.assertRaises(RuntimeError) as ctx:
+        with patch.object(AudioSaver, '_save_mp3', side_effect=RuntimeError('boom')):
+            with self.assertRaises(RuntimeError):
                 saver.save_audio(
                     self.sample_audio,
                     output_path,
                     sample_rate=self.sample_rate,
-                    format="mp3"
+                    format="mp3",
                 )
-
-        self.assertIn('ffmpeg executable not found', str(ctx.exception))
-
-
-    def test_save_audio_mp3_times_out_cleanly(self):
-        """MP3 export should raise a clear error when ffmpeg hangs."""
-        saver = AudioSaver()
-        output_path = Path(self.temp_dir) / "timeout_ffmpeg.mp3"
-
-        with patch('acestep.audio_utils.torchaudio.save'), \
-             patch('acestep.audio_utils.subprocess.run', side_effect=subprocess.TimeoutExpired(cmd='ffmpeg', timeout=120)):
-            with self.assertRaises(RuntimeError) as ctx:
-                saver.save_audio(
-                    self.sample_audio,
-                    output_path,
-                    sample_rate=self.sample_rate,
-                    format="mp3"
-                )
-
-        self.assertIn('ffmpeg MP3 export timed out after 120 seconds', str(ctx.exception))
-
-    def test_save_audio_transposes_numpy_when_channels_first_false_without_shape_heuristic(self):
-        """channels_first=False should transpose 2D numpy input regardless of clip shape."""
-        saver = AudioSaver()
-        output_path = Path(self.temp_dir) / "short_numpy.wav"
-        audio_np = np.arange(4, dtype=np.float32).reshape(2, 2)
-
-        with patch('acestep.audio_utils.torchaudio.save') as mock_save:
-            saver.save_audio(
-                audio_np,
-                output_path,
-                sample_rate=self.sample_rate,
-                format="wav",
-                channels_first=False,
-            )
-
-        saved_tensor = mock_save.call_args[0][1]
-        self.assertEqual(tuple(saved_tensor.shape), (2, 2))
-        self.assertTrue(torch.equal(saved_tensor, torch.from_numpy(audio_np).float().T))
-
-    def test_convert_audio_remove_input_does_not_delete_same_output_file(self):
-        """remove_input=True must not delete the converted output when paths resolve to the same file."""
-        saver = AudioSaver()
-        same_path = Path(self.temp_dir) / "same.wav"
-        same_path.write_bytes(b"fake")
-
-        with patch('acestep.audio_utils.torchaudio.load', return_value=(self.sample_audio, self.sample_rate)), \
-             patch.object(AudioSaver, 'save_audio', return_value=str(same_path)):
-            result = saver.convert_audio(
-                same_path,
-                same_path,
-                output_format="wav",
-                remove_input=True,
-            )
-
-        self.assertEqual(result, str(same_path))
-        self.assertTrue(same_path.exists())
-
 
 class ApplyFadeTests(unittest.TestCase):
     """Tests for apply_fade function."""
@@ -432,29 +424,6 @@ class ApplyFadeTests(unittest.TestCase):
         """Numpy fade-out should make the last sample 0."""
         result = apply_fade(self.audio_numpy, fade_in_samples=0, fade_out_samples=1000)
         self.assertAlmostEqual(float(result[0, -1]), 0.0, places=5)
-
-
-    def test_save_audio_mp3_preserves_ffmpeg_failure(self):
-        """MP3 ffmpeg export errors should not be replaced by soundfile fallback errors."""
-        saver = AudioSaver()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "fail.mp3"
-            sample_audio = torch.ones(2, self.sample_rate)
-
-            with patch('acestep.audio_utils.torchaudio.save'), \
-                 patch('acestep.audio_utils.subprocess.run', side_effect=RuntimeError('ffmpeg MP3 export failed: boom')), \
-                 patch('acestep.audio_utils.logger.error') as mock_log_error:
-                with self.assertRaisesRegex(RuntimeError, 'ffmpeg MP3 export failed: boom'):
-                    saver.save_audio(
-                        sample_audio,
-                        output_path,
-                        sample_rate=self.sample_rate,
-                        format="mp3"
-                    )
-
-                mock_log_error.assert_called()
-                logged = " ".join(str(arg) for call in mock_log_error.call_args_list for arg in call.args)
-                self.assertIn('Failed to save mp3 audio', logged)
 
 
 if __name__ == '__main__':

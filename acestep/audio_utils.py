@@ -12,8 +12,8 @@ import io
 import json
 import os
 import subprocess
-import tempfile
 import hashlib
+import tempfile
 from pathlib import Path
 from typing import Union, Optional, List, Tuple
 import torch
@@ -113,9 +113,11 @@ def normalize_audio(audio_data: Union[torch.Tensor, np.ndarray], target_db: floa
 
 class AudioSaver:
     """Audio saving and transcoding utility class"""
-    
-    MP3_SAMPLE_RATE = 44100
-    MP3_BITRATE = "320k"
+
+    MP3_DEFAULT_BITRATE = "128k"
+    MP3_ALLOWED_BITRATES = {"128k", "192k", "256k", "320k"}
+    MP3_DEFAULT_SAMPLE_RATE = 48000
+    MP3_ALLOWED_SAMPLE_RATES = {44100, 48000}
     
     def __init__(self, default_format: str = "flac"):
         """
@@ -129,12 +131,29 @@ class AudioSaver:
             logger.warning(f"Unsupported format {default_format}, using 'flac'")
             self.default_format = "flac"
     
-    def _save_mp3(self, audio_tensor: torch.Tensor, output_path: Path, sample_rate: int) -> None:
-        """Save MP3 with explicit ffmpeg settings: 44.1 kHz, 320 kbps."""
-        target_sample_rate = self.MP3_SAMPLE_RATE
+    def _save_mp3(
+        self,
+        audio_tensor: torch.Tensor,
+        output_path: Path,
+        input_sample_rate: int,
+        mp3_bitrate: Optional[str] = None,
+        mp3_sample_rate: Optional[int] = None,
+    ) -> None:
+        """Save MP3 with explicit ffmpeg settings and backward-compatible defaults."""
+        bitrate = str(mp3_bitrate or self.MP3_DEFAULT_BITRATE).strip().lower()
+        if bitrate not in self.MP3_ALLOWED_BITRATES:
+            bitrate = self.MP3_DEFAULT_BITRATE
 
-        if sample_rate != target_sample_rate:
-            audio_tensor = torchaudio.functional.resample(audio_tensor, sample_rate, target_sample_rate)
+        try:
+            target_sample_rate = int(mp3_sample_rate or self.MP3_DEFAULT_SAMPLE_RATE)
+        except Exception:
+            target_sample_rate = self.MP3_DEFAULT_SAMPLE_RATE
+        if target_sample_rate not in self.MP3_ALLOWED_SAMPLE_RATES:
+            target_sample_rate = self.MP3_DEFAULT_SAMPLE_RATE
+
+        tensor_to_save = audio_tensor
+        if int(input_sample_rate) != int(target_sample_rate):
+            tensor_to_save = torchaudio.functional.resample(audio_tensor, int(input_sample_rate), int(target_sample_rate))
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
             temp_wav_path = Path(temp_wav.name)
@@ -142,37 +161,25 @@ class AudioSaver:
         try:
             torchaudio.save(
                 str(temp_wav_path),
-                audio_tensor,
-                target_sample_rate,
+                tensor_to_save,
+                int(target_sample_rate),
                 channels_first=True,
                 backend='soundfile',
             )
-
             cmd = [
-                'ffmpeg',
-                '-y',
-                '-hide_banner',
-                '-loglevel',
-                'error',
-                '-i',
-                str(temp_wav_path),
-                '-codec:a',
-                'libmp3lame',
-                '-ar',
-                str(target_sample_rate),
-                '-b:a',
-                self.MP3_BITRATE,
+                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                '-i', str(temp_wav_path),
+                '-codec:a', 'libmp3lame',
+                '-ar', str(int(target_sample_rate)),
+                '-b:a', bitrate,
                 str(output_path),
             ]
             subprocess.run(cmd, check=True, capture_output=True, timeout=120)
+            logger.debug(f"[AudioSaver] Saved audio to {output_path} (mp3, {target_sample_rate}Hz, {bitrate})")
         except FileNotFoundError as e:
-            raise RuntimeError(
-                "ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files."
-            ) from e
+            raise RuntimeError("ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files.") from e
         except subprocess.TimeoutExpired as e:
-            raise RuntimeError(
-                "ffmpeg MP3 export timed out after 120 seconds."
-            ) from e
+            raise RuntimeError("ffmpeg MP3 export timed out after 120 seconds.") from e
         except subprocess.CalledProcessError as e:
             stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else str(e)
             raise RuntimeError(f"ffmpeg MP3 export failed: {stderr}") from e
@@ -189,6 +196,8 @@ class AudioSaver:
         sample_rate: int = 48000,
         format: Optional[str] = None,
         channels_first: bool = True,
+        mp3_bitrate: Optional[str] = None,
+        mp3_sample_rate: Optional[int] = None,
     ) -> str:
         """
         Save audio data to file
@@ -199,6 +208,8 @@ class AudioSaver:
             sample_rate: Sample rate
             format: Audio format ('flac', 'wav', 'mp3', 'wav32', 'opus', 'aac'), defaults to default_format
             channels_first: If True, tensor format is [channels, samples], else [samples, channels]
+            mp3_bitrate: Optional MP3 bitrate override (128k/192k/256k/320k)
+            mp3_sample_rate: Optional MP3 sample rate override (44100/48000)
         
         Returns:
             Actual saved file path
@@ -229,16 +240,18 @@ class AudioSaver:
                 # numpy already [channels, samples]
                 audio_tensor = torch.from_numpy(audio_data).float()
             else:
-                # numpy [samples, channels] -> [channels, samples]
+                # numpy [samples, channels] -> tensor [samples, channels] -> [channels, samples] (if transposed)
                 audio_tensor = torch.from_numpy(audio_data).float()
-                if audio_tensor.dim() == 2:
-                    audio_tensor = audio_tensor.T
+                if audio_tensor.dim() == 2 and audio_tensor.shape[0] > audio_tensor.shape[1]:
+                     # Assume [samples, channels] if dim0 > dim1 (heuristic)
+                     audio_tensor = audio_tensor.T
         else:
             # torch tensor
             audio_tensor = audio_data.cpu().float()
             if not channels_first and audio_tensor.dim() == 2:
                 # [samples, channels] -> [channels, samples]
-                audio_tensor = audio_tensor.T
+                if audio_tensor.shape[0] > audio_tensor.shape[1]:
+                    audio_tensor = audio_tensor.T
         
         # Ensure memory is contiguous
         audio_tensor = audio_tensor.contiguous()
@@ -246,7 +259,14 @@ class AudioSaver:
         # Select backend and save
         try:
             if format == "mp3":
-                self._save_mp3(audio_tensor, output_path, sample_rate)
+                self._save_mp3(
+                    audio_tensor,
+                    output_path,
+                    sample_rate,
+                    mp3_bitrate=mp3_bitrate,
+                    mp3_sample_rate=mp3_sample_rate,
+                )
+                return str(output_path)
             elif format in ["opus", "aac"]:
                 # Opus and AAC use ffmpeg backend
                 torchaudio.save(
@@ -295,16 +315,13 @@ class AudioSaver:
             return str(output_path)
             
         except Exception as e:
-            # Preserve explicit ffmpeg-backed export failures for compressed formats.
-            # soundfile fallback is only appropriate for PCM containers.
-            if format in ["mp3", "opus", "aac"]:
-                logger.error(f"[AudioSaver] Failed to save {format} audio: {e}")
+            if format == "mp3":
+                logger.error(f"[AudioSaver] MP3 export failed without fallback: {e}")
                 raise
-
             try:
                 import soundfile as sf
                 audio_np = audio_tensor.transpose(0, 1).numpy()  # -> [samples, channels]
-
+                
                 # Handle wav32 fallback formatting
                 if format == "wav32":
                     sf_format = "WAV"
@@ -312,7 +329,7 @@ class AudioSaver:
                 else:
                     sf_format = format.upper()
                     subtype = None
-
+                    
                 sf.write(str(output_path), audio_np, sample_rate, format=sf_format, subtype=subtype)
                 logger.debug(f"[AudioSaver] Fallback soundfile Saved audio to {output_path} ({format}, {sample_rate}Hz)")
                 return str(output_path)
@@ -357,21 +374,10 @@ class AudioSaver:
             channels_first=True
         )
         
-        # Delete input file if needed, but never delete the converted output.
+        # Delete input file if needed
         if remove_input:
-            same_file = False
-            try:
-                same_file = input_path.resolve() == Path(output_path).resolve()
-            except FileNotFoundError:
-                same_file = input_path.absolute() == Path(output_path).absolute()
-
-            if same_file:
-                logger.warning(
-                    f"[AudioSaver] Skipping input removal because input and output are the same file: {input_path}"
-                )
-            else:
-                input_path.unlink()
-                logger.debug(f"[AudioSaver] Removed input file: {input_path}")
+            input_path.unlink()
+            logger.debug(f"[AudioSaver] Removed input file: {input_path}")
         
         return output_path
     

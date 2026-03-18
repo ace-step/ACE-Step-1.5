@@ -140,6 +140,17 @@ def _is_sft_model(model_name: Optional[str]) -> bool:
     """
     return "sft" in (model_name or "").lower()
 
+def _is_base_model(model_name: Optional[str]) -> bool:
+
+    """Return True for the quality-oriented Base DiT model."""
+    name_lower = (model_name or "").lower()
+    return ("base" in name_lower) and ("turbo" not in name_lower)
+
+def _uses_quality_dit_defaults(model_name: Optional[str]) -> bool:
+
+    """Return True for DiT variants that should use the 50-step / Shift 1 defaults."""
+    return _is_sft_model(model_name) or _is_base_model(model_name)
+
 def _is_turbo_model(model_name: Optional[str]) -> bool:
 
     """Return True for classic turbo models (excluding SFT turbo variants)."""
@@ -1029,7 +1040,7 @@ def _is_core_turbo_step_clamp_bypass_enabled() -> bool:
 
 def _get_max_inference_steps_for_model(model_name: Optional[str]) -> int:
 
-    if _is_sft_model(model_name):
+    if _uses_quality_dit_defaults(model_name):
         return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_SFT
     return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT
 
@@ -2071,10 +2082,10 @@ def create_app() -> FastAPI:
                     inference_steps = None
                 model_name_for_limits = req.get("model") or req.get("model_used") or ""
                 config_name = str(model_name_for_limits) if model_name_for_limits is not None else ""
-                is_sft = _is_sft_model(config_name)
+                uses_quality_defaults = _uses_quality_dit_defaults(config_name)
                 is_turbo = _is_turbo_model(config_name)
                 if inference_steps is None:
-                    inference_steps = 50 if is_sft else 8
+                    inference_steps = 50 if uses_quality_defaults else 8
                 if inference_steps is not None:
                     max_steps = _get_max_inference_steps_for_model(config_name)
                     inference_steps = max(1, min(inference_steps, max_steps))
@@ -2975,8 +2986,8 @@ def create_app() -> FastAPI:
         active_model = str(getattr(app.state, "_active_model", config_path) or config_path)
         bypass_requested = bool(getattr(app.state, "_core_turbo_step_clamp_bypass_requested", _is_core_turbo_step_clamp_bypass_enabled()))
         bypass_installed = bool(getattr(app.state, "_core_turbo_step_clamp_bypass_installed", False))
-        default_shift = 1.0 if _is_sft_model(active_model) else 3.0
-        default_inference_steps = 50 if _is_sft_model(active_model) else 8
+        default_shift = 1.0 if _uses_quality_dit_defaults(active_model) else 3.0
+        default_inference_steps = 50 if _uses_quality_dit_defaults(active_model) else 8
         return {
             "valid_languages": VALID_LANGUAGES,
             "time_signatures": ["", "2/4", "3/4", "4/4", "6/8"],

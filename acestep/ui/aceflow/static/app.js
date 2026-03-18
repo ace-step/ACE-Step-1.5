@@ -3110,18 +3110,27 @@ function isSftModelName(modelName) {
   return v.startsWith('sft') || v.includes('sft');
 }
 
+function isBaseModelName(modelName) {
+  const v = String(modelName || '').trim().toLowerCase();
+  return v.includes('base') && !v.includes('turbo');
+}
+
+function usesQualityDitDefaults(modelName) {
+  return isSftModelName(modelName) || isBaseModelName(modelName);
+}
+
 function isTurboModelName(modelName) {
   const v = String(modelName || '').trim().toLowerCase();
   return v.includes('turbo') && !isSftModelName(v);
 }
 
 function getCurrentStepLimit(modelName) {
-  if (isSftModelName(modelName)) return Number(__ACE_STEP_LIMITS.max_inference_steps_sft || 200);
+  if (usesQualityDitDefaults(modelName)) return Number(__ACE_STEP_LIMITS.max_inference_steps_sft || 200);
   return Number(__ACE_STEP_LIMITS.max_inference_steps_other_dit || 20);
 }
 
 function getDefaultInferenceStepsForModel(modelName) {
-  if (isSftModelName(modelName)) return 50;
+  if (usesQualityDitDefaults(modelName)) return 50;
   return 8;
 }
 
@@ -3162,7 +3171,7 @@ function bindModelSelectBehavior() {
       const v = String(modelSelect.value || '').toLowerCase();
       const shiftEl = el('shift');
       if (shiftEl) {
-        shiftEl.value = v.includes('sft') ? '1' : '3';
+        shiftEl.value = usesQualityDitDefaults(v) ? '1' : '3';
         shiftEl.dispatchEvent(new Event('input', { bubbles: true }));
         shiftEl.dispatchEvent(new Event('change', { bubbles: true }));
       }

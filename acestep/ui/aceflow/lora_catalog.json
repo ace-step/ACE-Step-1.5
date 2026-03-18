@@ -15,6 +15,11 @@
     "label": "Cuban Salsa"
   },
   {
+    "id": "marcodm",
+    "trigger": "marcodm",
+    "label": "Depeche Mode"
+  },
+  {
     "id": "dkcountry",
     "trigger": "dkcountry",
     "label": "DK Country"

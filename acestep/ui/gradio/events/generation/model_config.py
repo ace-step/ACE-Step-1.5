@@ -5,6 +5,8 @@ producing UI control configurations, and computing gr.update() tuples
 for model-type-dependent controls.
 """
 
+import re
+
 import gradio as gr
 
 from acestep.constants import (
@@ -13,6 +15,15 @@ from acestep.constants import (
     GENERATION_MODES_TURBO,
     GENERATION_MODES_BASE,
 )
+
+
+def _has_token(token: str, path: str) -> bool:
+    """Check if *token* appears as a delimited word in *path*.
+
+    Matches when *token* is bounded by start/end of string or a common
+    path delimiter (``/``, ``\\``, ``.``, ``_``, ``-``).
+    """
+    return re.search(rf"(^|[\\\\/._-]){token}($|[\\\\/._-])", path) is not None
 
 
 def is_pure_base_model(config_path_lower: str) -> bool:
@@ -25,9 +36,9 @@ def is_pure_base_model(config_path_lower: str) -> bool:
         ``True`` when the path contains ``"base"`` and excludes ``"sft"`` and ``"turbo"``.
     """
     return (
-        "base" in config_path_lower
-        and "sft" not in config_path_lower
-        and "turbo" not in config_path_lower
+        _has_token("base", config_path_lower)
+        and not _has_token("sft", config_path_lower)
+        and not _has_token("turbo", config_path_lower)
     )
 
 
@@ -49,7 +60,7 @@ def update_model_type_settings(config_path: str | None, current_mode: str | None
 
     # Precedence: turbo > SFT > pure base > fallback.
     # Detection functions enforce mutual exclusivity.
-    is_turbo = "turbo" in config_path_lower
+    is_turbo = _has_token("turbo", config_path_lower)
     is_pure_base = is_pure_base_model(config_path_lower)
     is_sft = is_sft_model(config_path_lower)
 
@@ -65,7 +76,7 @@ def is_sft_model(config_path_lower: str) -> bool:
     Returns:
         ``True`` when the path contains ``"sft"`` and excludes ``"turbo"``.
     """
-    return "sft" in config_path_lower and "turbo" not in config_path_lower
+    return _has_token("sft", config_path_lower) and not _has_token("turbo", config_path_lower)
 
 
 def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False, is_sft: bool = False) -> dict:

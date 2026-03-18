@@ -591,6 +591,7 @@ def generate_music(
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation
         dit_generate_kwargs = {
             "captions": dit_input_caption,
+            "global_caption": params.global_caption,
             "lyrics": dit_input_lyrics,
             "bpm": bpm,
             "key_scale": key_scale,
@@ -609,6 +610,7 @@ def generate_music(
             "audio_code_string": audio_code_string_to_use,
             "repainting_start": params.repainting_start,
             "repainting_end": params.repainting_end,
+            "chunk_mask_mode": params.chunk_mask_mode,
             "instruction": params.instruction,
             "audio_cover_strength": params.audio_cover_strength,
             "cover_noise_strength": params.cover_noise_strength,
@@ -629,7 +631,7 @@ def generate_music(
         }
         dropped_generate_keys = sorted(set(dit_generate_kwargs.keys()) - supported_generate_keys)
         if dropped_generate_keys:
-            logger.debug(
+            logger.warning(
                 f"[generate_music] Skipping unsupported generate_music kwargs: {dropped_generate_keys}"
             )
         result = dit_handler.generate_music(**filtered_generate_kwargs)

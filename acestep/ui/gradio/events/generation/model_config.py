@@ -31,17 +31,24 @@ def is_pure_base_model(config_path_lower: str) -> bool:
     )
 
 
-def update_model_type_settings(config_path, current_mode=None):
+def update_model_type_settings(config_path: str | None, current_mode: str | None = None) -> tuple:
     """Update UI settings based on model type (fallback when handler not initialized yet).
 
     Args:
         config_path: Model config path string.
         current_mode: Current generation mode value to preserve across choices update.
+
+    Returns:
+        Nine-element tuple of ``gr.update()`` dicts for inference_steps,
+        guidance_scale, use_adg, shift, cfg_interval_start, cfg_interval_end,
+        task_type, generation_mode, and init_llm_checkbox.
     """
     if config_path is None:
         config_path = ""
     config_path_lower = config_path.lower()
 
+    # Precedence: turbo > SFT > pure base > fallback.
+    # Detection functions enforce mutual exclusivity.
     is_turbo = "turbo" in config_path_lower
     is_pure_base = is_pure_base_model(config_path_lower)
     is_sft = is_sft_model(config_path_lower)
@@ -73,6 +80,7 @@ def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False, is_sft: bo
 
     Used by both interactive init and service-mode startup so controls stay consistent.
     """
+    # Precedence: turbo > SFT > pure base > fallback.
     if is_pure_base:
         task_choices = TASK_TYPES_BASE
         mode_choices = GENERATION_MODES_BASE

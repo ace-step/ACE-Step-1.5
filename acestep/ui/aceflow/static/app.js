@@ -3101,6 +3101,8 @@ function syncRangeNumber(rangeId, numId, { decimals = null } = {}) {
 
 let __ACE_STEP_LIMITS = {
   max_inference_steps_sft: 200,
+  max_inference_steps_base: 200,
+  max_inference_steps_turbo: 20,
   max_inference_steps_other_dit: 20,
   max_inference_steps_current_model: 20,
 };
@@ -3125,8 +3127,9 @@ function isTurboModelName(modelName) {
 }
 
 function getCurrentStepLimit(modelName) {
-  if (usesQualityDitDefaults(modelName)) return Number(__ACE_STEP_LIMITS.max_inference_steps_sft || 200);
-  return Number(__ACE_STEP_LIMITS.max_inference_steps_other_dit || 20);
+  if (isSftModelName(modelName)) return Number(__ACE_STEP_LIMITS.max_inference_steps_sft || 200);
+  if (isBaseModelName(modelName)) return Number(__ACE_STEP_LIMITS.max_inference_steps_base || __ACE_STEP_LIMITS.max_inference_steps_sft || 200);
+  return Number(__ACE_STEP_LIMITS.max_inference_steps_turbo || __ACE_STEP_LIMITS.max_inference_steps_other_dit || 20);
 }
 
 function getDefaultInferenceStepsForModel(modelName) {

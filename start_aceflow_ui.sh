@@ -1,84 +1,136 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# ============================================================
-# AceFlow official launcher - 8 GB VRAM preset ACTIVE
-# ============================================================
-# In AceFlow the service is initialized by the launcher, not by
-# the web UI. So the options below matter before opening the page.
-# ============================================================
-
-# ===== venv =====
-if [[ -f "$SCRIPT_DIR/venv/bin/activate" ]]; then
+if [[ -f "$SCRIPT_DIR/.venv/bin/activate" ]]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/.venv/bin/activate"
+elif [[ -f "$SCRIPT_DIR/venv/bin/activate" ]]; then
   # shellcheck disable=SC1091
   source "$SCRIPT_DIR/venv/bin/activate"
 fi
+PY="$SCRIPT_DIR/.venv/bin/python"
+[[ -x "$PY" ]] || PY="$SCRIPT_DIR/venv/bin/python"
+[[ -x "$PY" ]] || PY=python3
 
-PY="$SCRIPT_DIR/venv/bin/python"
-if [[ ! -x "$PY" ]]; then
-  PY=python3
-fi
-
-# ===== environment sane =====
 export PYTHONNOUSERSITE=1
 unset PYTHONHOME || true
 unset PYTHONPATH || true
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export CUDA_MODULE_LOADING=LAZY
+TORCH_LIB="$SCRIPT_DIR/.venv/lib/python3.11/site-packages/torch/lib"
+[[ -d "$TORCH_LIB" ]] || TORCH_LIB="$SCRIPT_DIR/venv/lib/python3.11/site-packages/torch/lib"
+[[ -d "$TORCH_LIB" ]] && export LD_LIBRARY_PATH="$TORCH_LIB:${LD_LIBRARY_PATH:-}"
 
-TORCH_LIB="$SCRIPT_DIR/venv/lib/python3.11/site-packages/torch/lib"
-if [[ -d "$TORCH_LIB" ]]; then
-  export LD_LIBRARY_PATH="$TORCH_LIB:${LD_LIBRARY_PATH:-}"
-fi
+CFG_FILE="$SCRIPT_DIR/.aceflow_last"
+[[ -f "$CFG_FILE" ]] && source "$CFG_FILE"
 
-# ===== Remote UI config =====
 export PORT="${PORT:-7861}"
 export SERVER_NAME="${SERVER_NAME:-0.0.0.0}"
 export ACESTEP_REMOTE_CONFIG_PATH="${ACESTEP_REMOTE_CONFIG_PATH:-acestep-v15-turbo}"
 export ACESTEP_REMOTE_LM_MODEL_PATH="${ACESTEP_REMOTE_LM_MODEL_PATH:-acestep-5Hz-lm-0.6B}"
 export ACESTEP_REMOTE_DEVICE="${ACESTEP_REMOTE_DEVICE:-auto}"
-export ACESTEP_REMOTE_RESULTS_DIR="${ACESTEP_REMOTE_RESULTS_DIR:-$SCRIPT_DIR/aceflow_outputs}"
-
-# ===== 8 GB VRAM preset ACTIVE =====
-export ACESTEP_REMOTE_INIT_LLM="${ACESTEP_REMOTE_INIT_LLM:-1}"
-export ACESTEP_REMOTE_USE_FLASH_ATTENTION="${ACESTEP_REMOTE_USE_FLASH_ATTENTION:-1}"
-export ACESTEP_REMOTE_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_TO_CPU:-1}"
-export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU:-1}"
-export ACESTEP_REMOTE_COMPILE_MODEL="${ACESTEP_REMOTE_COMPILE_MODEL:-1}"
-export ACESTEP_REMOTE_INT8_QUANTIZATION="${ACESTEP_REMOTE_INT8_QUANTIZATION:-1}"
 export ACESTEP_REMOTE_LM_BACKEND="${ACESTEP_REMOTE_LM_BACKEND:-pt}"
-export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU:-1}"
-
-# ===== Alternate presets (examples only) =====
-# Balanced 12-16 GB example:
-# export ACESTEP_REMOTE_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
-# export ACESTEP_REMOTE_OFFLOAD_TO_CPU=0
-# export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=0
-# export ACESTEP_REMOTE_INT8_QUANTIZATION=0
-# export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0
-#
-# High VRAM / 5090-style example:
-# export ACESTEP_REMOTE_LM_MODEL_PATH=acestep-5Hz-lm-4B
-# export ACESTEP_REMOTE_USE_FLASH_ATTENTION=1
-# export ACESTEP_REMOTE_OFFLOAD_TO_CPU=0
-# export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=0
-# export ACESTEP_REMOTE_COMPILE_MODEL=0
-# export ACESTEP_REMOTE_INT8_QUANTIZATION=0
-# export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0
-
-# ===== AceFlow =====
+export ACESTEP_REMOTE_RESULTS_DIR="${ACESTEP_REMOTE_RESULTS_DIR:-$SCRIPT_DIR/aceflow_outputs}"
+export ACESTEP_REMOTE_INIT_LLM="${ACESTEP_REMOTE_INIT_LLM:-1}"
 export ACEFLOW_AUTH_ENABLED="${ACEFLOW_AUTH_ENABLED:-0}"
 export ACEFLOW_SESSION_SECURE="${ACEFLOW_SESSION_SECURE:-0}"
 export ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP="${ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP:-1}"
 export ACEFLOW_CLEANUP_TTL_SECONDS="${ACEFLOW_CLEANUP_TTL_SECONDS:-3600}"
 
-echo "Starting ACE-Step Remote UI..."
-echo "http://${SERVER_NAME}:${PORT}"
-echo "[ACE] PY=${PY} | CFG=${ACESTEP_REMOTE_CONFIG_PATH} | LM=${ACESTEP_REMOTE_LM_MODEL_PATH}"
-echo "[ACE] INIT_LLM=${ACESTEP_REMOTE_INIT_LLM} | OFFLOAD=${ACESTEP_REMOTE_OFFLOAD_TO_CPU} | DIT_OFFLOAD=${ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU} | INT8=${ACESTEP_REMOTE_INT8_QUANTIZATION}"
 echo
+echo "============================================"
+echo "AceFlow Launcher Wizard"
+echo "============================================"
+echo
+if [[ -f "$CFG_FILE" ]]; then
+  echo "Configurazione salvata trovata:"
+  echo "  Model:  $ACESTEP_REMOTE_CONFIG_PATH"
+  echo "  LM:     $ACESTEP_REMOTE_LM_MODEL_PATH"
+  echo "  Device: $ACESTEP_REMOTE_DEVICE"
+  echo "  Porta:  $PORT"
+  read -rp "Usare l'ultima configurazione? [Y/n]: " USE_LAST
+  case "${USE_LAST:-Y}" in
+    Y|y|yes|YES) exec "$PY" -m uvicorn acestep.ui.aceflow.app:app --host "$SERVER_NAME" --port "$PORT" ;;
+  esac
+fi
 
-exec "$PY" -m acestep.ui.aceflow.run --host "$SERVER_NAME" --port "$PORT"
+echo "Preset:"
+echo "  1 = 8 GB   (offload + int8, LM 0.6B) [default]"
+echo "  2 = 12-16 GB (mix bilanciato, LM 1.7B)"
+echo "  3 = 24 GB+ (no offload, LM 4B)"
+echo "  C = custom"
+read -rp "Scelta [1]: " PRESET
+PRESET="${PRESET:-1}"
+case "$PRESET" in
+  1)
+    export ACESTEP_REMOTE_LM_MODEL_PATH="acestep-5Hz-lm-0.6B"
+    export ACESTEP_REMOTE_OFFLOAD_TO_CPU=1
+    export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=1
+    export ACESTEP_REMOTE_INT8_QUANTIZATION=1
+    export ACESTEP_REMOTE_COMPILE_MODEL=1
+    export ACESTEP_REMOTE_USE_FLASH_ATTENTION=1
+    export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=1
+    ;;
+  2)
+    export ACESTEP_REMOTE_LM_MODEL_PATH="acestep-5Hz-lm-1.7B"
+    export ACESTEP_REMOTE_OFFLOAD_TO_CPU=0
+    export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=0
+    export ACESTEP_REMOTE_INT8_QUANTIZATION=0
+    export ACESTEP_REMOTE_COMPILE_MODEL=0
+    export ACESTEP_REMOTE_USE_FLASH_ATTENTION=1
+    export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0
+    ;;
+  3)
+    export ACESTEP_REMOTE_LM_MODEL_PATH="acestep-5Hz-lm-4B"
+    export ACESTEP_REMOTE_OFFLOAD_TO_CPU=0
+    export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=0
+    export ACESTEP_REMOTE_INT8_QUANTIZATION=0
+    export ACESTEP_REMOTE_COMPILE_MODEL=0
+    export ACESTEP_REMOTE_USE_FLASH_ATTENTION=1
+    export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0
+    ;;
+  *)
+    read -rp "Config DiT [acestep-v15-turbo]: " ACESTEP_REMOTE_CONFIG_PATH; export ACESTEP_REMOTE_CONFIG_PATH="${ACESTEP_REMOTE_CONFIG_PATH:-acestep-v15-turbo}"
+    read -rp "LM model [acestep-5Hz-lm-1.7B]: " ACESTEP_REMOTE_LM_MODEL_PATH; export ACESTEP_REMOTE_LM_MODEL_PATH="${ACESTEP_REMOTE_LM_MODEL_PATH:-acestep-5Hz-lm-1.7B}"
+    read -rp "Device [auto]: " ACESTEP_REMOTE_DEVICE; export ACESTEP_REMOTE_DEVICE="${ACESTEP_REMOTE_DEVICE:-auto}"
+    read -rp "Offload CPU (0/1) [0]: " ACESTEP_REMOTE_OFFLOAD_TO_CPU; export ACESTEP_REMOTE_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_TO_CPU:-0}"
+    read -rp "Offload DiT CPU (0/1) [0]: " ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU; export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU:-0}"
+    read -rp "INT8 (0/1) [0]: " ACESTEP_REMOTE_INT8_QUANTIZATION; export ACESTEP_REMOTE_INT8_QUANTIZATION="${ACESTEP_REMOTE_INT8_QUANTIZATION:-0}"
+    read -rp "Compile model (0/1) [0]: " ACESTEP_REMOTE_COMPILE_MODEL; export ACESTEP_REMOTE_COMPILE_MODEL="${ACESTEP_REMOTE_COMPILE_MODEL:-0}"
+    read -rp "Flash attention (0/1) [1]: " ACESTEP_REMOTE_USE_FLASH_ATTENTION; export ACESTEP_REMOTE_USE_FLASH_ATTENTION="${ACESTEP_REMOTE_USE_FLASH_ATTENTION:-1}"
+    read -rp "LM offload CPU (0/1) [0]: " ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU; export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU:-0}"
+    ;;
+esac
+read -rp "Device [${ACESTEP_REMOTE_DEVICE:-auto}]: " TMP; export ACESTEP_REMOTE_DEVICE="${TMP:-${ACESTEP_REMOTE_DEVICE:-auto}}"
+read -rp "Porta [7861]: " TMP; export PORT="${TMP:-7861}"
+read -rp "Bind address [0.0.0.0]: " TMP; export SERVER_NAME="${TMP:-0.0.0.0}"
+read -rp "LoRA root opzionale [invio per auto]: " TMP; export ACESTEP_REMOTE_LORA_ROOT="${TMP:-}"
+
+cat > "$CFG_FILE" <<EOF
+export PORT="$PORT"
+export SERVER_NAME="$SERVER_NAME"
+export ACESTEP_REMOTE_CONFIG_PATH="$ACESTEP_REMOTE_CONFIG_PATH"
+export ACESTEP_REMOTE_LM_MODEL_PATH="$ACESTEP_REMOTE_LM_MODEL_PATH"
+export ACESTEP_REMOTE_DEVICE="$ACESTEP_REMOTE_DEVICE"
+export ACESTEP_REMOTE_LM_BACKEND="$ACESTEP_REMOTE_LM_BACKEND"
+export ACESTEP_REMOTE_RESULTS_DIR="$ACESTEP_REMOTE_RESULTS_DIR"
+export ACESTEP_REMOTE_INIT_LLM="$ACESTEP_REMOTE_INIT_LLM"
+export ACESTEP_REMOTE_OFFLOAD_TO_CPU="$ACESTEP_REMOTE_OFFLOAD_TO_CPU"
+export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU="$ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU"
+export ACESTEP_REMOTE_INT8_QUANTIZATION="$ACESTEP_REMOTE_INT8_QUANTIZATION"
+export ACESTEP_REMOTE_COMPILE_MODEL="$ACESTEP_REMOTE_COMPILE_MODEL"
+export ACESTEP_REMOTE_USE_FLASH_ATTENTION="$ACESTEP_REMOTE_USE_FLASH_ATTENTION"
+export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU="$ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU"
+export ACESTEP_REMOTE_LORA_ROOT="${ACESTEP_REMOTE_LORA_ROOT:-}"
+export ACEFLOW_AUTH_ENABLED="$ACEFLOW_AUTH_ENABLED"
+export ACEFLOW_SESSION_SECURE="$ACEFLOW_SESSION_SECURE"
+export ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP="$ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP"
+export ACEFLOW_CLEANUP_TTL_SECONDS="$ACEFLOW_CLEANUP_TTL_SECONDS"
+EOF
+
+echo
+echo "Starting ACE-Step Remote UI..."
+echo "http://$SERVER_NAME:$PORT/"
+exec "$PY" -m uvicorn acestep.ui.aceflow.app:app --host "$SERVER_NAME" --port "$PORT"

@@ -390,14 +390,24 @@ def _unwrap_peft(model: Any) -> Any:
     m = model
     if m is None:
         return m
-    unload_fn = getattr(m, "unload", None)
-    if callable(unload_fn):
+    tuner = getattr(m, "base_model", None)
+    tuner_unload = getattr(tuner, "unload", None)
+    if callable(tuner_unload):
         try:
-            unloaded = unload_fn()
+            unloaded = tuner_unload()
             if unloaded is not None:
                 m = unloaded
         except Exception:
             pass
+    if _is_peft_like(m):
+        unload_fn = getattr(m, "unload", None)
+        if callable(unload_fn):
+            try:
+                unloaded = unload_fn()
+                if unloaded is not None:
+                    m = unloaded
+            except Exception:
+                pass
     for _ in range(6):
         if not _is_peft_like(m):
             break
@@ -593,12 +603,22 @@ def _install_aceflow_lora_runtime_patch() -> None:
                 except Exception:
                     pass
                 base_model = None
-                unload_fn = getattr(peft_decoder, "unload", None)
-                if callable(unload_fn):
+                tuner = getattr(peft_decoder, "base_model", None)
+                tuner_unload = getattr(tuner, "unload", None)
+                if callable(tuner_unload):
                     try:
-                        base_model = unload_fn()
+                        base_model = tuner_unload()
+                        logger.info("[AceFlow LoRA] tuner.unload() stripped LoraLayer wrappers")
                     except Exception as exc:
-                        logger.warning(f"[AceFlow LoRA] PEFT unload() failed, falling back to delete_adapter(): {exc!r}")
+                        logger.warning(f"[AceFlow LoRA] tuner.unload() failed: {exc!r}")
+                        base_model = None
+                if base_model is None:
+                    unload_fn = getattr(peft_decoder, "unload", None)
+                    if callable(unload_fn):
+                        try:
+                            base_model = unload_fn()
+                        except Exception as exc:
+                            logger.warning(f"[AceFlow LoRA] PEFT unload() failed, falling back to delete_adapter(): {exc!r}")
                 if base_model is None:
                     try:
                         names = []
@@ -1024,7 +1044,8 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on", "y"}
 
 ACEFLOW_DEFAULT_CLEANUP_TTL_SECONDS = 3600
-ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT = 20
+ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO = 20
+ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE = 200
 ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_SFT = 200
 ACEFLOW_TURBO_CLAMP_BYPASS_ENV = "ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP"
 ACEFLOW_CLEANUP_TTL_ENV = "ACEFLOW_CLEANUP_TTL_SECONDS"
@@ -1040,9 +1061,11 @@ def _is_core_turbo_step_clamp_bypass_enabled() -> bool:
 
 def _get_max_inference_steps_for_model(model_name: Optional[str]) -> int:
 
-    if _uses_quality_dit_defaults(model_name):
+    if _is_sft_model(model_name):
         return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_SFT
-    return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT
+    if _is_base_model(model_name):
+        return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE
+    return ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO
 
 ACEFLOW_TURBO_VALID_TIMESTEPS = [
     1.0, 0.9545454545454546, 0.9333333333333333, 0.9, 0.875,
@@ -1053,7 +1076,7 @@ ACEFLOW_TURBO_VALID_TIMESTEPS = [
 
 def _get_turbo_timesteps_for_infer_steps(infer_steps: int) -> List[float]:
 
-    steps = max(1, min(int(infer_steps), ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT))
+    steps = max(1, min(int(infer_steps), ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO))
     return ACEFLOW_TURBO_VALID_TIMESTEPS[:steps]
 
 def _install_core_turbo_step_clamp_bypass_patch() -> bool:
@@ -1152,7 +1175,7 @@ def _install_core_turbo_step_clamp_bypass_patch() -> bool:
             return kwargs
         if infer_steps_int <= 8:
             return kwargs
-        effective_steps = max(1, min(infer_steps_int, ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT))
+        effective_steps = max(1, min(infer_steps_int, ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO))
         schedule = _get_turbo_timesteps_for_infer_steps(effective_steps)
         kwargs["timesteps"] = torch.tensor(schedule, dtype=torch.float32, device=self.device)
         kwargs["infer_steps"] = effective_steps
@@ -1182,16 +1205,64 @@ def _install_core_turbo_step_clamp_bypass_patch() -> bool:
 def _resolve_lora_root(project_root: str) -> str:
 
     """Return LoRA root directory.
-    Remote UI requirement: prefer the explicit Windows path used by Marco.
-    Falls back to <project_root>/lora if the preferred path does not exist.
+
+    Priority:
+    1. ACESTEP_REMOTE_LORA_ROOT if it exists
+    2. <project_root>/lora
     """
-    preferred = r"F:\\AI\\ACE-Step-1.5\\lora"
-    try:
-        if os.path.exists(preferred):
-            return preferred
-    except Exception:
-        pass
+    candidates = [
+        os.environ.get("ACESTEP_REMOTE_LORA_ROOT", "").strip(),
+        os.path.join(project_root, "lora"),
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            if os.path.exists(candidate):
+                return candidate
+        except Exception:
+            pass
     return os.path.join(project_root, "lora")
+
+def _scan_lora_root(lora_root: str) -> list[dict]:
+
+    out: list[dict] = []
+    try:
+        root = Path(lora_root)
+        if not root.exists() or not root.is_dir():
+            return out
+        for child in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+            try:
+                if not child.is_dir():
+                    continue
+                adapter_cfg = child / "adapter_config.json"
+                if not adapter_cfg.is_file():
+                    continue
+                trigger = child.name
+                label = child.name
+                try:
+                    cfg = json.loads(adapter_cfg.read_text(encoding="utf-8"))
+                    trigger = str(cfg.get("trigger_words") or cfg.get("trigger") or child.name)
+                except Exception:
+                    pass
+                out.append({"id": child.name, "trigger": trigger, "label": label, "source": "disk"})
+                for sub in sorted(child.iterdir(), key=lambda p: p.name.lower()):
+                    if not sub.is_dir():
+                        continue
+                    if not (sub / "adapter_model.safetensors").is_file():
+                        continue
+                    sub_id = f"{child.name}/{sub.name}"
+                    out.append({
+                        "id": sub_id,
+                        "trigger": trigger,
+                        "label": f"{child.name} ({sub.name})",
+                        "source": "disk",
+                    })
+            except Exception:
+                continue
+    except Exception:
+        return out
+    return out
 
 def _json_safe(obj, _depth: int = 0, _seen: Optional[set[int]] = None):
 
@@ -1302,6 +1373,13 @@ def create_app() -> FastAPI:
     project_root = _get_project_root()
     config_path = os.environ.get("ACESTEP_REMOTE_CONFIG_PATH", "acestep-v15-turbo")
     device = os.environ.get("ACESTEP_REMOTE_DEVICE", "auto")
+    use_flash_attention = _env_flag("ACESTEP_REMOTE_USE_FLASH_ATTENTION", default=True)
+    compile_model = _env_flag("ACESTEP_REMOTE_COMPILE_MODEL", default=True)
+    offload_to_cpu = _env_flag("ACESTEP_REMOTE_OFFLOAD_TO_CPU", default=False)
+    offload_dit_to_cpu = _env_flag("ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU", default=False)
+    int8_quantization = _env_flag("ACESTEP_REMOTE_INT8_QUANTIZATION", default=False)
+    use_mlx_dit = _env_flag("ACESTEP_REMOTE_USE_MLX_DIT", default=False)
+    quantization = "int8" if int8_quantization else None
     max_duration = 600
     results_root = os.environ.get(
         "ACESTEP_REMOTE_RESULTS_DIR",
@@ -1758,30 +1836,40 @@ def create_app() -> FastAPI:
 
     def _load_lora_catalog() -> list[dict]:
 
+        merged: list[dict] = []
+        by_id: dict[str, dict] = {}
+
+        def _push(item: dict) -> None:
+            _id = str(item.get("id", "") or "")
+            if _id in by_id:
+                return
+            norm = {
+                "id": _id,
+                "trigger": str(item.get("trigger", item.get("tag", "")) or ""),
+                "label": str(item.get("label", "") or _id or "(Nessun LoRA)"),
+                "source": str(item.get("source", "catalog") or "catalog"),
+            }
+            by_id[_id] = norm
+            merged.append(norm)
+
+        _push({"id": "", "trigger": "", "label": "(Nessun LoRA)", "source": "catalog"})
         try:
             if os.path.exists(lora_catalog_path):
                 with open(lora_catalog_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if isinstance(data, list):
-                    out = []
                     for it in data:
-                        if not isinstance(it, dict):
-                            continue
-                        _id = str(it.get("id", "") or "")
-                        _trigger = str((it.get("trigger", it.get("tag", "")) ) or "")
-                        _label = str(it.get("label", "") or _id)
-                        out.append({"id": _id, "trigger": _trigger, "label": _label})
-                    if not out or out[0].get("id", "") != "":
-                        out.insert(0, {"id": "", "trigger": "", "label": "(Nessun LoRA)"})
-                    try:
-                        if out and str(out[0].get("id", "") or "") == "":
-                            out[0]["trigger"] = ""
-                    except Exception:
-                        pass
-                    return out
+                        if isinstance(it, dict):
+                            it = dict(it)
+                            it["source"] = "catalog"
+                            _push(it)
         except Exception:
             pass
-        return [{"id": "", "trigger": "", "label": "(Nessun LoRA)"}]
+
+        lora_root = _resolve_lora_root(project_root)
+        for it in _scan_lora_root(lora_root):
+            _push(it)
+        return merged
     app.state._lora_catalog = _load_lora_catalog()
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
     _install_aceflow_lora_runtime_patch()
@@ -1875,12 +1963,12 @@ def create_app() -> FastAPI:
             project_root=project_root,
             config_path=want,
             device=device,
-            use_flash_attention=True,
-            compile_model=True,
-            offload_to_cpu=False,
-            offload_dit_to_cpu=False,
-            quantization=None,
-            use_mlx_dit=False,
+            use_flash_attention=use_flash_attention,
+            compile_model=compile_model,
+            offload_to_cpu=offload_to_cpu,
+            offload_dit_to_cpu=offload_dit_to_cpu,
+            quantization=quantization,
+            use_mlx_dit=use_mlx_dit,
         )
         if not ok or newh.model is None:
             logger.error(status)
@@ -1927,12 +2015,12 @@ def create_app() -> FastAPI:
             project_root=project_root,
             config_path=app.state._active_model,
             device=device,
-            use_flash_attention=True,
-            compile_model=True,
-            offload_to_cpu=False,
-            offload_dit_to_cpu=False,
-            quantization=None,
-            use_mlx_dit=False,
+            use_flash_attention=use_flash_attention,
+            compile_model=compile_model,
+            offload_to_cpu=offload_to_cpu,
+            offload_dit_to_cpu=offload_dit_to_cpu,
+            quantization=quantization,
+            use_mlx_dit=use_mlx_dit,
         )
         if not ok or dit_handler.model is None:
             logger.error(status)
@@ -2970,8 +3058,10 @@ def create_app() -> FastAPI:
             "mp3_sample_rate_options": list(ACEFLOW_MP3_SAMPLE_RATE_OPTIONS),
             "limits": {
                 "max_inference_steps_current_model": _get_max_inference_steps_for_model(active_model),
-                "max_inference_steps_sft": _get_max_inference_steps_for_model("sft"),
-                "max_inference_steps_other_dit": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT,
+                "max_inference_steps_sft": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_SFT,
+                "max_inference_steps_base": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE,
+                "max_inference_steps_turbo": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO,
+                "max_inference_steps_other_dit": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO,
             },
             "cleanup_ttl_seconds": _get_cleanup_ttl_seconds(),
             "core_turbo_step_clamp_bypass_enabled": bypass_installed,
@@ -2999,8 +3089,10 @@ def create_app() -> FastAPI:
             "current_model": active_model,
             "limits": {
                 "max_inference_steps_current_model": _get_max_inference_steps_for_model(active_model),
-                "max_inference_steps_sft": _get_max_inference_steps_for_model("sft"),
-                "max_inference_steps_other_dit": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_OTHER_DIT,
+                "max_inference_steps_sft": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_SFT,
+                "max_inference_steps_base": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_BASE,
+                "max_inference_steps_turbo": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO,
+                "max_inference_steps_other_dit": ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO,
             },
             "infer_methods": ["ode", "sde"],
             "mp3_bitrate_options": list(ACEFLOW_MP3_BITRATE_OPTIONS),

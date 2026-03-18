@@ -2,103 +2,115 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-REM Minimal AceFlow UI launcher for standard ACE-Step uv workflow
-REM Optional overrides before launch:
-REM   set PORT=7861
-REM   set SERVER_NAME=127.0.0.1
-REM   set ACEFLOW_CONFIG_PATH=acestep-v15-turbo
-REM   set ACEFLOW_LM_MODEL_PATH=acestep-5Hz-lm-4B
-REM   set ACEFLOW_DEVICE=auto
-REM   set ACEFLOW_RESULTS_DIR=%CD%\aceflow_outputs
+REM ============================================================
+REM AceFlow official launcher - 8 GB VRAM preset ACTIVE
+REM ============================================================
+REM In AceFlow the service is initialized by the launcher, not by
+REM the web UI. So the options below matter before opening the page.
+REM
+REM This launcher is meant as the safer default for users with about
+REM 8 GB VRAM. Advanced users can override values manually.
+REM ============================================================
 
-if not defined PORT set PORT=7861
-if not defined SERVER_NAME set SERVER_NAME=127.0.0.1
-if not defined ACEFLOW_CONFIG_PATH set ACEFLOW_CONFIG_PATH=acestep-v15-turbo
-if not defined ACEFLOW_LM_MODEL_PATH set ACEFLOW_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
-if not defined ACEFLOW_DEVICE set ACEFLOW_DEVICE=auto
-if not defined ACEFLOW_RESULTS_DIR set ACEFLOW_RESULTS_DIR=%~dp0aceflow_outputs
+REM ===== venv =====
+call "%~dp0venv\Scripts\activate.bat"
 
-echo Starting AceFlow UI...
-echo Server will be available at: http://%SERVER_NAME%:%PORT%
+REM Always use the venv python explicitly (avoids accidentally using system Python)
+set "PY=%~dp0venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
+
+REM ===== environment sane =====
+set "PYTHONNOUSERSITE=1"
+set "PYTHONHOME="
+set "PYTHONPATH="
+set "PYTORCH_ALLOC_CONF=expandable_segments:True"
+set "CUDA_MODULE_LOADING=LAZY"
+
+set "TORCH_LIB=%~dp0venv\Lib\site-packages\torch\lib"
+set "PATH=%TORCH_LIB%;%~dp0venv\Scripts;%PATH%"
+
+set "CUDA_BIN=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\bin"
+if exist "%CUDA_BIN%" set "PATH=%CUDA_BIN%;%PATH%"
+
+REM ===== Remote UI config =====
+set PORT=7861
+set SERVER_NAME=0.0.0.0
+
+REM Main ACE-Step config / DiT preset
+set "ACESTEP_REMOTE_CONFIG_PATH=acestep-v15-turbo"
+
+REM LM model path:
+REM - 4B = heavier, best for high VRAM
+REM - 1.7B = balanced
+REM - 0.6B = safer on low VRAM
+set "ACESTEP_REMOTE_LM_MODEL_PATH=acestep-5Hz-lm-0.6B"
+
+REM Compute device: auto / cuda / cpu
+set "ACESTEP_REMOTE_DEVICE=auto"
+
+REM Output directory (optional)
+set "ACESTEP_REMOTE_RESULTS_DIR=%~dp0aceflow_outputs"
+
+REM ===== 8 GB VRAM preset ACTIVE =====
+REM Initialize the 5Hz LM service at startup
+set "ACESTEP_REMOTE_INIT_LLM=1"
+
+REM Try Flash Attention when supported by the environment
+set "ACESTEP_REMOTE_USE_FLASH_ATTENTION=1"
+
+REM Offload general model parts to CPU to reduce VRAM pressure
+set "ACESTEP_REMOTE_OFFLOAD_TO_CPU=1"
+
+REM Offload DiT to CPU too; slower but safer on limited VRAM
+set "ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=1"
+
+REM Enable torch compile / graph optimizations if supported
+set "ACESTEP_REMOTE_COMPILE_MODEL=1"
+
+REM Enable INT8 quantization where supported by ACE-Step runtime
+set "ACESTEP_REMOTE_INT8_QUANTIZATION=1"
+
+REM Optional LM backend selection (normally leave commented if auto is fine)
+set "ACESTEP_REMOTE_LM_BACKEND=pt"
+
+REM Extra safety: offload LM to CPU too
+set "ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=1"
+
+REM MLX DiT is for Apple/MLX-oriented setups; keep disabled on Windows/NVIDIA
+REM set "ACESTEP_REMOTE_USE_MLX_DIT=0"
+
+REM ===== Alternate presets (examples only) =====
+REM ----- Balanced 12-16 GB example -----
+REM set "ACESTEP_REMOTE_LM_MODEL_PATH=acestep-5Hz-lm-1.7B"
+REM set "ACESTEP_REMOTE_OFFLOAD_TO_CPU=0"
+REM set "ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=0"
+REM set "ACESTEP_REMOTE_INT8_QUANTIZATION=0"
+REM set "ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0"
+
+REM ----- High VRAM / 5090-style example -----
+REM set "ACESTEP_REMOTE_LM_MODEL_PATH=acestep-5Hz-lm-4B"
+REM set "ACESTEP_REMOTE_USE_FLASH_ATTENTION=1"
+REM set "ACESTEP_REMOTE_OFFLOAD_TO_CPU=0"
+REM set "ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=0"
+REM set "ACESTEP_REMOTE_COMPILE_MODEL=0"
+REM set "ACESTEP_REMOTE_INT8_QUANTIZATION=0"
+REM set "ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0"
+
+REM ===== AceFlow =====
+set "ACEFLOW_AUTH_ENABLED=0"
+REM set "ACEFLOW_ADMIN_EMAIL=you@example.com"
+REM set "ACEFLOW_ADMIN_PASSWORD=change_me"
+set "ACEFLOW_SESSION_SECURE=0"
+set "ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP=1"
+set "ACEFLOW_CLEANUP_TTL_SECONDS=3600"
+
+echo Starting ACE-Step Remote UI...
+echo http://%SERVER_NAME%:%PORT%
+echo [ACE] PY=%PY% ^| CFG=%ACESTEP_REMOTE_CONFIG_PATH% ^| LM=%ACESTEP_REMOTE_LM_MODEL_PATH%
+echo [ACE] INIT_LLM=%ACESTEP_REMOTE_INIT_LLM% ^| OFFLOAD=%ACESTEP_REMOTE_OFFLOAD_TO_CPU% ^| DIT_OFFLOAD=%ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU% ^| INT8=%ACESTEP_REMOTE_INT8_QUANTIZATION%
 echo.
 
-where uv >nul 2>&1
-if !ERRORLEVEL! NEQ 0 (
-    echo.
-    echo ========================================
-    echo uv package manager not found!
-    echo ========================================
-    echo.
-    echo ACE-Step requires the uv package manager.
-    echo.
-    pause
-    exit /b 1
-)
-
-echo [Environment] Using uv package manager...
-echo.
-
-if not exist "%~dp0.venv" (
-    echo [Setup] Virtual environment not found. Setting up environment...
-    echo This will take a few minutes on first run.
-    echo.
-    echo Running: uv sync
-    echo.
-
-    uv sync
-
-    if !ERRORLEVEL! NEQ 0 (
-        echo.
-        echo [Retry] Online sync failed, retrying in offline mode...
-        echo.
-        uv sync --offline
-
-        if !ERRORLEVEL! NEQ 0 (
-            echo.
-            echo ========================================
-            echo [Error] Failed to setup environment
-            echo ========================================
-            echo.
-            echo Both online and offline modes failed.
-            echo.
-            pause
-            exit /b 1
-        )
-    )
-
-    echo.
-    echo ========================================
-    echo Environment setup completed!
-    echo ========================================
-    echo.
-)
-
-set "ACESTEP_ARGS=python -m acestep.ui.aceflow.run --host %SERVER_NAME% --port %PORT%"
-
-echo [AceFlow] CFG=%ACEFLOW_CONFIG_PATH% ^| LM=%ACEFLOW_LM_MODEL_PATH% ^| DEVICE=%ACEFLOW_DEVICE%
-echo.
-
-set "ACESTEP_REMOTE_CONFIG_PATH=%ACEFLOW_CONFIG_PATH%"
-set "ACESTEP_REMOTE_LM_MODEL_PATH=%ACEFLOW_LM_MODEL_PATH%"
-set "ACESTEP_REMOTE_DEVICE=%ACEFLOW_DEVICE%"
-set "ACESTEP_REMOTE_RESULTS_DIR=%ACEFLOW_RESULTS_DIR%"
-
-uv run %ACESTEP_ARGS%
-if !ERRORLEVEL! NEQ 0 (
-    echo.
-    echo [Retry] Online dependency resolution failed, retrying in offline mode...
-    echo.
-    uv run --offline %ACESTEP_ARGS%
-    if !ERRORLEVEL! NEQ 0 (
-        echo.
-        echo ========================================
-        echo [Error] Failed to start AceFlow UI
-        echo ========================================
-        echo.
-        pause
-        exit /b 1
-    )
-)
+"%PY%" -m acestep.ui.aceflow.run --host %SERVER_NAME% --port %PORT%
 
 pause
 endlocal

@@ -3018,7 +3018,7 @@ def create_app() -> FastAPI:
                 "mp3_sample_rate": ACEFLOW_MP3_DEFAULT_SAMPLE_RATE,
             },
         }
-    examples_path = os.path.join(os.path.dirname(__file__), "examples.json").replace("\\", "/")
+    examples_path = os.path.join(os.path.dirname(__file__), "songs.json").replace("\\", "/")
     _examples_cache = None
 
     def _load_examples():

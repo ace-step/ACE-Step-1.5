@@ -7,6 +7,55 @@ It is a workflow layer built on top of the ACE-Step backend and APIs: the UI col
 
 ---
 
+## Launchers and VRAM presets
+
+AceFlow does **not** expose the service initialization toggles in the web UI.
+Because of that, the launcher is where the runtime is configured before the page opens.
+
+This small package now includes **three** launcher roles:
+
+- `start_aceflow_ui.bat` → official Windows launcher with an **8 GB VRAM preset active**
+- `start_aceflow_ui.sh` → official shell launcher with an **8 GB VRAM preset active**
+
+### What each runtime parameter does
+
+- `ACESTEP_REMOTE_INIT_LLM`
+  Initializes the 5Hz LM service when AceFlow starts. Keep this enabled unless you explicitly want to defer or avoid LM startup.
+
+- `ACESTEP_REMOTE_USE_FLASH_ATTENTION`
+  Enables Flash Attention when the environment supports it. This can reduce memory usage and improve speed, but support depends on the installed stack.
+
+- `ACESTEP_REMOTE_OFFLOAD_TO_CPU`
+  Moves part of the runtime workload from VRAM to system RAM. Slower, but safer on low-VRAM cards.
+
+- `ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU`
+  Also offloads the DiT side to CPU. This is one of the strongest memory-saving switches, but it can slow generation noticeably.
+
+- `ACESTEP_REMOTE_COMPILE_MODEL`
+  Enables compile/graph optimizations where supported. It may help performance or memory behavior on some setups, but it is not guaranteed to be beneficial everywhere.
+
+- `ACESTEP_REMOTE_INT8_QUANTIZATION`
+  Enables a more memory-friendly INT8 mode where supported by the runtime. Useful for tight VRAM budgets.
+
+- `ACESTEP_REMOTE_LM_MODEL_PATH`
+  Selects which 5Hz LM variant is used. Typical examples:
+  - `acestep-5Hz-lm-4B` → heavy, best for high VRAM
+  - `acestep-5Hz-lm-1.7B` → middle ground
+  - `acestep-5Hz-lm-0.6B` → safest for low VRAM
+
+- `ACESTEP_REMOTE_LM_BACKEND`
+  Backend used by the LM service. In these launchers it is set to `pt` when explicitly pinned.
+
+- `ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU`
+  Additional LM-specific CPU offload for tighter VRAM situations.
+
+- `ACESTEP_REMOTE_USE_MLX_DIT`
+  Intended for Apple/MLX-oriented environments. Leave it disabled on Windows/NVIDIA setups.
+
+### Recommended use
+
+- Use `start_aceflow_ui.bat` or `start_aceflow_ui.sh` when distributing AceFlow to other users, because those two launchers are preconfigured for about **8 GB VRAM**.
+
 ## ✨ What AceFlow Is For
 
 AceFlow exists to make the ACE-Step workflow easier to use from a browser.
@@ -594,7 +643,7 @@ This makes it practical to reload a previous setup, tweak it, and run it again w
 
 AceFlow can load example prompts from:
 
-    aceflow/examples.json
+    aceflow/songs.json
 
 This file powers the example / random-example workflow in the UI.
 

@@ -4,96 +4,81 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Minimal AceFlow UI launcher for standard ACE-Step uv workflow
-# Optional overrides before launch:
-#   export PORT=7861
-#   export SERVER_NAME=127.0.0.1
-#   export ACEFLOW_CONFIG_PATH=acestep-v15-turbo
-#   export ACEFLOW_LM_MODEL_PATH=acestep-5Hz-lm-4B
-#   export ACEFLOW_DEVICE=auto
-#   export ACEFLOW_RESULTS_DIR="$SCRIPT_DIR/aceflow_outputs"
+# ============================================================
+# AceFlow official launcher - 8 GB VRAM preset ACTIVE
+# ============================================================
+# In AceFlow the service is initialized by the launcher, not by
+# the web UI. So the options below matter before opening the page.
+# ============================================================
 
-: "${PORT:=7861}"
-: "${SERVER_NAME:=127.0.0.1}"
-: "${ACEFLOW_CONFIG_PATH:=acestep-v15-turbo}"
-: "${ACEFLOW_LM_MODEL_PATH:=acestep-5Hz-lm-1.7B}"
-: "${ACEFLOW_DEVICE:=auto}"
-: "${ACEFLOW_RESULTS_DIR:=$SCRIPT_DIR/aceflow_outputs}"
-
-echo "Starting AceFlow UI..."
-echo "Server will be available at: http://${SERVER_NAME}:${PORT}"
-echo
-
-if ! command -v uv >/dev/null 2>&1; then
-    if [[ -x "$HOME/.local/bin/uv" ]]; then
-        export PATH="$HOME/.local/bin:$PATH"
-    elif [[ -x "$HOME/.cargo/bin/uv" ]]; then
-        export PATH="$HOME/.cargo/bin:$PATH"
-    fi
+# ===== venv =====
+if [[ -f "$SCRIPT_DIR/venv/bin/activate" ]]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/venv/bin/activate"
 fi
 
-if ! command -v uv >/dev/null 2>&1; then
-    echo
-    echo "========================================"
-    echo "uv package manager not found!"
-    echo "========================================"
-    echo
-    echo "ACE-Step requires the uv package manager."
-    echo
-    exit 1
+PY="$SCRIPT_DIR/venv/bin/python"
+if [[ ! -x "$PY" ]]; then
+  PY=python3
 fi
 
-echo "[Environment] Using uv package manager..."
-echo
+# ===== environment sane =====
+export PYTHONNOUSERSITE=1
+unset PYTHONHOME || true
+unset PYTHONPATH || true
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+export CUDA_MODULE_LOADING=LAZY
 
-if [[ ! -d "$SCRIPT_DIR/.venv" ]]; then
-    echo "[Setup] Virtual environment not found. Setting up environment..."
-    echo "This will take a few minutes on first run."
-    echo
-    echo "Running: uv sync"
-    echo
-
-    if ! (cd "$SCRIPT_DIR" && uv sync); then
-        echo
-        echo "[Retry] Online sync failed, retrying in offline mode..."
-        echo
-        if ! (cd "$SCRIPT_DIR" && uv sync --offline); then
-            echo
-            echo "========================================"
-            echo "[Error] Failed to setup environment"
-            echo "========================================"
-            echo
-            exit 1
-        fi
-    fi
-
-    echo
-    echo "========================================"
-    echo "Environment setup completed!"
-    echo "========================================"
-    echo
+TORCH_LIB="$SCRIPT_DIR/venv/lib/python3.11/site-packages/torch/lib"
+if [[ -d "$TORCH_LIB" ]]; then
+  export LD_LIBRARY_PATH="$TORCH_LIB:${LD_LIBRARY_PATH:-}"
 fi
 
-export ACESTEP_REMOTE_CONFIG_PATH="$ACEFLOW_CONFIG_PATH"
-export ACESTEP_REMOTE_LM_MODEL_PATH="$ACEFLOW_LM_MODEL_PATH"
-export ACESTEP_REMOTE_DEVICE="$ACEFLOW_DEVICE"
-export ACESTEP_REMOTE_RESULTS_DIR="$ACEFLOW_RESULTS_DIR"
+# ===== Remote UI config =====
+export PORT="${PORT:-7861}"
+export SERVER_NAME="${SERVER_NAME:-0.0.0.0}"
+export ACESTEP_REMOTE_CONFIG_PATH="${ACESTEP_REMOTE_CONFIG_PATH:-acestep-v15-turbo}"
+export ACESTEP_REMOTE_LM_MODEL_PATH="${ACESTEP_REMOTE_LM_MODEL_PATH:-acestep-5Hz-lm-0.6B}"
+export ACESTEP_REMOTE_DEVICE="${ACESTEP_REMOTE_DEVICE:-auto}"
+export ACESTEP_REMOTE_RESULTS_DIR="${ACESTEP_REMOTE_RESULTS_DIR:-$SCRIPT_DIR/aceflow_outputs}"
 
-echo "[AceFlow] CFG=$ACESTEP_REMOTE_CONFIG_PATH | LM=$ACESTEP_REMOTE_LM_MODEL_PATH | DEVICE=$ACESTEP_REMOTE_DEVICE"
+# ===== 8 GB VRAM preset ACTIVE =====
+export ACESTEP_REMOTE_INIT_LLM="${ACESTEP_REMOTE_INIT_LLM:-1}"
+export ACESTEP_REMOTE_USE_FLASH_ATTENTION="${ACESTEP_REMOTE_USE_FLASH_ATTENTION:-1}"
+export ACESTEP_REMOTE_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_TO_CPU:-1}"
+export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU:-1}"
+export ACESTEP_REMOTE_COMPILE_MODEL="${ACESTEP_REMOTE_COMPILE_MODEL:-1}"
+export ACESTEP_REMOTE_INT8_QUANTIZATION="${ACESTEP_REMOTE_INT8_QUANTIZATION:-1}"
+export ACESTEP_REMOTE_LM_BACKEND="${ACESTEP_REMOTE_LM_BACKEND:-pt}"
+export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU:-1}"
+
+# ===== Alternate presets (examples only) =====
+# Balanced 12-16 GB example:
+# export ACESTEP_REMOTE_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
+# export ACESTEP_REMOTE_OFFLOAD_TO_CPU=0
+# export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=0
+# export ACESTEP_REMOTE_INT8_QUANTIZATION=0
+# export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0
+#
+# High VRAM / 5090-style example:
+# export ACESTEP_REMOTE_LM_MODEL_PATH=acestep-5Hz-lm-4B
+# export ACESTEP_REMOTE_USE_FLASH_ATTENTION=1
+# export ACESTEP_REMOTE_OFFLOAD_TO_CPU=0
+# export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU=0
+# export ACESTEP_REMOTE_COMPILE_MODEL=0
+# export ACESTEP_REMOTE_INT8_QUANTIZATION=0
+# export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0
+
+# ===== AceFlow =====
+export ACEFLOW_AUTH_ENABLED="${ACEFLOW_AUTH_ENABLED:-0}"
+export ACEFLOW_SESSION_SECURE="${ACEFLOW_SESSION_SECURE:-0}"
+export ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP="${ACEFLOW_BYPASS_CORE_TURBO_STEP_CLAMP:-1}"
+export ACEFLOW_CLEANUP_TTL_SECONDS="${ACEFLOW_CLEANUP_TTL_SECONDS:-3600}"
+
+echo "Starting ACE-Step Remote UI..."
+echo "http://${SERVER_NAME}:${PORT}"
+echo "[ACE] PY=${PY} | CFG=${ACESTEP_REMOTE_CONFIG_PATH} | LM=${ACESTEP_REMOTE_LM_MODEL_PATH}"
+echo "[ACE] INIT_LLM=${ACESTEP_REMOTE_INIT_LLM} | OFFLOAD=${ACESTEP_REMOTE_OFFLOAD_TO_CPU} | DIT_OFFLOAD=${ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU} | INT8=${ACESTEP_REMOTE_INT8_QUANTIZATION}"
 echo
 
-ACESTEP_ARGS=(python -m acestep.ui.aceflow.run --host "$SERVER_NAME" --port "$PORT")
-
-cd "$SCRIPT_DIR" && uv run "${ACESTEP_ARGS[@]}" || {
-    echo
-    echo "[Retry] Online dependency resolution failed, retrying in offline mode..."
-    echo
-    cd "$SCRIPT_DIR" && uv run --offline "${ACESTEP_ARGS[@]}" || {
-        echo
-        echo "========================================"
-        echo "[Error] Failed to start AceFlow UI"
-        echo "========================================"
-        echo
-        exit 1
-    }
-}
+exec "$PY" -m acestep.ui.aceflow.run --host "$SERVER_NAME" --port "$PORT"

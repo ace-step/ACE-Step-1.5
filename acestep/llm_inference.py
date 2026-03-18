@@ -80,21 +80,32 @@ class LLMHandler:
         self._mlx_model_path = None
 
     def _clear_accelerator_cache(self) -> None:
-        """Release freed accelerator memory back to the driver.
+        """Release freed accelerator memory and synchronize the device.
 
-        Clears the cache of the accelerator that was actually used for
-        generation (based on ``self.device``), rather than clearing by
-        availability order.  Supports CUDA, XPU (Intel), and MPS
-        (Apple Silicon) backends.
+        Clears the caching allocator of the accelerator that was actually
+        used for generation (based on ``self.device``), then blocks until
+        all pending device operations complete.  The synchronization barrier
+        prevents async race conditions where a new generation could read
+        stale tensors still being written by the previous run.
+
+        Supports CUDA, XPU (Intel), and MPS (Apple Silicon) backends.
         """
         active_device = str(getattr(self, "device", "cpu")).split(":")[0]
         if active_device == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
+            # Block until all CUDA kernels finish to prevent cross-generation
+            # memory races (the previous run's async writes must complete
+            # before the next generation allocates from the freed pool).
+            torch.cuda.synchronize()
         elif active_device == "xpu" and hasattr(torch, "xpu") and torch.xpu.is_available():
             torch.xpu.empty_cache()
+            if hasattr(torch.xpu, "synchronize"):
+                torch.xpu.synchronize()
         elif active_device == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             if hasattr(torch.mps, "empty_cache"):
                 torch.mps.empty_cache()
+            if hasattr(torch.mps, "synchronize"):
+                torch.mps.synchronize()
 
     def unload(self) -> None:
         """Release LM weights/tokenizer and clear caches to free memory."""

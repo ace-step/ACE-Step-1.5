@@ -130,7 +130,10 @@ class AudioSaverFormatTests(unittest.TestCase):
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test.mp3"
 
-        with patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,              patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run:
+        with (
+            patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,
+            patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run,
+        ):
             saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
 
             mock_torchaudio_save.assert_called_once()
@@ -147,7 +150,11 @@ class AudioSaverFormatTests(unittest.TestCase):
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test.mp3"
 
-        with patch('acestep.audio_utils.torchaudio.functional.resample', return_value=self.sample_audio) as mock_resample,              patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,              patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run:
+        with (
+            patch('acestep.audio_utils.torchaudio.functional.resample', return_value=self.sample_audio) as mock_resample,
+            patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,
+            patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run,
+        ):
             saver._save_mp3(
                 self.sample_audio,
                 output_path,

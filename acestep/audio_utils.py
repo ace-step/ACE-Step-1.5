@@ -343,6 +343,8 @@ class AudioSaver:
         output_path: Union[str, Path],
         output_format: str,
         remove_input: bool = False,
+        mp3_bitrate: Optional[str] = None,
+        mp3_sample_rate: Optional[int] = None,
     ) -> str:
         """
         Convert audio format
@@ -352,7 +354,9 @@ class AudioSaver:
             output_path: Output audio file path
             output_format: Target format ('flac', 'wav', 'mp3', 'wav32', 'opus', 'aac')
             remove_input: Whether to delete input file
-        
+            mp3_bitrate: Optional MP3 bitrate override (128k/192k/256k/320k)
+            mp3_sample_rate: Optional MP3 sample rate override (44100/48000)
+
         Returns:
             Output file path
         """
@@ -371,7 +375,9 @@ class AudioSaver:
             output_path,
             sample_rate=sample_rate,
             format=output_format,
-            channels_first=True
+            channels_first=True,
+            mp3_bitrate=mp3_bitrate,
+            mp3_sample_rate=mp3_sample_rate,
         )
         
         # Delete input file if needed
@@ -389,6 +395,8 @@ class AudioSaver:
         sample_rate: int = 48000,
         format: Optional[str] = None,
         channels_first: bool = True,
+        mp3_bitrate: Optional[str] = None,
+        mp3_sample_rate: Optional[int] = None,
     ) -> List[str]:
         """
         Save audio batch
@@ -400,7 +408,9 @@ class AudioSaver:
             sample_rate: Sample rate
             format: Audio format
             channels_first: Tensor format flag
-        
+            mp3_bitrate: Optional MP3 bitrate override (128k/192k/256k/320k)
+            mp3_sample_rate: Optional MP3 sample rate override (44100/48000)
+
         Returns:
             List of saved file paths
         """
@@ -424,7 +434,9 @@ class AudioSaver:
                 output_path,
                 sample_rate=sample_rate,
                 format=format,
-                channels_first=channels_first
+                channels_first=channels_first,
+                mp3_bitrate=mp3_bitrate,
+                mp3_sample_rate=mp3_sample_rate,
             )
             saved_paths.append(saved_path)
         
@@ -576,6 +588,8 @@ def save_audio(
     sample_rate: int = 48000,
     format: Optional[str] = None,
     channels_first: bool = True,
+    mp3_bitrate: Optional[str] = None,
+    mp3_sample_rate: Optional[int] = None,
 ) -> str:
     """
     Convenience function: save audio (using default configuration)
@@ -586,11 +600,19 @@ def save_audio(
         sample_rate: Sample rate
         format: Format (default flac)
         channels_first: Tensor format flag
-    
+        mp3_bitrate: Optional MP3 bitrate override (128k/192k/256k/320k)
+        mp3_sample_rate: Optional MP3 sample rate override (44100/48000)
+
     Returns:
         Saved file path
     """
     return _default_saver.save_audio(
-        audio_data, output_path, sample_rate, format, channels_first
+        audio_data,
+        output_path,
+        sample_rate,
+        format,
+        channels_first,
+        mp3_bitrate,
+        mp3_sample_rate,
     )
 

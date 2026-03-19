@@ -62,4 +62,21 @@ class LlmAcceleratorCacheCleanupTests(unittest.TestCase):
         """Method should be a safe no-op when device is CPU."""
         handler = LLMHandler()
         handler.device = "cpu"
-        with patch
+        with patch("torch.cuda.empty_cache") as cuda_mock:
+            handler._clear_accelerator_cache()
+        cuda_mock.assert_not_called()
+
+    def test_falls_back_to_cuda_when_device_unset(self):
+        """When self.device is None, should fall back to CUDA if available."""
+        handler = LLMHandler()
+        handler.device = None
+        call_order = []
+        with patch("torch.cuda.is_available", return_value=True), \
+             patch("torch.cuda.synchronize", side_effect=lambda: call_order.append("sync")), \
+             patch("torch.cuda.empty_cache", side_effect=lambda: call_order.append("clear")):
+            handler._clear_accelerator_cache()
+        self.assertEqual(call_order, ["sync", "clear"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -110,7 +110,10 @@ class JobGenerationSetupTests(unittest.TestCase):
         self.assertEqual("Extract VOCALS", setup.params.instruction)
         self.assertFalse(setup.params.use_cot_metas)
         self.assertEqual([0.1, 0.5], setup.params.timesteps)
-        self.assertEqual(-1.0, setup.params.duration)
+        # When audio_duration is None, the API default (120s) is used
+        # instead of -1.0 to prevent unconstrained generation (issue #797).
+        from acestep.api.job_generation_setup import _API_DEFAULT_DURATION_SECONDS
+        self.assertEqual(_API_DEFAULT_DURATION_SECONDS, setup.params.duration)
 
     def test_build_generation_setup_resolves_seed_list_from_string(self) -> None:
         """Seed strings should keep valid values and drop invalid or sentinel values."""

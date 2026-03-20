@@ -115,7 +115,7 @@ def create_4d_mask(
         # We want to mask out invalid keys (columns)
         # Expand shape: [Batch, 1, 1, Seq_Len]
         padding_mask_4d = attention_mask.view(attention_mask.shape[0], 1, 1, seq_len).to(torch.bool)
-        
+
         # Broadcasting: Geometry Mask [1, 1, L, L] & Padding Mask [B, 1, 1, L]
         # Result shape: [B, 1, L, L]
         valid_mask = valid_mask & padding_mask_4d
@@ -125,13 +125,13 @@ def create_4d_mask(
     # ------------------------------------------------------
     # Get the minimal value for current dtype
     min_dtype = torch.finfo(dtype).min
-    
+
     # Create result tensor filled with -inf by default
     mask_tensor = torch.full(valid_mask.shape, min_dtype, dtype=dtype, device=device)
-    
+
     # Set valid positions to 0.0
     mask_tensor.masked_fill_(valid_mask, 0.0)
-    
+
     return mask_tensor
 
 
@@ -200,7 +200,7 @@ def sample_t_r(batch_size, device, dtype, data_proportion=0.0, timestep_mu=-0.4,
 class TimestepEmbedding(nn.Module):
     """
     Timestep embedding module for diffusion models.
-    
+
     Converts timestep values into high-dimensional embeddings using sinusoidal
     positional encoding, followed by MLP layers. Used for conditioning diffusion
     models on timestep information.
@@ -217,7 +217,7 @@ class TimestepEmbedding(nn.Module):
         self.act1 = nn.SiLU()
         self.linear_2 = nn.Linear(time_embed_dim, time_embed_dim, bias=True)
         self.in_channels = in_channels
-        
+
         self.act2 = nn.SiLU()
         self.time_proj = nn.Linear(time_embed_dim, time_embed_dim * 6)
         self.scale = scale
@@ -305,7 +305,7 @@ class AceStepAttention(nn.Module):
 
         # Determine if this is cross-attention (requires encoder_hidden_states)
         is_cross_attention = self.is_cross_attention and encoder_hidden_states is not None
-        
+
         # Cross-attention path: attend to encoder hidden states
         if is_cross_attention:
             encoder_hidden_shape = (*encoder_hidden_states.shape[:-1], -1, self.head_dim)
@@ -313,7 +313,7 @@ class AceStepAttention(nn.Module):
                 is_updated = past_key_value.is_updated.get(self.layer_idx)
                 # After the first generated token, we can reuse all key/value states from cache
                 curr_past_key_value = past_key_value.cross_attention_cache
-                
+
                 # Conditions for calculating key and value states
                 if not is_updated:
                     # Compute and cache K/V for the first time
@@ -331,7 +331,7 @@ class AceStepAttention(nn.Module):
                 # No cache used, compute K/V directly
                 key_states = self.k_norm(self.k_proj(encoder_hidden_states).view(encoder_hidden_shape)).transpose(1, 2)
                 value_states = self.v_proj(encoder_hidden_states).view(encoder_hidden_shape).transpose(1, 2)
-        
+
         # Self-attention path: attend to the same sequence
         else:
             # Project and normalize key/value states for self-attention
@@ -353,7 +353,7 @@ class AceStepAttention(nn.Module):
             attention_interface: Callable = eager_attention_forward
         elif self.config._attn_implementation != "eager":
             attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
-    
+
         attn_output, attn_weights = attention_interface(
             self,
             query_states,
@@ -443,12 +443,12 @@ class AceStepEncoderLayer(GradientCheckpointingLayer):
 class AceStepDiTLayer(GradientCheckpointingLayer):
     """
     DiT (Diffusion Transformer) layer for AceStep model.
-    
+
     Implements a transformer layer with three main components:
     1. Self-attention with adaptive layer norm (AdaLN)
     2. Cross-attention (optional) for conditioning on encoder outputs
     3. Feed-forward MLP with adaptive layer norm
-    
+
     Uses scale-shift modulation from timestep embeddings for adaptive normalization.
     """
     def __init__(self, config: AceStepConfig, layer_idx: int, use_cross_attention: bool = True):
@@ -471,7 +471,7 @@ class AceStepDiTLayer(GradientCheckpointingLayer):
         # Scale-shift table for adaptive layer norm modulation (6 values: 3 for self-attn, 3 for MLP)
         self.scale_shift_table = nn.Parameter(torch.randn(1, 6, config.hidden_size) / config.hidden_size**0.5)
         self.attention_type = config.layer_types[layer_idx]
-    
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -577,14 +577,14 @@ class AceStepPreTrainedModel(PreTrainedModel):
 class AceStepLyricEncoder(AceStepPreTrainedModel):
     """
     Encoder for processing lyric text embeddings.
-    
+
     Encodes lyric text hidden states using a transformer encoder architecture
     with bidirectional attention. Projects text embeddings to model hidden size
     and processes them through multiple encoder layers.
     """
     def __init__(self, config):
         super().__init__(config)
-        
+
         # Project text embeddings to model hidden size
         self.embed_tokens = nn.Linear(config.text_hidden_dim, config.hidden_size)
         self.norm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -618,7 +618,7 @@ class AceStepLyricEncoder(AceStepPreTrainedModel):
         assert input_ids is None, "Only `input_ids` is supported for the lyric encoder."
         assert attention_mask is not None, "Attention mask must be provided for the lyric encoder."
         assert inputs_embeds is not None, "Inputs embeddings must be provided for the lyric encoder."
-        
+
         # Project input embeddings: N x T x text_hidden_dim -> N x T x hidden_size
         inputs_embeds = self.embed_tokens(inputs_embeds)
         # Cache position: only used for mask construction (not for actual caching)
@@ -632,7 +632,7 @@ class AceStepLyricEncoder(AceStepPreTrainedModel):
         seq_len = inputs_embeds.shape[1]
         dtype = inputs_embeds.dtype
         device = inputs_embeds.device
-        
+
         # 判断是否使用 Flash Attention 2
         is_flash_attn = (self.config._attn_implementation == "flash_attention_2")
 
@@ -649,7 +649,7 @@ class AceStepLyricEncoder(AceStepPreTrainedModel):
             # 如果没有 padding mask，传 None。
             # 滑动窗口逻辑由 Layer 内部传给 FA kernel 的 sliding_window 参数控制。
             full_attn_mask = attention_mask
-            
+
             # 这里的逻辑是：如果配置启用了滑动窗口，FA 模式下我们也只需要传基础的 padding mask
             # Layer 会自己决定是否调用带 sliding window 的 kernel
             sliding_attn_mask = attention_mask if self.config.use_sliding_window else None
@@ -659,7 +659,7 @@ class AceStepLyricEncoder(AceStepPreTrainedModel):
             # 场景 B: CPU / Mac / SDPA (Eager 模式)
             # -------------------------------------------------------
             # 必须手动生成 4D Mask [B, 1, L, L]
-            
+
             # 1. Full Attention (Bidirectional, Global)
             # 对应原来的 create_causal_mask + bidirectional
             full_attn_mask = create_4d_mask(
@@ -734,7 +734,7 @@ class AceStepLyricEncoder(AceStepPreTrainedModel):
 class AttentionPooler(AceStepPreTrainedModel):
     """
     Attention-based pooling module.
-    
+
     Pools sequences of patches using a special token and attention mechanism.
     The special token attends to all patches and its output is used as the
     pooled representation. Used for aggregating patch-level features into
@@ -782,7 +782,7 @@ class AttentionPooler(AceStepPreTrainedModel):
         seq_len = x.shape[1]
         dtype = x.dtype
         device = x.device
-        
+
         # 判断是否使用 Flash Attention 2
         is_flash_attn = (self.config._attn_implementation == "flash_attention_2")
 
@@ -799,7 +799,7 @@ class AttentionPooler(AceStepPreTrainedModel):
             # 如果没有 padding mask，传 None。
             # 滑动窗口逻辑由 Layer 内部传给 FA kernel 的 sliding_window 参数控制。
             full_attn_mask = attention_mask
-            
+
             # 这里的逻辑是：如果配置启用了滑动窗口，FA 模式下我们也只需要传基础的 padding mask
             # Layer 会自己决定是否调用带 sliding window 的 kernel
             sliding_attn_mask = attention_mask if self.config.use_sliding_window else None
@@ -809,7 +809,7 @@ class AttentionPooler(AceStepPreTrainedModel):
             # 场景 B: CPU / Mac / SDPA (Eager 模式)
             # -------------------------------------------------------
             # 必须手动生成 4D Mask [B, 1, L, L]
-            
+
             # 1. Full Attention (Bidirectional, Global)
             # 对应原来的 create_causal_mask + bidirectional
             full_attn_mask = create_4d_mask(
@@ -840,7 +840,7 @@ class AttentionPooler(AceStepPreTrainedModel):
             "full_attention": full_attn_mask,
             "sliding_attention": sliding_attn_mask,
         }
-        
+
         for layer_module in self.layers:
             layer_outputs = layer_module(
                 hidden_states,
@@ -852,7 +852,7 @@ class AttentionPooler(AceStepPreTrainedModel):
             hidden_states = layer_outputs[0]
 
         hidden_states = self.norm(hidden_states)
-        
+
         # Extract the special token output (first position) as pooled representation
         cls_output = hidden_states[:, 0, :]
         cls_output = rearrange(cls_output, "(b t) c -> b t c", b=B)
@@ -862,7 +862,7 @@ class AttentionPooler(AceStepPreTrainedModel):
 class AudioTokenDetokenizer(AceStepPreTrainedModel):
     """
     Audio token detokenizer module.
-    
+
     Converts quantized audio tokens back to continuous acoustic representations.
     Expands each token into multiple patches using special tokens, processes them
     through encoder layers, and projects to acoustic hidden dimension.
@@ -917,7 +917,7 @@ class AudioTokenDetokenizer(AceStepPreTrainedModel):
         seq_len = x.shape[1]
         dtype = x.dtype
         device = x.device
-        
+
         # 判断是否使用 Flash Attention 2
         is_flash_attn = (self.config._attn_implementation == "flash_attention_2")
 
@@ -934,7 +934,7 @@ class AudioTokenDetokenizer(AceStepPreTrainedModel):
             # 如果没有 padding mask，传 None。
             # 滑动窗口逻辑由 Layer 内部传给 FA kernel 的 sliding_window 参数控制。
             full_attn_mask = attention_mask
-            
+
             # 这里的逻辑是：如果配置启用了滑动窗口，FA 模式下我们也只需要传基础的 padding mask
             # Layer 会自己决定是否调用带 sliding window 的 kernel
             sliding_attn_mask = attention_mask if self.config.use_sliding_window else None
@@ -944,7 +944,7 @@ class AudioTokenDetokenizer(AceStepPreTrainedModel):
             # 场景 B: CPU / Mac / SDPA (Eager 模式)
             # -------------------------------------------------------
             # 必须手动生成 4D Mask [B, 1, L, L]
-            
+
             # 1. Full Attention (Bidirectional, Global)
             # 对应原来的 create_causal_mask + bidirectional
             full_attn_mask = create_4d_mask(
@@ -975,7 +975,7 @@ class AudioTokenDetokenizer(AceStepPreTrainedModel):
             "full_attention": full_attn_mask,
             "sliding_attention": sliding_attn_mask,
         }
-        
+
         for layer_module in self.layers:
             layer_outputs = layer_module(
                 hidden_states,
@@ -987,7 +987,7 @@ class AudioTokenDetokenizer(AceStepPreTrainedModel):
             hidden_states = layer_outputs[0]
 
         hidden_states = self.norm(hidden_states)
-        
+
         hidden_states = self.proj_out(hidden_states)
 
         hidden_states = rearrange(hidden_states, "(b t) p c -> b (t p) c", b=B, p=self.config.pool_window_size)
@@ -997,7 +997,7 @@ class AudioTokenDetokenizer(AceStepPreTrainedModel):
 class AceStepTimbreEncoder(AceStepPreTrainedModel):
     """
     Encoder for extracting timbre embeddings from reference audio.
-    
+
     Processes packed reference audio acoustic features to extract timbre
     representations. Uses a special token (CLS-like) to aggregate information
     from the entire reference audio sequence. Outputs are unpacked back to
@@ -1005,7 +1005,7 @@ class AceStepTimbreEncoder(AceStepPreTrainedModel):
     """
     def __init__(self, config):
         super().__init__(config)
-        
+
         # Project acoustic features to model hidden size
         self.embed_tokens = nn.Linear(config.timbre_hidden_dim, config.hidden_size)
         self.norm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -1036,40 +1036,40 @@ class AceStepTimbreEncoder(AceStepPreTrainedModel):
         N, d = timbre_embs_packed.shape
         device = timbre_embs_packed.device
         dtype = timbre_embs_packed.dtype
-        
+
         # Get batch size
         B = int(refer_audio_order_mask.max().item() + 1)
-        
+
         # Calculate element count and positions for each batch
         counts = torch.bincount(refer_audio_order_mask, minlength=B)
         max_count = counts.max().item()
-        
+
         # Calculate positions within batch
         sorted_indices = torch.argsort(refer_audio_order_mask * N + torch.arange(N, device=device), stable=True)
         sorted_batch_ids = refer_audio_order_mask[sorted_indices]
-        
+
         positions = torch.arange(N, device=device)
-        batch_starts = torch.cat([torch.tensor([0], device=device), 
+        batch_starts = torch.cat([torch.tensor([0], device=device),
                                 torch.cumsum(counts, dim=0)[:-1]])
         positions_in_sorted = positions - batch_starts[sorted_batch_ids]
-        
+
         inverse_indices = torch.empty_like(sorted_indices)
         inverse_indices[sorted_indices] = torch.arange(N, device=device)
         positions_in_batch = positions_in_sorted[inverse_indices]
-        
+
         # Use one-hot encoding and matrix multiplication (gradient-friendly approach)
         # Create one-hot encoding
         indices_2d = refer_audio_order_mask * max_count + positions_in_batch  # (N,)
         one_hot = F.one_hot(indices_2d, num_classes=B * max_count).to(dtype)  # (N, B*max_count)
-        
+
         # Rearrange using matrix multiplication
         timbre_embs_flat = one_hot.t() @ timbre_embs_packed  # (B*max_count, d)
         timbre_embs_unpack = timbre_embs_flat.reshape(B, max_count, d)
-        
+
         # Create mask indicating valid positions
         mask_flat = (one_hot.sum(dim=0) > 0).long()  # (B*max_count,)
         new_mask = mask_flat.reshape(B, max_count)
-        
+
         return timbre_embs_unpack, new_mask
 
     @can_return_tuple
@@ -1093,7 +1093,7 @@ class AceStepTimbreEncoder(AceStepPreTrainedModel):
         seq_len = inputs_embeds.shape[1]
         dtype = inputs_embeds.dtype
         device = inputs_embeds.device
-        
+
         # 判断是否使用 Flash Attention 2
         is_flash_attn = (self.config._attn_implementation == "flash_attention_2")
 
@@ -1110,7 +1110,7 @@ class AceStepTimbreEncoder(AceStepPreTrainedModel):
             # 如果没有 padding mask，传 None。
             # 滑动窗口逻辑由 Layer 内部传给 FA kernel 的 sliding_window 参数控制。
             full_attn_mask = attention_mask
-            
+
             # 这里的逻辑是：如果配置启用了滑动窗口，FA 模式下我们也只需要传基础的 padding mask
             # Layer 会自己决定是否调用带 sliding window 的 kernel
             sliding_attn_mask = attention_mask if self.config.use_sliding_window else None
@@ -1120,7 +1120,7 @@ class AceStepTimbreEncoder(AceStepPreTrainedModel):
             # 场景 B: CPU / Mac / SDPA (Eager 模式)
             # -------------------------------------------------------
             # 必须手动生成 4D Mask [B, 1, L, L]
-            
+
             # 1. Full Attention (Bidirectional, Global)
             # 对应原来的 create_causal_mask + bidirectional
             full_attn_mask = create_4d_mask(
@@ -1151,7 +1151,7 @@ class AceStepTimbreEncoder(AceStepPreTrainedModel):
             "full_attention": full_attn_mask,
             "sliding_attention": sliding_attn_mask,
         }
-        
+
         # Initialize hidden states
         hidden_states = inputs_embeds
 
@@ -1181,7 +1181,7 @@ class AceStepTimbreEncoder(AceStepPreTrainedModel):
 class AceStepAudioTokenizer(AceStepPreTrainedModel):
     """
     Audio tokenizer module.
-    
+
     Converts continuous acoustic features into discrete quantized tokens.
     Process: project -> pool patches -> quantize. Used for converting audio
     representations into discrete tokens for processing by the diffusion model.
@@ -1208,7 +1208,7 @@ class AceStepAudioTokenizer(AceStepPreTrainedModel):
         hidden_states: Optional[torch.FloatTensor] = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutput:
-        
+
         # Project acoustic features to hidden size
         hidden_states = self.audio_acoustic_proj(hidden_states)
         # Pool sequences: N x T//pool_window_size x pool_window_size x d -> N x T//pool_window_size x d
@@ -1225,14 +1225,14 @@ class AceStepAudioTokenizer(AceStepPreTrainedModel):
 class Lambda(nn.Module):
     """
     Wrapper module for arbitrary lambda functions.
-    
+
     Allows using lambda functions in nn.Sequential by wrapping them in a Module.
     Useful for simple transformations like transpose operations.
     """
     def __init__(self, func):
         super().__init__()
         self.func = func
-    
+
     def forward(self, x):
         return self.func(x)
 
@@ -1240,7 +1240,7 @@ class Lambda(nn.Module):
 class AceStepDiTModel(AceStepPreTrainedModel):
     """
     DiT (Diffusion Transformer) model for AceStep.
-    
+
     Main diffusion model that generates audio latents conditioned on text, lyrics,
     and timbre. Uses patch-based processing with transformer layers, timestep
     conditioning, and cross-attention to encoder outputs.
@@ -1258,7 +1258,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         inner_dim = config.hidden_size
         patch_size = config.patch_size
         self.patch_size = patch_size
-        
+
         # Input projection: patch embedding using 1D convolution
         # Converts sequence into patches for efficient processing
         self.proj_in = nn.Sequential(
@@ -1277,7 +1277,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         # Two embeddings: one for timestep t, one for timestep difference (t - r)
         self.time_embed = TimestepEmbedding(in_channels=256, time_embed_dim=inner_dim)
         self.time_embed_r = TimestepEmbedding(in_channels=256, time_embed_dim=inner_dim)
-        
+
         # Project encoder hidden states to model dimension
         self.condition_embedder = nn.Linear(inner_dim, inner_dim, bias=True)
 
@@ -1330,7 +1330,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
             use_cache = False
         if self.training:
             use_cache = False
-    
+
         # Initialize cache if needed (only during inference for auto-regressive generation)
         if not self.training and use_cache and past_key_values is None:
             past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
@@ -1357,14 +1357,14 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         # Project input to patches and project encoder states
         hidden_states = self.proj_in(hidden_states)
         encoder_hidden_states = self.condition_embedder(encoder_hidden_states)
-        
+
         # Cache positions
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             cache_position = torch.arange(
                 past_seen_tokens, past_seen_tokens + hidden_states.shape[1], device=hidden_states.device
             )
-        
+
         # Position IDs
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
@@ -1374,7 +1374,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         encoder_seq_len = encoder_hidden_states.shape[1]
         dtype = hidden_states.dtype
         device = hidden_states.device
-        
+
         # 判断是否使用 Flash Attention 2
         is_flash_attn = (self.config._attn_implementation == "flash_attention_2")
 
@@ -1392,7 +1392,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
             # 如果没有 padding mask，传 None。
             # 滑动窗口逻辑由 Layer 内部传给 FA kernel 的 sliding_window 参数控制。
             full_attn_mask = attention_mask
-            
+
             # 这里的逻辑是：如果配置启用了滑动窗口，FA 模式下我们也只需要传基础的 padding mask
             # Layer 会自己决定是否调用带 sliding window 的 kernel
             sliding_attn_mask = attention_mask if self.config.use_sliding_window else None
@@ -1402,7 +1402,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
             # 场景 B: CPU / Mac / SDPA (Eager 模式)
             # -------------------------------------------------------
             # 必须手动生成 4D Mask [B, 1, L, L]
-            
+
             # 1. Full Attention (Bidirectional, Global)
             # 对应原来的 create_causal_mask + bidirectional
             full_attn_mask = create_4d_mask(
@@ -1415,7 +1415,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
                 is_causal=False                    # <--- 关键：双向注意力
             )
             max_len = max(seq_len, encoder_seq_len)
-            
+
             encoder_attention_mask = create_4d_mask(
                 seq_len=max_len,
                 dtype=dtype,
@@ -1483,7 +1483,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
                 # Extract the last element which is cross_attn_weights
                 if len(layer_outputs) >= 3:
                     all_cross_attentions += (layer_outputs[2],)
-        
+
         if return_hidden_states:
             return hidden_states
 
@@ -1496,10 +1496,10 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         hidden_states = (self.norm_out(hidden_states) * (1 + scale) + shift).type_as(hidden_states)
         # Project output: de-patchify back to original sequence format
         hidden_states = self.proj_out(hidden_states)
-        
+
         # Crop back to original sequence length to ensure exact length match (remove padding)
         hidden_states = hidden_states[:, :original_seq_len, :]
-        
+
         outputs = (hidden_states, past_key_values)
 
         if output_attentions:
@@ -1509,7 +1509,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
 class AceStepConditionEncoder(AceStepPreTrainedModel):
     """
     Condition encoder for AceStep model.
-    
+
     Encodes multiple conditioning inputs (text, lyrics, timbre) and packs them
     into a single sequence for cross-attention in the diffusion model. Handles
     projection, encoding, and sequence packing.
@@ -1589,7 +1589,7 @@ def _repaint_boundary_blend(x_gen, clean_src, mask, cf_frames):
 class AceStepConditionGenerationModel(AceStepPreTrainedModel):
     """
     Main conditional generation model for AceStep.
-    
+
     End-to-end model for generating audio conditioned on text, lyrics, and timbre.
     Combines encoder (for conditioning), decoder (diffusion model), tokenizer
     (for discrete tokenization), and detokenizer (for reconstruction).
@@ -1653,7 +1653,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         precomputed_lm_hints_25Hz: Optional[torch.FloatTensor] = None,
         audio_codes: torch.FloatTensor = None,
     ):
-        
+
         dtype = hidden_states.dtype
         encoder_hidden_states, encoder_attention_mask = self.encoder(
             text_hidden_states=text_hidden_states,
@@ -1741,7 +1741,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         t_ = t.unsqueeze(-1).unsqueeze(-1)
         # Interpolate: x_t = t * x1 + (1 - t) * x0
         xt = t_ * x1 + (1.0 - t_) * x0
-        
+
         # Predict flow (velocity) from diffusion model
         decoder_outputs = self.decoder(
             hidden_states=xt,
@@ -1758,10 +1758,10 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         return {
             "diffusion_loss": diffusion_loss,
         }
-        
+
     def training_losses(self, **kwargs):
         return self.forward(**kwargs)
-    
+
     def prepare_noise(self, context_latents: torch.FloatTensor, seed: Union[int, List[int], None] = None):
         """
         Prepare noise tensor for generation with optional seeding.
@@ -1802,6 +1802,9 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         return noise
 
     def get_x0_from_noise(self, zt, vt, t):
+        if t.shape[0] != zt.shape[0]:
+            raise ValueError(f"Batch size mismatch: t has {t.shape[0]}, zt has {zt.shape[0]}")
+
         return zt - vt * t.unsqueeze(-1).unsqueeze(-1)
 
     def renoise(self, x, t, noise=None):
@@ -1811,7 +1814,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             t = t.unsqueeze(-1).unsqueeze(-1)
         xt = t * noise + (1 - t) * x
         return xt
- 
+
     def generate_audio(
         self,
         text_hidden_states: torch.FloatTensor,
@@ -1910,7 +1913,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         bsz, device, dtype = context_latents.shape[0], context_latents.device, context_latents.dtype
         past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
         momentum_buffer = MomentumBuffer()
-        
+
         # Cover noise initialization: blend noise with src_latents
         if cover_noise_strength > 0.0:
             # cover_noise_strength=1 means closest to src, so noise_level should be low
@@ -1936,7 +1939,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             )
         else:
             xt = noise
-        
+
         # main task condition
         do_cfg_guidance = diffusion_guidance_sale > 1.0
         if do_cfg_guidance:
@@ -1945,7 +1948,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             # src_latents
             context_latents = torch.cat([context_latents, context_latents], dim=0)
             attention_mask = torch.cat([attention_mask, attention_mask], dim=0)
-        
+
         _switched_to_non_cover = False
         with torch.no_grad():
             for step_idx, (t_curr, t_prev) in enumerate(iterator):
@@ -1961,7 +1964,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     encoder_attention_mask = encoder_attention_mask_non_cover
                     context_latents = context_latents_non_cover
                     past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
-                
+
                 x = torch.cat([xt, xt], dim=0) if do_cfg_guidance else xt
                 t_curr_tensor = t_curr * torch.ones((x.shape[0],), device=device, dtype=dtype)
                 decoder_outputs = self.decoder(
@@ -1975,7 +1978,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     use_cache=True,
                     past_key_values=past_key_values,
                 )
-                
+
                 vt = decoder_outputs[0]
                 past_key_values = decoder_outputs[1]
                 apply_cfg_guidance = t_curr >= cfg_interval_start and t_curr <= cfg_interval_end
@@ -2050,13 +2053,13 @@ def test_forward(model, seed=42):
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-    
+
     # Get model dtype and device
     model_dtype = next(model.parameters()).dtype
     device = next(model.parameters()).device
-    
+
     print(f"Testing with dtype: {model_dtype}, device: {device}, seed: {seed}")
-    
+
     # Test data preparation with matching dtype
     text_hidden_states = torch.randn(2, 77, 1024, dtype=model_dtype, device=device)
     text_attention_mask = torch.ones(2, 77, dtype=model_dtype, device=device)

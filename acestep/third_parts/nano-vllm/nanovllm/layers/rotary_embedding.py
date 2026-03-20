@@ -2,6 +2,8 @@ from functools import lru_cache
 import torch
 from torch import nn
 
+from nanovllm.utils.compat import maybe_compile
+
 
 def apply_rotary_emb(
     x: torch.Tensor,
@@ -34,7 +36,7 @@ class RotaryEmbedding(nn.Module):
         cache = torch.cat((cos, sin), dim=-1).unsqueeze_(1)
         self.register_buffer("cos_sin_cache", cache, persistent=False)
 
-    @torch.compile
+    @maybe_compile
     def forward(
         self,
         positions: torch.Tensor,

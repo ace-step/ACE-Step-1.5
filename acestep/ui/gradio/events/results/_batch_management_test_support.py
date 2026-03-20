@@ -116,6 +116,9 @@ def load_batch_management_module(
     fake_torch = types.ModuleType("torch")
     fake_torch.cuda = fake_cuda
 
+    fake_backends_mps = types.SimpleNamespace(is_available=lambda: mps_available)
+    fake_torch.backends = types.SimpleNamespace(mps=fake_backends_mps)
+
     if mps_available:
         def _mps_empty_cache():
             state["mps_empty_cache_calls"] += 1

@@ -123,9 +123,10 @@ When sending MV to chat platforms, use `--max-size` to auto-compress:
 
 | Platform | Limit | Recommended `--max-size` |
 |----------|-------|--------------------------|
-| WhatsApp | 16MB | 15 |
-| Discord (free) | 25MB | 24 |
-| Telegram | 50MB | 48 |
+| WhatsApp | 16MB | 10 |
+| Discord (free) | 25MB | 10 |
+| QQ | 10MB | 10 |
+| Telegram | 50MB | 20 |
 | Slack (free) | 1GB | - |
 
 The compression uses ffmpeg two-pass encoding to achieve the best quality within the size constraint.

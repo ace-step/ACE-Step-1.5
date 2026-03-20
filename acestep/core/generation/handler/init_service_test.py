@@ -985,6 +985,47 @@ class RocmDtypeTests(unittest.TestCase):
         self.assertEqual(result, torch.bfloat16)
         bf16_mock.assert_called_once_with(1)
 
+    def test_load_text_encoder_uses_cpu_safe_dtype_when_offloaded(self):
+        """It casts the text encoder to the CPU-safe dtype during CPU offload."""
+        host = _Host(project_root="K:/fake_root", device="cuda")
+        host.offload_to_cpu = True
+        host.dtype = torch.bfloat16
+
+        class _FakeEncoder:
+            def __init__(self):
+                self.to_calls = []
+                self.eval_called = False
+
+            def to(self, value):
+                self.to_calls.append(value)
+                return self
+
+            def eval(self):
+                self.eval_called = True
+                return self
+
+        fake_encoder = _FakeEncoder()
+        fake_tokenizer = object()
+        fake_transformers = types.SimpleNamespace(
+            AutoModel=types.SimpleNamespace(from_pretrained=Mock(return_value=fake_encoder)),
+            AutoTokenizer=types.SimpleNamespace(from_pretrained=Mock(return_value=fake_tokenizer)),
+        )
+
+        with patch("os.path.exists", return_value=True):
+            with patch.dict("sys.modules", {"transformers": fake_transformers}):
+                result = host._load_text_encoder_and_tokenizer(
+                    checkpoint_dir="K:/fake_root/checkpoints/acestep-v15-turbo",
+                    device="cuda",
+                )
+
+        self.assertEqual(
+            result,
+            os.path.join("K:/fake_root/checkpoints/acestep-v15-turbo", "Qwen3-Embedding-0.6B"),
+        )
+        self.assertIs(host.text_encoder, fake_encoder)
+        self.assertIs(host.text_tokenizer, fake_tokenizer)
+        self.assertEqual(fake_encoder.to_calls, ["cpu", torch.float32])
+        self.assertTrue(fake_encoder.eval_called)
+
 if __name__ == "__main__":
     unittest.main()
-

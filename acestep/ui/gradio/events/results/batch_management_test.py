@@ -192,6 +192,48 @@ class BatchManagementWrapperTests(unittest.TestCase):
         self.assertIn("messages.batch_failed", state["warning_messages"][0])
 
     # ------------------------------------------------------------------
+    # Score persistence regression tests (foreground batch fix)
+    # ------------------------------------------------------------------
+
+    def test_foreground_scores_passed_to_store_batch_in_queue(self):
+        """Foreground generation must extract and pass scores to batch storage."""
+        module, state = load_batch_management_module(is_windows=False)
+
+        def _gen(*_args, **_kwargs):
+            """Yield a result with score values at indices 12-19."""
+            result = list(build_progress_result(length=48))
+            for i in range(8):
+                result[12 + i] = f"8.{i}"
+            yield tuple(result)
+
+        kwargs = _build_call_kwargs(module)
+        with patch.dict(module.generate_with_batch_management.__globals__, {"generate_with_progress": _gen}):
+            list(module.generate_with_batch_management(None, None, **kwargs))
+
+        self.assertEqual(len(state["store_calls"]), 1)
+        scores = state["store_calls"][0]["scores"]
+        self.assertEqual(len(scores), 8)
+        self.assertEqual(scores[0], "8.0")
+        self.assertEqual(scores[7], "8.7")
+
+    def test_foreground_scores_default_empty_when_absent(self):
+        """When result tuple lacks score indices, scores should be empty strings."""
+        module, state = load_batch_management_module(is_windows=False)
+
+        def _gen(*_args, **_kwargs):
+            """Yield a short result with no score data."""
+            yield build_progress_result(length=48)
+
+        kwargs = _build_call_kwargs(module)
+        with patch.dict(module.generate_with_batch_management.__globals__, {"generate_with_progress": _gen}):
+            list(module.generate_with_batch_management(None, None, **kwargs))
+
+        self.assertEqual(len(state["store_calls"]), 1)
+        scores = state["store_calls"][0]["scores"]
+        self.assertEqual(len(scores), 8)
+        self.assertTrue(all(s == "" for s in scores), "Absent scores should default to empty strings")
+
+    # ------------------------------------------------------------------
     # MPS cache-clearing regression tests (macOS audio-mute fix)
     # ------------------------------------------------------------------
 

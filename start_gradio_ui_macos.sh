@@ -88,6 +88,11 @@ export TOKENIZERS_PARALLELISM="false"
 SHARE="${SHARE:-}"
 # SHARE="--share"
 
+# Reset LANGUAGE if it contains an invalid value (e.g. system locale like en_CA:en)
+case "$LANGUAGE" in
+    en|zh|he|ja) ;;
+    *) unset LANGUAGE ;;
+esac
 # UI language: en, zh, he, ja
 : "${LANGUAGE:=en}"
 

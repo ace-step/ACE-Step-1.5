@@ -25,6 +25,7 @@ from .service_init import (
 )
 from .model_config import (
     is_pure_base_model,
+    is_sft_model,
     update_model_type_settings,
     get_ui_control_config,
     get_model_type_ui_settings,

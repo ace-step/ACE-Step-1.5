@@ -117,13 +117,16 @@ class LocalCache:
             self._cache.close()
 
 
-# Lazily initialized global instance
-_local_cache: Optional[LocalCache] = None
-
-
 def get_local_cache(cache_dir: Optional[str] = None) -> LocalCache:
-    """Get local cache instance"""
-    global _local_cache
-    if _local_cache is None:
-        _local_cache = LocalCache(cache_dir)
-    return _local_cache
+    """Get or create the global :class:`LocalCache` singleton.
+
+    Thread safety is handled by ``LocalCache.__new__`` which uses
+    double-checked locking via ``cls._lock``, so no additional
+    module-level lock is needed here.
+
+    Note:
+        The ``cache_dir`` is only used on first initialization.  Subsequent
+        calls return the existing singleton regardless of the ``cache_dir``
+        argument.
+    """
+    return LocalCache(cache_dir)

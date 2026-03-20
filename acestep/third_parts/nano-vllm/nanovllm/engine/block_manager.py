@@ -49,6 +49,16 @@ class BlockManager:
         h.update(np.array(token_ids).tobytes())
         return h.intdigest()
 
+    def reset(self):
+        """Reset all blocks and clear the prefix cache to prevent unbounded growth."""
+        for block_id in list(self.used_block_ids):
+            self.blocks[block_id].ref_count = 0
+            self.blocks[block_id].hash = -1
+            self.blocks[block_id].token_ids = []
+        self.free_block_ids = deque(range(len(self.blocks)))
+        self.used_block_ids.clear()
+        self.hash_to_block_id.clear()
+
     def _allocate_block(self, block_id: int) -> Block:
         block = self.blocks[block_id]
         assert block.ref_count == 0

@@ -105,12 +105,15 @@ class LLMEngine:
             seq = self.scheduler.running.popleft()
             if seq.block_table:  # Only deallocate if blocks are allocated
                 self.scheduler.block_manager.deallocate(seq)
-        
+
         # Deallocate all waiting sequences (they might have blocks from preemption)
         while self.scheduler.waiting:
             seq = self.scheduler.waiting.popleft()
             if seq.block_table:
                 self.scheduler.block_manager.deallocate(seq)
+
+        # Clear prefix cache to prevent unbounded hash_to_block_id growth
+        self.scheduler.block_manager.reset()
 
     def generate(
         self,

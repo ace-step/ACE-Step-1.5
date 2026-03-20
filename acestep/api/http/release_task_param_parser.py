@@ -26,7 +26,7 @@ PARAM_ALIASES: Dict[str, list[str]] = {
     "guidance_scale": ["guidance_scale", "guidanceScale"],
     "use_random_seed": ["use_random_seed", "useRandomSeed"],
     "seed": ["seed"],
-    "audio_cover_strength": ["audio_cover_strength", "audioCoverStrength"],
+    "audio_cover_strength": ["audio_cover_strength", "audioCoverStrength", "cover_strength", "coverStrength"],
     "cover_noise_strength": ["cover_noise_strength", "coverNoiseStrength"],
     "audio_code_string": ["audio_code_string", "audioCodeString", "audio_codes"],
     "reference_audio_path": ["reference_audio_path", "ref_audio_path", "referenceAudioPath", "refAudioPath"],

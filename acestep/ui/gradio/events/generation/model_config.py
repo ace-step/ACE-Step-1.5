@@ -5,6 +5,8 @@ producing UI control configurations, and computing gr.update() tuples
 for model-type-dependent controls.
 """
 
+import re
+
 import gradio as gr
 
 from acestep.constants import (
@@ -13,6 +15,15 @@ from acestep.constants import (
     GENERATION_MODES_TURBO,
     GENERATION_MODES_BASE,
 )
+
+
+def _has_token(token: str, path: str) -> bool:
+    """Check if *token* appears as a delimited word in *path*.
+
+    Matches when *token* is bounded by start/end of string or a common
+    path delimiter (``/``, ``\\``, ``.``, ``_``, ``-``).
+    """
+    return re.search(rf"(^|[\\\\/._-]){token}($|[\\\\/._-])", path) is not None
 
 
 def is_pure_base_model(config_path_lower: str) -> bool:
@@ -25,38 +36,62 @@ def is_pure_base_model(config_path_lower: str) -> bool:
         ``True`` when the path contains ``"base"`` and excludes ``"sft"`` and ``"turbo"``.
     """
     return (
-        "base" in config_path_lower
-        and "sft" not in config_path_lower
-        and "turbo" not in config_path_lower
+        _has_token("base", config_path_lower)
+        and not _has_token("sft", config_path_lower)
+        and not _has_token("turbo", config_path_lower)
     )
 
 
-def update_model_type_settings(config_path, current_mode=None):
+def update_model_type_settings(config_path: str | None, current_mode: str | None = None) -> tuple:
     """Update UI settings based on model type (fallback when handler not initialized yet).
 
     Args:
         config_path: Model config path string.
         current_mode: Current generation mode value to preserve across choices update.
+
+    Returns:
+        Nine-element tuple of ``gr.update()`` dicts for inference_steps,
+        guidance_scale, use_adg, shift, cfg_interval_start, cfg_interval_end,
+        task_type, generation_mode, and init_llm_checkbox.
     """
     if config_path is None:
         config_path = ""
     config_path_lower = config_path.lower()
 
-    is_turbo = "turbo" in config_path_lower
+    # Precedence: turbo > SFT > pure base > fallback.
+    # Detection functions enforce mutual exclusivity.
+    is_turbo = _has_token("turbo", config_path_lower)
     is_pure_base = is_pure_base_model(config_path_lower)
+    is_sft = is_sft_model(config_path_lower)
 
-    return get_model_type_ui_settings(is_turbo, current_mode=current_mode, is_pure_base=is_pure_base)
+    return get_model_type_ui_settings(is_turbo, current_mode=current_mode, is_pure_base=is_pure_base, is_sft=is_sft)
 
 
-def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False) -> dict:
+def is_sft_model(config_path_lower: str) -> bool:
+    """Check whether a model path refers to an SFT (supervised fine-tuned) model.
+
+    Args:
+        config_path_lower: Lowercased model config path string.
+
+    Returns:
+        ``True`` when the path contains ``"sft"`` and excludes ``"turbo"``.
+    """
+    return _has_token("sft", config_path_lower) and not _has_token("turbo", config_path_lower)
+
+
+def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False, is_sft: bool = False) -> dict:
     """Return UI control configuration (values, limits, visibility) for model type.
 
     Args:
         is_turbo: Whether the model is a turbo variant.
         is_pure_base: Whether the model is a pure base model.
+        is_sft: Whether the model is an SFT (supervised fine-tuned) variant.
+              SFT models are optimized for 50 inference steps, matching the
+              training defaults in model_discovery._BASE_DEFAULTS.
 
     Used by both interactive init and service-mode startup so controls stay consistent.
     """
+    # Precedence: turbo > SFT > pure base > fallback.
     if is_pure_base:
         task_choices = TASK_TYPES_BASE
         mode_choices = GENERATION_MODES_BASE
@@ -79,8 +114,11 @@ def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False) -> dict:
             "generation_mode_choices": mode_choices,
         }
     else:
+        # SFT models are optimized for 50 steps per training defaults;
+        # pure base / unknown models fall back to 32 steps.
+        steps = 50 if is_sft else 32
         return {
-            "inference_steps_value": 32,
+            "inference_steps_value": steps,
             "inference_steps_maximum": 200,
             "inference_steps_minimum": 1,
             "guidance_scale_visible": True,
@@ -94,20 +132,21 @@ def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False) -> dict:
         }
 
 
-def get_model_type_ui_settings(is_turbo: bool, current_mode: str = None, is_pure_base: bool = False):
+def get_model_type_ui_settings(is_turbo: bool, current_mode: str | None = None, is_pure_base: bool = False, is_sft: bool = False):
     """Get gr.update() tuple for model-type controls.
 
     Args:
         is_turbo: Whether the model is a turbo variant.
         current_mode: Current generation mode value to preserve.
         is_pure_base: Whether the model is a pure base model.
+        is_sft: Whether the model is an SFT variant.
 
     Returns:
         Tuple of updates for inference_steps, guidance_scale, use_adg,
         shift, cfg_interval_start, cfg_interval_end, task_type,
         generation_mode, init_llm_checkbox.
     """
-    cfg = get_ui_control_config(is_turbo, is_pure_base=is_pure_base)
+    cfg = get_ui_control_config(is_turbo, is_pure_base=is_pure_base, is_sft=is_sft)
     new_choices = cfg["generation_mode_choices"]
     if current_mode and current_mode in new_choices:
         mode_update = gr.update(choices=new_choices, value=current_mode)

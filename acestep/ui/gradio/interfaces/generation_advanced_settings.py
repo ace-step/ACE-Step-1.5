@@ -6,6 +6,7 @@ import gradio as gr
 
 from acestep.ui.gradio.events.generation_handlers import (
     is_pure_base_model,
+    is_sft_model,
     get_ui_control_config,
 )
 from acestep.ui.gradio.i18n import t
@@ -48,9 +49,11 @@ def create_advanced_settings_section(
     if service_pre_initialized and init_params and "dit_handler" in init_params:
         config_path = init_params.get("config_path", "")
         is_turbo_model = init_params["dit_handler"].is_turbo_model()
+        config_lower = (config_path or "").lower()
         ui_config = get_ui_control_config(
             is_turbo_model,
-            is_pure_base=is_pure_base_model((config_path or "").lower()),
+            is_pure_base=is_pure_base_model(config_lower),
+            is_sft=is_sft_model(config_lower),
         )
     else:
         ui_config = get_ui_control_config(True)

@@ -53,6 +53,7 @@ def build_service_toggles(
             label=t("service.init_llm_label"),
             value=params.get("init_llm", init_lm_default) if service_pre_initialized else init_lm_default,
             info=lm_info_text,
+            elem_classes=["has-info-container"],
         )
 
         flash_attn_available = dit_handler.is_flash_attention_available(device_value)

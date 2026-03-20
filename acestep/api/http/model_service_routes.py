@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel, Field
 
 from acestep.api.http.model_init_service import initialize_models_for_request
+from acestep.constants import TASK_TYPES_BASE, TASK_TYPES_TURBO
 
 
 class InitModelRequest(BaseModel):
@@ -18,6 +20,22 @@ class InitModelRequest(BaseModel):
     model: Optional[str] = Field(default=None, description="DiT model name to initialize (e.g., 'acestep-v15-base')")
     init_llm: bool = Field(default=False, description="Whether to initialize LLM as part of this request")
     lm_model_path: Optional[str] = Field(default=None, description="LLM model path/name (e.g., 'acestep-5Hz-lm-1.7B')")
+
+
+def _read_model_supported_tasks(checkpoint_dir: str, model_name: str) -> List[str]:
+    """Read config.json for a model and return its supported task types."""
+    config_path = os.path.join(checkpoint_dir, model_name, "config.json")
+    if not os.path.isfile(config_path):
+        return list(TASK_TYPES_BASE)
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        is_turbo = config.get("is_turbo", False)
+        if is_turbo:
+            return list(TASK_TYPES_TURBO)
+        return list(TASK_TYPES_BASE)
+    except Exception:
+        return list(TASK_TYPES_BASE)
 
 
 def _collect_model_inventory(
@@ -78,6 +96,7 @@ def _collect_model_inventory(
             "name": name,
             "is_default": bool(name == primary_model and primary_model),
             "is_loaded": name in loaded_dit_models,
+            "supported_task_types": _read_model_supported_tasks(checkpoint_dir, name),
         }
         for name in sorted(available_dit_models)
     ]

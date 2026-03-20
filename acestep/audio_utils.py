@@ -114,9 +114,9 @@ def normalize_audio(audio_data: Union[torch.Tensor, np.ndarray], target_db: floa
 class AudioSaver:
     """Audio saving and transcoding utility class"""
 
-    MP3_DEFAULT_BITRATE = "128k"
+    MP3_DEFAULT_BITRATE = "320k"
     MP3_ALLOWED_BITRATES = {"128k", "192k", "256k", "320k"}
-    MP3_DEFAULT_SAMPLE_RATE = 48000
+    MP3_DEFAULT_SAMPLE_RATE = 44100
     MP3_ALLOWED_SAMPLE_RATES = {44100, 48000}
     
     def __init__(self, default_format: str = "flac"):
@@ -139,7 +139,7 @@ class AudioSaver:
         mp3_bitrate: Optional[str] = None,
         mp3_sample_rate: Optional[int] = None,
     ) -> None:
-        """Save MP3 with explicit ffmpeg settings and backward-compatible defaults."""
+        """Save MP3 with explicit ffmpeg settings and 320k/44.1k defaults."""
         bitrate = str(mp3_bitrate or self.MP3_DEFAULT_BITRATE).strip().lower()
         if bitrate not in self.MP3_ALLOWED_BITRATES:
             bitrate = self.MP3_DEFAULT_BITRATE
@@ -172,6 +172,7 @@ class AudioSaver:
                 '-codec:a', 'libmp3lame',
                 '-ar', str(int(target_sample_rate)),
                 '-b:a', bitrate,
+                '-abr', '0',
                 str(output_path),
             ]
             subprocess.run(cmd, check=True, capture_output=True, timeout=120)

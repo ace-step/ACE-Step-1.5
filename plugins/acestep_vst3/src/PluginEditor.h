@@ -25,6 +25,12 @@ public:
     void resized() override;
 
 private:
+    class ScrollContent final : public juce::Component
+    {
+    public:
+        void paint(juce::Graphics& g) override;
+    };
+
     void timerCallback() override;
     void configureLabels();
     void configureEditors();
@@ -49,6 +55,8 @@ private:
 
     ACEStepVST3AudioProcessor& processor_;
     std::unique_ptr<V2LookAndFeel> lookAndFeel_;
+    juce::Viewport viewport_;
+    ScrollContent scrollContent_;
     StatusStripComponent statusStrip_;
     SynthPanelComponent synthPanel_;
     TapeTransportComponent transport_;

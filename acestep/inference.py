@@ -747,15 +747,6 @@ def generate_music(
                     # Handle wav32 special case for extension
                     file_ext = "wav" if audio_format == "wav32" else audio_format
                     audio_file = os.path.join(save_dir, f"{audio_key}.{file_ext}")
-                    logger.debug(
-                        "[generate_music] audio export config format={!r} config.mp3_bitrate={!r} config.mp3_sample_rate={!r} sample_rate={!r} output={!r}",
-                        audio_format,
-                        getattr(config, "mp3_bitrate", "320k"),
-                        getattr(config, "mp3_sample_rate", 44100),
-                        sample_rate,
-                        audio_file,
-                    )
-                    
                     audio_path = audio_saver.save_audio(audio_tensor,
                                                         audio_file,
                                                         sample_rate=sample_rate,

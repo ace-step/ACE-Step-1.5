@@ -89,7 +89,7 @@ SHARE="${SHARE:-}"
 # SHARE="--share"
 
 # Reset LANGUAGE if it contains an invalid value (e.g. system locale like en_CA:en)
-case "$LANGUAGE" in
+case "${LANGUAGE:-}" in
     en|zh|he|ja) ;;
     *) unset LANGUAGE ;;
 esac

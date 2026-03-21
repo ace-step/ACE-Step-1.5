@@ -102,7 +102,8 @@ def _build_capture_current_params_inputs(generation_section: dict[str, Any]) -> 
             `use_cot_language`), automation controls
             (`auto_score`, `auto_lrc`, `score_scale`), and normalization/latent
             controls (`enable_normalization`, `normalization_db`,
-            `latent_shift`, `latent_rescale`).
+            `latent_shift`, `latent_rescale`), and repaint controls
+            (`repaint_mode`, `repaint_strength`).
 
     Returns:
         list[Any]: Ordered generation control values used to preserve and
@@ -161,6 +162,8 @@ def _build_capture_current_params_inputs(generation_section: dict[str, Any]) -> 
         generation_section["fade_out_duration"],
         generation_section["latent_shift"],
         generation_section["latent_rescale"],
+        generation_section["repaint_mode"],
+        generation_section["repaint_strength"],
     ]
 
 

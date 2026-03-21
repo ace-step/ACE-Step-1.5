@@ -101,6 +101,7 @@ def capture_current_params(
     enable_normalization, normalization_db,
     fade_in_duration, fade_out_duration,
     latent_shift, latent_rescale,
+    repaint_mode, repaint_strength,
 ):
     """Capture current UI parameters for next-batch generation.
 
@@ -158,6 +159,8 @@ def capture_current_params(
         "fade_out_duration": fade_out_duration,
         "latent_shift": latent_shift,
         "latent_rescale": latent_rescale,
+        "repaint_mode": repaint_mode,
+        "repaint_strength": repaint_strength,
     }
 
 

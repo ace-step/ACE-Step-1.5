@@ -3,6 +3,7 @@
 import unittest
 
 from acestep.ui.gradio.events.results.batch_queue import (
+    capture_current_params,
     store_batch_in_queue,
     update_batch_indicator,
     update_navigation_buttons,
@@ -208,6 +209,62 @@ class StoreBatchInQueueTests(unittest.TestCase):
         # Non-tensor values should be preserved since only CUDA tensors are offloaded
         self.assertEqual(queue[0]["extra_outputs"]["lrcs"], ["[00:00.00] hello"])
         self.assertEqual(queue[0]["extra_outputs"]["subtitles"], [None])
+
+
+class CaptureCurrentParamsTests(unittest.TestCase):
+    """Tests for capture_current_params."""
+
+    def _build_args(self, **overrides):
+        """Build a complete positional arg list for capture_current_params.
+
+        All values default to None; supply keyword overrides for specific fields.
+        """
+        fields = [
+            "captions", "lyrics", "bpm", "key_scale", "time_signature",
+            "vocal_language", "inference_steps", "guidance_scale",
+            "random_seed_checkbox", "seed", "reference_audio", "audio_duration",
+            "batch_size_input", "src_audio", "text2music_audio_code_string",
+            "repainting_start", "repainting_end", "instruction_display_gen",
+            "audio_cover_strength", "cover_noise_strength", "task_type",
+            "use_adg", "cfg_interval_start", "cfg_interval_end", "shift",
+            "infer_method", "custom_timesteps", "audio_format", "lm_temperature",
+            "think_checkbox", "lm_cfg_scale", "lm_top_k", "lm_top_p",
+            "lm_negative_prompt", "use_cot_metas", "use_cot_caption",
+            "use_cot_language", "constrained_decoding_debug", "allow_lm_batch",
+            "auto_score", "auto_lrc", "score_scale", "lm_batch_chunk_size",
+            "track_name", "complete_track_classes", "enable_normalization",
+            "normalization_db", "fade_in_duration", "fade_out_duration",
+            "latent_shift", "latent_rescale", "repaint_mode", "repaint_strength",
+        ]
+        defaults = {f: None for f in fields}
+        defaults.update(overrides)
+        return [defaults[f] for f in fields]
+
+    def test_repaint_params_included_in_capture(self):
+        """Repaint mode and strength must be captured for AutoGen batches."""
+        args = self._build_args(repaint_mode="aggressive", repaint_strength=0.8)
+        result = capture_current_params(*args)
+        self.assertEqual(result["repaint_mode"], "aggressive")
+        self.assertEqual(result["repaint_strength"], 0.8)
+
+    def test_repaint_params_default_values_captured(self):
+        """Default repaint values (balanced, 0.5) must round-trip through capture."""
+        args = self._build_args(repaint_mode="balanced", repaint_strength=0.5)
+        result = capture_current_params(*args)
+        self.assertEqual(result["repaint_mode"], "balanced")
+        self.assertEqual(result["repaint_strength"], 0.5)
+
+    def test_capture_clears_audio_codes(self):
+        """Audio codes should be cleared so AutoGen batches generate fresh content."""
+        args = self._build_args(text2music_audio_code_string="some_code")
+        result = capture_current_params(*args)
+        self.assertEqual(result["text2music_audio_code_string"], "")
+
+    def test_capture_forces_random_seed(self):
+        """Random seed should be forced True for AutoGen variation."""
+        args = self._build_args(random_seed_checkbox=False)
+        result = capture_current_params(*args)
+        self.assertTrue(result["random_seed_checkbox"])
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ void ResultDeckComponent::resized()
     resultLabel_.setBounds(area.removeFromTop(18));
     resultSelector_.setBounds(area.removeFromTop(32));
     area.removeFromTop(10);
-    summaryLabel_.setBounds(area.removeFromTop(52));
+    summaryLabel_.setBounds(area.removeFromTop(58));
     area.removeFromTop(8);
 
     auto compareRow = area.removeFromTop(26);

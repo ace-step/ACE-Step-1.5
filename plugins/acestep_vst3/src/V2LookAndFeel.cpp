@@ -17,6 +17,7 @@ V2LookAndFeel::V2LookAndFeel()
     setColour(juce::ComboBox::outlineColourId, v2::kModuleStroke);
     setColour(juce::ComboBox::arrowColourId, v2::kLabelMuted);
     setColour(juce::ComboBox::textColourId, v2::kLabelPrimary);
+    setColour(juce::ToggleButton::textColourId, v2::kLabelPrimary);
     setColour(juce::PopupMenu::backgroundColourId, v2::kModuleFill);
     setColour(juce::PopupMenu::textColourId, v2::kLabelPrimary);
 }
@@ -102,5 +103,42 @@ void V2LookAndFeel::drawTextEditorOutline(juce::Graphics& g,
     g.drawRoundedRectangle(bounds.translated(0.0f, 1.0f), 10.0f, 1.6f);
     g.setColour(textEditor.hasKeyboardFocus(true) ? v2::kAccentMint : v2::kModuleStroke);
     g.drawRoundedRectangle(bounds, 10.0f, textEditor.hasKeyboardFocus(true) ? 1.3f : 1.0f);
+}
+
+void V2LookAndFeel::drawToggleButton(juce::Graphics& g,
+                                     juce::ToggleButton& button,
+                                     bool isMouseOverButton,
+                                     bool isButtonDown)
+{
+    auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
+    auto active = button.getToggleState();
+    auto fill = active ? v2::kAccentMint.withAlpha(0.22f) : v2::kModuleRaised;
+    if (isMouseOverButton)
+    {
+        fill = fill.brighter(0.08f);
+    }
+    if (isButtonDown)
+    {
+        fill = fill.darker(0.14f);
+    }
+
+    g.setGradientFill(juce::ColourGradient(fill.brighter(0.06f),
+                                           bounds.getTopLeft(),
+                                           fill.darker(0.22f),
+                                           bounds.getBottomLeft(),
+                                           false));
+    g.fillRoundedRectangle(bounds, 11.0f);
+    g.setColour(active ? v2::kAccentMint : v2::kModuleStroke);
+    g.drawRoundedRectangle(bounds, 11.0f, active ? 1.6f : 1.0f);
+
+    auto lampBounds = juce::Rectangle<float>(18.0f, 18.0f)
+                          .withCentre({bounds.getX() + 18.0f, bounds.getCentreY()});
+    v2::drawLamp(g, lampBounds, v2::kAccentMint, active);
+
+    g.setColour(v2::kLabelPrimary);
+    g.setFont(juce::Font(juce::FontOptions(13.5f, juce::Font::bold)));
+    g.drawText(button.getButtonText(),
+               bounds.reduced(34.0f, 0.0f).toNearestInt(),
+               juce::Justification::centredLeft);
 }
 }  // namespace acestep::vst3

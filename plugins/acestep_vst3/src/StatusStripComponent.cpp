@@ -7,7 +7,7 @@ namespace acestep::vst3
 StatusStripComponent::StatusStripComponent()
 {
     brandLabel_.setText("ACE-STEP // TAPE SYNTH", juce::dontSendNotification);
-    brandLabel_.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
+    brandLabel_.setFont(juce::Font(juce::FontOptions(28.0f, juce::Font::bold)));
     brandLabel_.setColour(juce::Label::textColourId, v2::kLabelPrimary);
     sessionLabel_.setColour(juce::Label::textColourId, v2::kLabelMuted);
     modeLabel_.setColour(juce::Label::textColourId, v2::kAccentMint);
@@ -33,9 +33,9 @@ void StatusStripComponent::resized()
 {
     auto area = getLocalBounds().reduced(18, 12);
     auto top = area.removeFromTop(28);
-    brandLabel_.setBounds(top.removeFromLeft(area.getWidth() / 2 + 140));
-    modeLabel_.setBounds(top.removeFromLeft(170));
-    backendLabel_.setBounds(top.removeFromLeft(170));
+    brandLabel_.setBounds(top.removeFromLeft(area.getWidth() / 2 + 120));
+    modeLabel_.setBounds(top.removeFromLeft(180));
+    backendLabel_.setBounds(top.removeFromLeft(190));
     sessionLabel_.setBounds(area.removeFromTop(20));
 }
 

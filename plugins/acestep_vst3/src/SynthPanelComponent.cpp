@@ -32,6 +32,7 @@ SynthPanelComponent::SynthPanelComponent()
     seedLabel_.setText("Seed", juce::dontSendNotification);
     modelLabel_.setText("Engine", juce::dontSendNotification);
     qualityLabel_.setText("Quality", juce::dontSendNotification);
+    useLoRAToggle_.setButtonText("LoRA Active");
 
     promptEditor_.setMultiLine(true);
     lyricsEditor_.setMultiLine(true);
@@ -81,7 +82,8 @@ void SynthPanelComponent::resized()
 {
     auto area = getLocalBounds().reduced(18);
     area.removeFromTop(24);
-    auto left = area.removeFromLeft(area.getWidth() / 2 + 18);
+    auto left = area.removeFromLeft((area.getWidth() * 49) / 100);
+    left.removeFromRight(10);
     auto right = area;
     const auto labelHeight = 18;
     const auto fieldHeight = 32;
@@ -123,18 +125,18 @@ void SynthPanelComponent::resized()
     right.removeFromTop(8);
     loraAdapterLabel_.setBounds(right.removeFromTop(labelHeight));
     loraAdapterBox_.setBounds(right.removeFromTop(fieldHeight));
-    right.removeFromTop(6);
-    useLoRAToggle_.setBounds(right.removeFromTop(24));
-    right.removeFromTop(4);
+    right.removeFromTop(8);
+    auto loraControlRow = right.removeFromTop(30);
+    useLoRAToggle_.setBounds(loraControlRow.removeFromLeft(168));
+    loraControlRow.removeFromLeft(10);
+    loadLoRAButton_.setBounds(loraControlRow.removeFromLeft(84));
+    loraControlRow.removeFromLeft(8);
+    unloadLoRAButton_.setBounds(loraControlRow.removeFromLeft(92));
+    right.removeFromTop(8);
     loraScaleLabel_.setBounds(right.removeFromTop(labelHeight));
-    loraScaleSlider_.setBounds(right.removeFromTop(24));
-    right.removeFromTop(4);
-    auto loraButtons = right.removeFromTop(28);
-    loadLoRAButton_.setBounds(loraButtons.removeFromLeft(84));
-    loraButtons.removeFromLeft(8);
-    unloadLoRAButton_.setBounds(loraButtons.removeFromLeft(84));
+    loraScaleSlider_.setBounds(right.removeFromTop(26));
     right.removeFromTop(6);
-    loraStatusLabel_.setBounds(right.removeFromTop(34));
+    loraStatusLabel_.setBounds(right.removeFromTop(38));
     right.removeFromTop(8);
     durationLabel_.setBounds(right.removeFromTop(labelHeight));
     durationBox_.setBounds(right.removeFromTop(fieldHeight));

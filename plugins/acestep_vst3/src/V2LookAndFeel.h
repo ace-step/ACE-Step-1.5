@@ -29,5 +29,9 @@ public:
                                int width,
                                int height,
                                juce::TextEditor& textEditor) override;
+    void drawToggleButton(juce::Graphics& g,
+                          juce::ToggleButton& button,
+                          bool isMouseOverButton,
+                          bool isButtonDown) override;
 };
 }  // namespace acestep::vst3

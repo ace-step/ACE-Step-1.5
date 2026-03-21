@@ -4,6 +4,28 @@
 
 namespace acestep::vst3
 {
+namespace
+{
+juce::String transportCodeFor(JobStatus status)
+{
+    switch (status)
+    {
+        case JobStatus::idle:
+            return "IDLE";
+        case JobStatus::submitting:
+            return "BOOT";
+        case JobStatus::queuedOrRunning:
+            return "ROLL";
+        case JobStatus::succeeded:
+            return "PRINT";
+        case JobStatus::failed:
+            return "FAIL";
+    }
+
+    return "IDLE";
+}
+}  // namespace
+
 TapeTransportComponent::TapeTransportComponent()
 {
     backendLabel_.setColour(juce::Label::textColourId, v2::kLabelMuted);
@@ -23,16 +45,23 @@ void TapeTransportComponent::paint(juce::Graphics& g)
     auto bounds = getLocalBounds();
     v2::drawModule(g, bounds, "Tape Transport", v2::statusColour(jobStatus_));
 
-    auto top = bounds.removeFromTop(180).reduced(30, 38);
-    auto leftReel = top.removeFromLeft(150).toFloat();
-    auto rightReel = top.removeFromRight(150).toFloat();
-    auto display = top.reduced(12, 22);
+    auto top = bounds.removeFromTop(188).reduced(24, 34);
+    auto leftReel = top.removeFromLeft(140).toFloat();
+    auto rightReel = top.removeFromRight(140).toFloat();
+    auto display = top.reduced(8, 18);
     v2::drawTapeReel(g, leftReel, v2::kAccentBlue, jobStatus_ == JobStatus::queuedOrRunning);
     v2::drawTapeReel(g, rightReel, v2::kAccentMint, jobStatus_ == JobStatus::queuedOrRunning);
     v2::drawDisplay(g, display.toNearestInt(), true);
     g.setColour(v2::kLabelPrimary);
-    g.setFont(juce::Font(juce::FontOptions(26.0f, juce::Font::bold)));
-    g.drawText(toString(jobStatus_).toUpperCase(), display.reduced(16.0f, 12.0f), juce::Justification::centred);
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+    g.drawText("TRANSPORT",
+               display.removeFromTop(18.0f).toNearestInt(),
+               juce::Justification::centredTop);
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
+    g.drawFittedText(transportCodeFor(jobStatus_),
+                     display.reduced(6.0f, 4.0f).toNearestInt(),
+                     juce::Justification::centred,
+                     1);
 
     auto lamp = juce::Rectangle<float>(18.0f, 18.0f)
                     .withCentre({static_cast<float>(bounds.getRight() - 38), 36.0f});
@@ -42,15 +71,15 @@ void TapeTransportComponent::paint(juce::Graphics& g)
 void TapeTransportComponent::resized()
 {
     auto area = getLocalBounds().reduced(22);
-    area.removeFromTop(186);
+    area.removeFromTop(194);
     backendLabel_.setBounds(area.removeFromTop(20));
     stateLabel_.setBounds(area.removeFromTop(26));
     area.removeFromTop(4);
-    messageLabel_.setBounds(area.removeFromTop(22));
+    messageLabel_.setBounds(area.removeFromTop(40));
     area.removeFromTop(8);
     errorLabel_.setBounds(area.removeFromTop(44));
     area.removeFromTop(12);
-    generateButton_.setBounds(area.removeFromTop(40).removeFromLeft(220));
+    generateButton_.setBounds(area.removeFromTop(44).removeFromLeft(240));
 }
 
 juce::TextButton& TapeTransportComponent::generateButton() noexcept { return generateButton_; }

@@ -27,8 +27,8 @@ void PreviewDeckComponent::resized()
 {
     auto area = getLocalBounds().reduced(18);
     area.removeFromTop(24);
-    summaryLabel_.setBounds(area.removeFromTop(68));
-    area.removeFromTop(10);
+    summaryLabel_.setBounds(area.removeFromTop(78));
+    area.removeFromTop(12);
     auto buttons = area.removeFromTop(36);
     loadButton_.setBounds(buttons.removeFromLeft(150));
     buttons.removeFromLeft(8);

@@ -52,18 +52,18 @@ void CompositionLaneComponent::resized()
 
     projectNameLabel_.setBounds(left.removeFromTop(labelHeight));
     projectNameEditor_.setBounds(left.removeFromTop(fieldHeight));
-    left.removeFromTop(8);
+    left.removeFromTop(10);
     sectionPlanLabel_.setBounds(left.removeFromTop(labelHeight));
-    sectionPlanEditor_.setBounds(left.removeFromTop(72));
-    left.removeFromTop(8);
+    sectionPlanEditor_.setBounds(left.removeFromTop(84));
+    left.removeFromTop(10);
     chordProgressionLabel_.setBounds(left.removeFromTop(labelHeight));
-    chordProgressionEditor_.setBounds(left.removeFromTop(72));
+    chordProgressionEditor_.setBounds(left.removeFromTop(54));
 
     exportNotesLabel_.setBounds(right.removeFromTop(labelHeight));
-    exportNotesEditor_.setBounds(right.removeFromTop(118));
-    right.removeFromTop(8);
-    exportStatusLabel_.setBounds(right.removeFromTop(42));
+    exportNotesEditor_.setBounds(right.removeFromTop(138));
     right.removeFromTop(10);
+    exportStatusLabel_.setBounds(right.removeFromTop(28));
+    right.removeFromTop(12);
     exportButton_.setBounds(right.removeFromTop(34).removeFromLeft(160));
 }
 

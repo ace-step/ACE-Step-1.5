@@ -1,0 +1,31 @@
+name: "Application Build"
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  run_tests:
+    name: "Continuous Integration"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: "Build image"
+        run: |
+          make docker
+
+      - name: "Login to registry"
+        env:
+          GCR_CREDENTIALS: ${{ secrets.GCR_CREDENTIALS }}
+        run: |
+          ./scripts/gcr_docker_login.sh
+
+      - name: "Push image"
+        run: |
+          make push

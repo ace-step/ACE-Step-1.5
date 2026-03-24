@@ -4,10 +4,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 if [[ -f "$SCRIPT_DIR/.venv/bin/activate" ]]; then
-  # shellcheck disable=SC1091
   source "$SCRIPT_DIR/.venv/bin/activate"
 elif [[ -f "$SCRIPT_DIR/venv/bin/activate" ]]; then
-  # shellcheck disable=SC1091
   source "$SCRIPT_DIR/venv/bin/activate"
 fi
 PY="$SCRIPT_DIR/.venv/bin/python"
@@ -52,7 +50,7 @@ if [[ -f "$CFG_FILE" ]]; then
   echo "  Porta:  $PORT"
   read -rp "Usare l'ultima configurazione? [Y/n]: " USE_LAST
   case "${USE_LAST:-Y}" in
-    Y|y|yes|YES) exec "$PY" -m uvicorn acestep.ui.aceflow.app:app --host "$SERVER_NAME" --port "$PORT" ;;
+    Y|y|yes|YES) exec "$PY" -m uvicorn acestep.ui.aceflow.app:create_app --factory --host "$SERVER_NAME" --port "$PORT" ;;
   esac
 fi
 
@@ -92,21 +90,35 @@ case "$PRESET" in
     export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU=0
     ;;
   *)
-    read -rp "Config DiT [acestep-v15-turbo]: " ACESTEP_REMOTE_CONFIG_PATH; export ACESTEP_REMOTE_CONFIG_PATH="${ACESTEP_REMOTE_CONFIG_PATH:-acestep-v15-turbo}"
-    read -rp "LM model [acestep-5Hz-lm-1.7B]: " ACESTEP_REMOTE_LM_MODEL_PATH; export ACESTEP_REMOTE_LM_MODEL_PATH="${ACESTEP_REMOTE_LM_MODEL_PATH:-acestep-5Hz-lm-1.7B}"
-    read -rp "Device [auto]: " ACESTEP_REMOTE_DEVICE; export ACESTEP_REMOTE_DEVICE="${ACESTEP_REMOTE_DEVICE:-auto}"
-    read -rp "Offload CPU (0/1) [0]: " ACESTEP_REMOTE_OFFLOAD_TO_CPU; export ACESTEP_REMOTE_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_TO_CPU:-0}"
-    read -rp "Offload DiT CPU (0/1) [0]: " ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU; export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU:-0}"
-    read -rp "INT8 (0/1) [0]: " ACESTEP_REMOTE_INT8_QUANTIZATION; export ACESTEP_REMOTE_INT8_QUANTIZATION="${ACESTEP_REMOTE_INT8_QUANTIZATION:-0}"
-    read -rp "Compile model (0/1) [0]: " ACESTEP_REMOTE_COMPILE_MODEL; export ACESTEP_REMOTE_COMPILE_MODEL="${ACESTEP_REMOTE_COMPILE_MODEL:-0}"
-    read -rp "Flash attention (0/1) [1]: " ACESTEP_REMOTE_USE_FLASH_ATTENTION; export ACESTEP_REMOTE_USE_FLASH_ATTENTION="${ACESTEP_REMOTE_USE_FLASH_ATTENTION:-1}"
-    read -rp "LM offload CPU (0/1) [0]: " ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU; export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU:-0}"
+    read -rp "Config DiT [acestep-v15-turbo]: " ACESTEP_REMOTE_CONFIG_PATH
+    export ACESTEP_REMOTE_CONFIG_PATH="${ACESTEP_REMOTE_CONFIG_PATH:-acestep-v15-turbo}"
+    read -rp "LM model [acestep-5Hz-lm-1.7B]: " ACESTEP_REMOTE_LM_MODEL_PATH
+    export ACESTEP_REMOTE_LM_MODEL_PATH="${ACESTEP_REMOTE_LM_MODEL_PATH:-acestep-5Hz-lm-1.7B}"
+    read -rp "Device [auto]: " ACESTEP_REMOTE_DEVICE
+    export ACESTEP_REMOTE_DEVICE="${ACESTEP_REMOTE_DEVICE:-auto}"
+    read -rp "Offload CPU (0/1) [0]: " ACESTEP_REMOTE_OFFLOAD_TO_CPU
+    export ACESTEP_REMOTE_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_TO_CPU:-0}"
+    read -rp "Offload DiT CPU (0/1) [0]: " ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU
+    export ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU="${ACESTEP_REMOTE_OFFLOAD_DIT_TO_CPU:-0}"
+    read -rp "INT8 (0/1) [0]: " ACESTEP_REMOTE_INT8_QUANTIZATION
+    export ACESTEP_REMOTE_INT8_QUANTIZATION="${ACESTEP_REMOTE_INT8_QUANTIZATION:-0}"
+    read -rp "Compile model (0/1) [0]: " ACESTEP_REMOTE_COMPILE_MODEL
+    export ACESTEP_REMOTE_COMPILE_MODEL="${ACESTEP_REMOTE_COMPILE_MODEL:-0}"
+    read -rp "Flash attention (0/1) [1]: " ACESTEP_REMOTE_USE_FLASH_ATTENTION
+    export ACESTEP_REMOTE_USE_FLASH_ATTENTION="${ACESTEP_REMOTE_USE_FLASH_ATTENTION:-1}"
+    read -rp "LM offload CPU (0/1) [0]: " ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU
+    export ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU="${ACESTEP_REMOTE_LM_OFFLOAD_TO_CPU:-0}"
     ;;
 esac
-read -rp "Device [${ACESTEP_REMOTE_DEVICE:-auto}]: " TMP; export ACESTEP_REMOTE_DEVICE="${TMP:-${ACESTEP_REMOTE_DEVICE:-auto}}"
-read -rp "Porta [7861]: " TMP; export PORT="${TMP:-7861}"
-read -rp "Bind address [0.0.0.0]: " TMP; export SERVER_NAME="${TMP:-0.0.0.0}"
-read -rp "LoRA root opzionale [invio per auto]: " TMP; export ACESTEP_REMOTE_LORA_ROOT="${TMP:-}"
+
+read -rp "Device [auto]: " ACESTEP_REMOTE_DEVICE
+export ACESTEP_REMOTE_DEVICE="${ACESTEP_REMOTE_DEVICE:-auto}"
+read -rp "Porta [7861]: " PORT
+export PORT="${PORT:-7861}"
+read -rp "Bind address [0.0.0.0]: " SERVER_NAME
+export SERVER_NAME="${SERVER_NAME:-0.0.0.0}"
+read -rp "LoRA root opzionale [invio per auto]: " ACESTEP_REMOTE_LORA_ROOT
+export ACESTEP_REMOTE_LORA_ROOT="${ACESTEP_REMOTE_LORA_ROOT:-}"
 
 cat > "$CFG_FILE" <<EOF
 export PORT="$PORT"
@@ -133,4 +145,4 @@ EOF
 echo
 echo "Starting ACE-Step Remote UI..."
 echo "http://$SERVER_NAME:$PORT/"
-exec "$PY" -m uvicorn acestep.ui.aceflow.app:app --host "$SERVER_NAME" --port "$PORT"
+exec "$PY" -m uvicorn acestep.ui.aceflow.app:create_app --factory --host "$SERVER_NAME" --port "$PORT"

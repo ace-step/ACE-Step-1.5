@@ -160,4 +160,4 @@ if "%ACESTEP_REMOTE_LORA_ROOT%"=="" set "ACESTEP_REMOTE_LORA_ROOT="
 echo.
 echo Starting ACE-Step Remote UI...
 echo http://%SERVER_NAME%:%PORT%/
-"%PY%" -m uvicorn acestep.ui.aceflow.app:app --host %SERVER_NAME% --port %PORT%
+"%PY%" -m uvicorn acestep.ui.aceflow.app:create_app --factory --host %SERVER_NAME% --port %PORT%

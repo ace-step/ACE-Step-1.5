@@ -1135,57 +1135,35 @@ def _install_core_turbo_step_clamp_bypass_patch() -> bool:
         )
         return original_normalize(_HostProxy(self), *args, **kwargs)
 
-    def patched_build_kwargs(
-        self,
-        payload,
-        seed_param,
-        infer_steps,
-        guidance_scale,
-        audio_cover_strength,
-        cover_noise_strength,
-        infer_method,
-        use_adg,
-        cfg_interval_start,
-        cfg_interval_end,
-        shift,
-        timesteps,
-    ):
-        kwargs = original_build_kwargs(
-            self=self,
-            payload=payload,
-            seed_param=seed_param,
-            infer_steps=infer_steps,
-            guidance_scale=guidance_scale,
-            audio_cover_strength=audio_cover_strength,
-            cover_noise_strength=cover_noise_strength,
-            infer_method=infer_method,
-            use_adg=use_adg,
-            cfg_interval_start=cfg_interval_start,
-            cfg_interval_end=cfg_interval_end,
-            shift=shift,
-            timesteps=timesteps,
-        )
+    def patched_build_kwargs(self, *args, **kwargs):
+        infer_steps = kwargs.get("infer_steps", None)
+        if infer_steps is None and len(args) >= 3:
+            infer_steps = args[2]
+        timesteps = kwargs.get("timesteps", None)
+        if timesteps is None and len(args) >= 12:
+            timesteps = args[11]
+        kwargs_out = original_build_kwargs(self, *args, **kwargs)
         if timesteps is not None:
-            return kwargs
+            return kwargs_out
         if not getattr(getattr(self, "config", None), "is_turbo", False):
-            return kwargs
+            return kwargs_out
         try:
             infer_steps_int = int(infer_steps)
         except Exception:
-            return kwargs
+            return kwargs_out
         if infer_steps_int <= 8:
-            return kwargs
+            return kwargs_out
         effective_steps = max(1, min(infer_steps_int, ACEFLOW_DEFAULT_MAX_INFERENCE_STEPS_TURBO))
         schedule = _get_turbo_timesteps_for_infer_steps(effective_steps)
-        kwargs["timesteps"] = torch.tensor(schedule, dtype=torch.float32, device=self.device)
-        kwargs["infer_steps"] = effective_steps
+        kwargs_out["timesteps"] = torch.tensor(schedule, dtype=torch.float32, device=self.device)
+        kwargs_out["infer_steps"] = effective_steps
         logger.warning(
             "[AceFlow] turbo runtime patch mapped requested infer_steps={} to explicit timesteps schedule len={} values={}",
             infer_steps_int,
             len(schedule),
             schedule,
         )
-        return kwargs
+        return kwargs_out
 
     ServiceGenerateRequestMixin._normalize_service_generate_inputs = patched_normalize
     ServiceGenerateRequestMixin._aceflow_turbo_clamp_patch_installed = True

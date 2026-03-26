@@ -53,6 +53,20 @@ _EXTERNAL_PROVIDER_PROFILES: dict[str, ExternalProviderProfile] = {
             ("OpenAI chat completions", "https://api.openai.com/v1/chat/completions"),
         ),
     ),
+    "forge": ExternalProviderProfile(
+        provider_id="forge",
+        label="Forge",
+        protocol="openai_chat",
+        default_model="OpenAI/gpt-4o-mini",
+        default_base_url="https://api.forge.tensorblock.co/v1/chat/completions",
+        api_key_env="FORGE_API_KEY",
+        api_key_required=True,
+        secret_path_env="ACESTEP_FORGE_SECRET_PATH",
+        secret_file_name="forge_api_key.enc",
+        base_url_presets=(
+            ("Forge chat completions", "https://api.forge.tensorblock.co/v1/chat/completions"),
+        ),
+    ),
     "claude": ExternalProviderProfile(
         provider_id="claude",
         label="Anthropic Claude",
@@ -101,7 +115,7 @@ def get_external_provider_profile(provider: str | None) -> ExternalProviderProfi
 def get_external_provider_choices() -> list[tuple[str, str]]:
     """Return provider dropdown choices as ``(label, value)`` pairs."""
 
-    order = ("zai", "openai", "claude", "ollama")
+    order = ("zai", "openai", "forge", "claude", "ollama")
     return [
         (_EXTERNAL_PROVIDER_PROFILES[provider_id].label, provider_id)
         for provider_id in order

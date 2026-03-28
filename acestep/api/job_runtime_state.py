@@ -9,19 +9,56 @@ from acestep.api.jobs.local_cache_updates import update_local_cache, update_loca
 
 
 async def ensure_models_initialized(app_state: Any) -> None:
-    """Raise when startup model initialization failed or has not completed.
+    """Ensure models are initialized, loading them lazily on first request if needed.
+
+    If models were already loaded at startup (``ACESTEP_NO_INIT=false``), this
+    returns immediately.  Otherwise it performs on-demand initialization using
+    the kwargs stored on ``app_state._model_init_kwargs`` during lifespan setup.
 
     Args:
         app_state: Application state object containing initialization flags.
 
     Raises:
-        RuntimeError: If startup initialization failed or has not completed.
+        RuntimeError: If model initialization previously failed.
     """
 
+    # Fast path: already initialized
+    if getattr(app_state, "_initialized", False):
+        return
+
+    # Previous init attempt failed — propagate the error
     if getattr(app_state, "_init_error", None):
         raise RuntimeError(app_state._init_error)
-    if not getattr(app_state, "_initialized", False):
-        raise RuntimeError("Model not initialized")
+
+    # Lazy initialization with double-check locking
+    async with app_state._init_lock:
+        # Re-check after acquiring lock
+        if getattr(app_state, "_initialized", False):
+            return
+        if getattr(app_state, "_init_error", None):
+            raise RuntimeError(app_state._init_error)
+
+        init_kwargs = getattr(app_state, "_model_init_kwargs", None)
+        if init_kwargs is None:
+            raise RuntimeError("Model not initialized and no init kwargs available")
+
+        print("[API Server] First request received — lazy-loading models...")
+        from acestep.api.startup_model_init import do_model_initialization
+
+        # app_state belongs to app; recover the app reference via the
+        # FastAPI convention: app_state._app or we pass app via kwargs.
+        # The init kwargs were stored without 'app' — we need the app object.
+        # We stored the kwargs from initialize_models_at_startup which has
+        # access to 'app'. We need to find it. The app_state is app.state,
+        # and app.state._app is not standard. Instead, we'll use a small
+        # wrapper that sets _initialized on app_state directly.
+        class _AppProxy:
+            """Thin proxy so do_model_initialization can set app.state attrs."""
+
+            def __init__(self, state: Any) -> None:
+                self.state = state
+
+        do_model_initialization(app=_AppProxy(app_state), **init_kwargs)
 
 
 async def cleanup_job_temp_files(app_state: Any, job_id: str) -> None:

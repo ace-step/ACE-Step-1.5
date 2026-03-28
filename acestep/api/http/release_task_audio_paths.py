@@ -62,8 +62,17 @@ async def save_upload_to_temp(upload: StarletteUploadFile, *, prefix: str) -> st
 
     suffix = Path(upload.filename or "").suffix
     fd, path = tempfile.mkstemp(prefix=f"{prefix}_", suffix=suffix)
-    os.close(fd)
     try:
+        try:
+            os.close(fd)
+        except OSError:
+            # fd is invalid or already closed — clean up the temp file
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            raise
+
         with open(path, "wb") as file_obj:
             while True:
                 chunk = await upload.read(1024 * 1024)
@@ -73,7 +82,7 @@ async def save_upload_to_temp(upload: StarletteUploadFile, *, prefix: str) -> st
     except Exception:
         try:
             os.remove(path)
-        except Exception:
+        except OSError:
             pass
         raise
     finally:

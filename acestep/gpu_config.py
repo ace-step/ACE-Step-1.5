@@ -23,6 +23,7 @@ from loguru import logger
 DEBUG_MAX_CUDA_VRAM_ENV = "MAX_CUDA_VRAM"
 DEBUG_MAX_MPS_VRAM_ENV = "MAX_MPS_VRAM"
 DEBUG_MAX_XPU_VRAM_ENV = "MAX_XPU_VRAM"
+SAVE_MEMORY_ENV = "ACESTEP_SAVE_MEMORY"
 
 # Tolerance for 16GB detection: reported VRAM like 15.5GB is effectively 16GB hardware
 # Real-world 16GB GPUs often report 15.7-15.9GB due to system/driver reservations
@@ -36,6 +37,7 @@ VRAM_AUTO_OFFLOAD_THRESHOLD_GB = 20.0
 # PyTorch installation URLs for diagnostics
 PYTORCH_CUDA_INSTALL_URL = "https://download.pytorch.org/whl/cu121"
 PYTORCH_ROCM_INSTALL_URL = "https://download.pytorch.org/whl/rocm6.0"
+VALID_LM_BACKENDS = {"vllm", "pt", "mlx"}
 
 
 def is_mps_platform() -> bool:
@@ -118,6 +120,24 @@ def cuda_supports_bfloat16(device_index: int | None = None) -> bool:
         return False
 
 
+def get_cuda_device_capability(device_index: int = 0) -> Optional[Tuple[int, int]]:
+    """Return the active CUDA device capability tuple when available."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_capability(device_index)
+    except Exception:
+        return None
+    return None
+
+
+def is_legacy_cuda_gpu(device_index: int = 0) -> bool:
+    """Return True for pre-Volta CUDA GPUs that should avoid vLLM defaults."""
+    capability = get_cuda_device_capability(device_index)
+    return capability is not None and capability[0] < 7 and not is_rocm_available()
+
+
 # ===========================================================================
 # Empirical VRAM measurements (GB) -- model weights only, bf16 precision
 # These values should be calibrated using scripts/profile_vram.py
@@ -195,6 +215,50 @@ class GPUConfig:
 
     # LM memory allocation (GB) for each model size
     lm_memory_gb: Dict[str, float]  # e.g., {"0.6B": 3, "1.7B": 8, "4B": 12}
+
+    # Save-memory mode: skip storing intermediate tensors in extra_outputs
+    # and disable auto_lrc / auto_score to reduce RAM usage.
+    # Controlled via ACESTEP_SAVE_MEMORY=1 environment variable.
+    save_memory_mode: bool = False
+
+
+def _apply_lm_backend_compatibility_overrides(config: GPUConfig) -> GPUConfig:
+    """Apply runtime hardware overrides for LM backend selection."""
+    if is_legacy_cuda_gpu():
+        logger.info(
+            "Legacy CUDA GPU detected (pre-Volta compute capability): "
+            "forcing 5Hz LM backend recommendation to PyTorch."
+        )
+        config.lm_backend_restriction = "pt_only"
+        config.recommended_backend = "pt"
+    return config
+
+
+def resolve_lm_backend(
+    requested_backend: Optional[str],
+    gpu_config: Optional["GPUConfig"] = None,
+) -> str:
+    """Resolve the LM backend against runtime compatibility restrictions."""
+    config = gpu_config or get_global_gpu_config()
+    recommended_backend = getattr(config, "recommended_backend", "vllm")
+    lm_backend_restriction = getattr(config, "lm_backend_restriction", "all")
+
+    backend = (requested_backend or "").strip().lower()
+    if backend not in VALID_LM_BACKENDS:
+        backend = recommended_backend
+        if backend not in VALID_LM_BACKENDS:
+            backend = "pt"
+
+    if lm_backend_restriction == "pt_only":
+        return "pt"
+
+    if lm_backend_restriction == "pt_mlx_only" and backend == "vllm":
+        fallback = recommended_backend
+        if fallback not in {"pt", "mlx"}:
+            fallback = "pt"
+        return fallback
+
+    return backend
 
 
 # GPU tier configurations
@@ -703,7 +767,7 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
             "mlx backend, no CPU offload."
         )
 
-    return GPUConfig(
+    config = GPUConfig(
         tier=tier,
         gpu_memory_gb=gpu_memory_gb,
         max_duration_with_lm=config["max_duration_with_lm"],
@@ -738,6 +802,7 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
         else config.get("compile_model_default", True),
         lm_memory_gb=config["lm_memory_gb"],
     )
+    return _apply_lm_backend_compatibility_overrides(config)
 
 
 def get_lm_model_size(model_path: str) -> str:
@@ -1002,7 +1067,7 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
     tier = get_gpu_tier(total_vram_gb)
     tier_config = GPU_TIER_CONFIGS.get(tier, {})
 
-    return GPUConfig(
+    config = GPUConfig(
         tier=tier,
         gpu_memory_gb=total_vram_gb,
         max_duration_with_lm=max_dur_lm,
@@ -1023,6 +1088,7 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
         compile_model_default=tier_config.get("compile_model_default", True),
         lm_memory_gb=lm_memory_gb,
     )
+    return _apply_lm_backend_compatibility_overrides(config)
 
 
 def get_effective_free_vram_gb(device_index: int = 0) -> float:
@@ -1366,7 +1432,7 @@ def get_gpu_config_for_tier(tier: str) -> GPUConfig:
             f"Manual tier override to {tier} on macOS MPS — applying Apple Silicon overrides"
         )
 
-    return GPUConfig(
+    config = GPUConfig(
         tier=tier,
         gpu_memory_gb=real_gpu_memory,
         max_duration_with_lm=config["max_duration_with_lm"],
@@ -1396,6 +1462,7 @@ def get_gpu_config_for_tier(tier: str) -> GPUConfig:
         else config.get("compile_model_default", True),
         lm_memory_gb=config["lm_memory_gb"],
     )
+    return _apply_lm_backend_compatibility_overrides(config)
 
 
 # Global GPU config instance (initialized lazily)
@@ -1403,10 +1470,18 @@ _global_gpu_config: Optional[GPUConfig] = None
 
 
 def get_global_gpu_config() -> GPUConfig:
-    """Get the global GPU configuration, initializing if necessary."""
+    """Get the global GPU configuration, initializing if necessary.
+
+    Respects the ``ACESTEP_SAVE_MEMORY`` environment variable: when set to
+    ``"1"`` or ``"true"``, ``save_memory_mode`` is enabled regardless of tier.
+    """
     global _global_gpu_config
     if _global_gpu_config is None:
         _global_gpu_config = get_gpu_config()
+        env_val = os.environ.get(SAVE_MEMORY_ENV, "").strip().lower()
+        if env_val in ("1", "true", "yes"):
+            _global_gpu_config.save_memory_mode = True
+            logger.info("[gpu_config] Save-memory mode enabled via {}={}".format(SAVE_MEMORY_ENV, env_val))
     return _global_gpu_config
 
 

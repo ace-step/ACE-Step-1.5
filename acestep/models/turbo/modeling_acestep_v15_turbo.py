@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import copy
 import math
 import time
 from typing import Callable, List, Optional, Union
@@ -1276,7 +1277,8 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         self.time_embed_r = TimestepEmbedding(in_channels=256, time_embed_dim=inner_dim)
         
         # Project encoder hidden states to model dimension
-        self.condition_embedder = nn.Linear(inner_dim, inner_dim, bias=True)
+        condition_dim = getattr(config, "encoder_hidden_size", config.hidden_size)
+        self.condition_embedder = nn.Linear(condition_dim, inner_dim, bias=True)
 
         # Output normalization and projection
         # Adaptive layer norm with scale-shift modulation, then de-patchify
@@ -1597,11 +1599,22 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         self.config = config
         # Diffusion model components
         self.decoder = AceStepDiTModel(config)  # Main diffusion transformer
-        self.encoder = AceStepConditionEncoder(config)  # Condition encoder
-        self.tokenizer = AceStepAudioTokenizer(config)  # Audio tokenizer
-        self.detokenizer = AudioTokenDetokenizer(config)  # Audio detokenizer
+        # Build encoder config: use separate encoder_hidden_size when available
+        # (4B models have encoder_hidden_size=2048 != hidden_size=2560)
+        _enc_hs = getattr(config, "encoder_hidden_size", config.hidden_size)
+        if _enc_hs != config.hidden_size:
+            encoder_config = copy.deepcopy(config)
+            encoder_config.hidden_size = _enc_hs
+            encoder_config.intermediate_size = getattr(config, "encoder_intermediate_size", config.intermediate_size)
+            encoder_config.num_attention_heads = getattr(config, "encoder_num_attention_heads", config.num_attention_heads)
+            encoder_config.num_key_value_heads = getattr(config, "encoder_num_key_value_heads", config.num_key_value_heads)
+        else:
+            encoder_config = config
+        self.encoder = AceStepConditionEncoder(encoder_config)  # Condition encoder
+        self.tokenizer = AceStepAudioTokenizer(encoder_config)  # Audio tokenizer
+        self.detokenizer = AudioTokenDetokenizer(encoder_config)  # Audio detokenizer
         # Null condition embedding for classifier-free guidance
-        self.null_condition_emb = nn.Parameter(torch.randn(1, 1, config.hidden_size))
+        self.null_condition_emb = nn.Parameter(torch.randn(1, 1, encoder_config.hidden_size))
 
         # Initialize weights and apply final processing
         self.post_init()

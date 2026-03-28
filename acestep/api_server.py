@@ -348,6 +348,7 @@ def create_app() -> FastAPI:
         runtime_temporary_llm_model=_runtime_temporary_llm_model,
         runtime_atomic_write_json=_runtime_atomic_write_json,
         runtime_append_jsonl=_runtime_append_jsonl,
+        create_sample=create_sample,
     )
 
     return app

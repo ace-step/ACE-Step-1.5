@@ -2,10 +2,12 @@
 Gradio API Routes Module
 Add API endpoints compatible with api_server.py and CustomAceStep to Gradio application
 """
+import atexit
 import json
 import os
 import random
 import time
+from threading import Lock
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -20,12 +22,20 @@ os.makedirs(DEFAULT_RESULTS_DIR, exist_ok=True)
 
 # API Key storage (set via setup_api_routes)
 _api_key: Optional[str] = None
+_api_key_lock = Lock()
 
 
 def set_api_key(key: Optional[str]):
-    """Set the API key for authentication"""
+    """Set the API key for authentication."""
     global _api_key
-    _api_key = key
+    with _api_key_lock:
+        _api_key = key
+
+
+def _get_api_key() -> Optional[str]:
+    """Read the current API key under lock."""
+    with _api_key_lock:
+        return _api_key
 
 
 def _wrap_response(data: Any, code: int = 200, error: Optional[str] = None) -> Dict[str, Any]:
@@ -44,13 +54,14 @@ def verify_token_from_request(body: dict, authorization: Optional[str] = None) -
     Verify API key from request body (ai_token) or Authorization header.
     Returns the token if valid, None if no auth required.
     """
-    if _api_key is None:
+    key = _get_api_key()
+    if key is None:
         return None  # No auth required
 
     # Try ai_token from body first
     ai_token = body.get("ai_token") if body else None
     if ai_token:
-        if ai_token == _api_key:
+        if ai_token == key:
             return ai_token
         raise HTTPException(status_code=401, detail="Invalid ai_token")
 
@@ -60,7 +71,7 @@ def verify_token_from_request(body: dict, authorization: Optional[str] = None) -
             token = authorization[7:]
         else:
             token = authorization
-        if token == _api_key:
+        if token == key:
             return token
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -69,8 +80,9 @@ def verify_token_from_request(body: dict, authorization: Optional[str] = None) -
 
 
 async def verify_api_key(authorization: Optional[str] = Header(None)):
-    """Verify API key from Authorization header (legacy, for non-body endpoints)"""
-    if _api_key is None:
+    """Verify API key from Authorization header (legacy, for non-body endpoints)."""
+    key = _get_api_key()
+    if key is None:
         return  # No auth required
 
     if not authorization:
@@ -82,7 +94,7 @@ async def verify_api_key(authorization: Optional[str] = Header(None)):
     else:
         token = authorization
 
-    if token != _api_key:
+    if token != key:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
@@ -99,6 +111,16 @@ except ImportError:
 
 RESULT_EXPIRE_SECONDS = 7 * 24 * 60 * 60  # 7 days expiration
 RESULT_KEY_PREFIX = "ace_step_v1.5_"
+_result_cache_lock = Lock()  # guards the plain-dict fallback when diskcache is unavailable
+
+
+def _close_result_cache():
+    """Close the diskcache backend so pending writes are flushed on shutdown."""
+    if DISKCACHE_AVAILABLE and hasattr(_result_cache, "close"):
+        _result_cache.close()
+
+
+atexit.register(_close_result_cache)
 
 # =============================================================================
 # Example Data for Random Sample
@@ -142,25 +164,26 @@ CUSTOM_EXAMPLE_DATA = _load_all_examples("custom_mode")
 
 
 def store_result(task_id: str, result: dict, status: str = "succeeded"):
-    """Store result to diskcache"""
+    """Store generation result keyed by *task_id*."""
     data = {
         "result": result,
         "created_at": time.time(),
-        "status": status
+        "status": status,
     }
     key = f"{RESULT_KEY_PREFIX}{task_id}"
     if DISKCACHE_AVAILABLE:
         _result_cache.set(key, data, expire=RESULT_EXPIRE_SECONDS)
     else:
-        _result_cache[key] = data
+        with _result_cache_lock:
+            _result_cache[key] = data
 
 
 def get_result(task_id: str) -> Optional[dict]:
-    """Get result from diskcache"""
+    """Retrieve a stored generation result by *task_id*."""
     key = f"{RESULT_KEY_PREFIX}{task_id}"
     if DISKCACHE_AVAILABLE:
         return _result_cache.get(key)
-    else:
+    with _result_cache_lock:
         return _result_cache.get(key)
 
 

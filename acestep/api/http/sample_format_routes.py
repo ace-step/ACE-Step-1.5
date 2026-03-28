@@ -23,6 +23,7 @@ def register_sample_format_routes(
     env_bool: Callable[[str, bool], bool],
     to_int: Callable[[Any, Optional[int]], Optional[int]],
     to_float: Callable[[Any, Optional[float]], Optional[float]],
+    create_sample_fn: Callable[..., Any],
 ) -> None:
     """Register random-sample and format-input routes on the FastAPI app."""
 
@@ -157,3 +158,89 @@ def register_sample_format_routes(
             )
         except Exception as exc:
             return wrap_response(None, code=500, error=f"format_sample error: {str(exc)}")
+
+    @app.post("/v1/create_sample")
+    async def create_sample_endpoint(request: Request, authorization: Optional[str] = Header(None)):
+        """Create a music sample from a natural language description using the 5Hz LM.
+
+        This is the API equivalent of the Gradio UI's Simple Mode \Create Sample\ button.
+        Takes a user description and returns generated caption, lyrics, and metadata.
+        """
+        content_type = (request.headers.get("content-type") or "").lower()
+        if "json" in content_type:
+            body = await request.json()
+        else:
+            form = await request.form()
+            body = {k: v for k, v in form.items()}
+
+        verify_token_from_request(body, authorization)
+
+        query = body.get("query", "") or ""
+        instrumental = body.get("instrumental", False)
+        if isinstance(instrumental, str):
+            instrumental = instrumental.lower() in {"true", "1", "yes"}
+        vocal_language = body.get("vocal_language", "unknown") or "unknown"
+        temperature = to_float(body.get("temperature"), 0.85) or 0.85
+
+        llm = app.state.llm_handler
+        llm_lock: Lock = app.state._llm_init_lock
+
+        with llm_lock:
+            if not getattr(app.state, "_llm_initialized", False):
+                if getattr(app.state, "_llm_init_error", None):
+                    raise HTTPException(status_code=500, detail=f"LLM init failed: {app.state._llm_init_error}")
+                if getattr(app.state, "_llm_lazy_load_disabled", False):
+                    raise HTTPException(
+                        status_code=503,
+                        detail="LLM not initialized. Set ACESTEP_INIT_LLM=true in .env to enable.",
+                    )
+                # Lazy-init LLM
+                project_root = get_project_root()
+                checkpoint_dir = os.path.join(project_root, "checkpoints")
+                lm_model_path = os.getenv("ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-0.6B").strip()
+                backend = os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower()
+                if backend not in {"vllm", "pt", "mlx"}:
+                    backend = "vllm"
+                lm_device = os.getenv("ACESTEP_LM_DEVICE", os.getenv("ACESTEP_DEVICE", "auto"))
+                lm_offload = env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False)
+                lm_model_name = get_model_name(lm_model_path)
+                if lm_model_name:
+                    try:
+                        ensure_model_downloaded(lm_model_name, checkpoint_dir)
+                    except Exception as exc:
+                        print(f"[API Server] Warning: Failed to download LM model {lm_model_name}: {exc}")
+                status, ok = llm.initialize(
+                    checkpoint_dir=checkpoint_dir,
+                    lm_model_path=lm_model_path,
+                    backend=backend,
+                    device=lm_device,
+                    offload_to_cpu=lm_offload,
+                    dtype=None,
+                )
+                if not ok:
+                    app.state._llm_init_error = status
+                    raise HTTPException(status_code=500, detail=f"LLM init failed: {status}")
+                app.state._llm_initialized = True
+
+        try:
+            result = create_sample_fn(
+                llm_handler=llm,
+                query=query,
+                instrumental=instrumental,
+                vocal_language=vocal_language,
+                temperature=temperature,
+                use_constrained_decoding=True,
+            )
+            if not result.success:
+                return wrap_response(None, code=500, error=result.status_message or "Failed to create sample")
+            return wrap_response({
+                "caption": result.caption or "",
+                "lyrics": result.lyrics or "",
+                "bpm": result.bpm,
+                "keyscale": result.keyscale or "",
+                "duration": result.duration,
+                "timesignature": result.timesignature or "",
+                "vocal_language": result.language or vocal_language,
+            })
+        except Exception as exc:
+            return wrap_response(None, code=500, error=f"create_sample error: {str(exc)}")

@@ -282,6 +282,7 @@
     "no_codes": "❌ 利用可能なオーディオコードがありません。最初に音楽を生成してください。",
     "score_failed": "❌ スコアリングに失敗しました: {error}",
     "score_error": "❌ スコア計算エラー: {error}",
+    "lrc_save_memory_disabled": "❌ 省メモリモードが有効です (ACESTEP_SAVE_MEMORY=1)。中間テンソルは保存されないため、LRC生成は使用できません。",
     "lrc_no_batch_data": "❌ バッチデータが見つかりません。最初に音楽を生成してください。",
     "lrc_no_extra_outputs": "❌ 追加出力が見つかりません。条件テンソルが利用できません。",
     "lrc_missing_tensors": "❌ LRC生成に必要なテンソルがありません。",

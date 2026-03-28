@@ -147,7 +147,7 @@ def _add_model_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_device_args(parser: argparse.ArgumentParser) -> None:
-    """Add --device and --precision."""
+    """Add --device, --precision, --num-devices, and --strategy."""
     g = parser.add_argument_group("Device / platform")
     g.add_argument(
         "--device",
@@ -161,6 +161,19 @@ def _add_device_args(parser: argparse.ArgumentParser) -> None:
         default="auto",
         choices=["auto", "bf16", "fp16", "fp32"],
         help="Precision: auto, bf16, fp16, fp32 (default: auto)",
+    )
+    g.add_argument(
+        "--num-devices",
+        type=int,
+        default=1,
+        help="Number of GPUs for DDP training (default: 1)",
+    )
+    g.add_argument(
+        "--strategy",
+        type=str,
+        default="auto",
+        choices=["auto", "ddp"],
+        help="Distributed strategy: auto or ddp (default: auto)",
     )
 
 

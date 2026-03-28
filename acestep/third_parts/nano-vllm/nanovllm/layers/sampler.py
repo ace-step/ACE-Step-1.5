@@ -2,6 +2,8 @@ import torch
 from torch import nn
 from typing import Optional
 
+from nanovllm.utils.compat import maybe_compile
+
 
 def apply_top_k_top_p(
     logits: torch.Tensor,
@@ -85,7 +87,7 @@ class Sampler(nn.Module):
     def __init__(self):
         super().__init__()
 
-    @torch.compile
+    @maybe_compile
     def forward(
         self, 
         logits: torch.Tensor, 

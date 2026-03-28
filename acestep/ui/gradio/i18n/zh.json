@@ -282,6 +282,7 @@
     "no_codes": "❌ 没有可用的音频代码。请先生成音乐。",
     "score_failed": "❌ 评分失败: {error}",
     "score_error": "❌ 计算分数时出错: {error}",
+    "lrc_save_memory_disabled": "❌ 省内存模式已开启 (ACESTEP_SAVE_MEMORY=1)，LRC 生成不可用。中间张量未保存以减少内存占用。",
     "lrc_no_batch_data": "❌ 未找到批次数据。请先生成音乐。",
     "lrc_no_extra_outputs": "❌ 未找到额外输出。条件张量不可用。",
     "lrc_missing_tensors": "❌ 缺少LRC生成所需的张量。",

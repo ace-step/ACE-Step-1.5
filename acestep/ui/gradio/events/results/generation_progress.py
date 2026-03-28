@@ -72,6 +72,11 @@ def generate_with_progress(
     gpu_config = get_global_gpu_config()
     lm_initialized = llm_handler.llm_initialized if llm_handler else False
 
+    # Save-memory mode: force-disable features that require intermediate tensors
+    if gpu_config.save_memory_mode:
+        auto_score = False
+        auto_lrc = False
+
     if audio_duration is not None and audio_duration > 0:
         is_valid, warning_msg = check_duration_limit(audio_duration, gpu_config, lm_initialized)
         if not is_valid:

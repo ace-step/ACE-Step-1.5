@@ -13,7 +13,7 @@ from acestep.gpu_config import (
 from acestep.api.startup_llm_init import initialize_llm_at_startup
 
 
-def initialize_models_at_startup(
+def do_model_initialization(
     *,
     app: Any,
     handler: Any,
@@ -27,36 +27,17 @@ def initialize_models_at_startup(
     ensure_model_downloaded: Callable[[str, str], str],
     env_bool: Callable[[str, bool], bool],
 ) -> None:
-    """Initialize DiT and optional LLM models at server startup."""
+    """Download and load DiT, VAE, and optional LLM models.
 
-    no_init = env_bool("ACESTEP_NO_INIT", False)
-    gpu_config = get_gpu_config()
-    set_global_gpu_config(gpu_config)
-    app.state.gpu_config = gpu_config
+    This is the actual model initialization logic, callable both at startup
+    (when ``ACESTEP_NO_INIT=false``) and lazily on first request.
+    """
 
+    gpu_config = app.state.gpu_config
     gpu_memory_gb = gpu_config.gpu_memory_gb
     auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB
 
-    print(f"\n{'='*60}")
-    print("[API Server] GPU Configuration Detected:")
-    print(f"{'='*60}")
-    print(f"  GPU Memory: {gpu_memory_gb:.2f} GB")
-    print(f"  Configuration Tier: {gpu_config.tier}")
-    print(f"  Max Duration (with LM): {gpu_config.max_duration_with_lm}s")
-    print(f"  Max Duration (without LM): {gpu_config.max_duration_without_lm}s")
-    print(f"  Max Batch Size (with LM): {gpu_config.max_batch_size_with_lm}")
-    print(f"  Max Batch Size (without LM): {gpu_config.max_batch_size_without_lm}")
-    print(f"  Default LM Init: {gpu_config.init_lm_default}")
-    print(f"  Available LM Models: {gpu_config.available_lm_models or 'None'}")
-    print(f"{'='*60}\n")
-
-    if no_init:
-        print("[API Server] --no-init mode: Skipping all model loading at startup")
-        print("[API Server] Models will be lazy-loaded on first request")
-        print("[API Server] Server is ready to accept requests (models not loaded yet)")
-        return
-
-    print("[API Server] Initializing models at startup...")
+    print("[API Server] Initializing models...")
     if auto_offload:
         print("[API Server] Auto-enabling CPU offload (GPU < 16GB)")
     elif gpu_memory_gb > 0:
@@ -179,3 +160,70 @@ def initialize_models_at_startup(
     )
 
     print("[API Server] All models initialized successfully!")
+
+
+def initialize_models_at_startup(
+    *,
+    app: Any,
+    handler: Any,
+    llm_handler: Any,
+    handler2: Any,
+    handler3: Any,
+    config_path2: str,
+    config_path3: str,
+    get_project_root: Callable[[], str],
+    get_model_name: Callable[[str], str],
+    ensure_model_downloaded: Callable[[str, str], str],
+    env_bool: Callable[[str, bool], bool],
+) -> None:
+    """Detect GPU configuration and optionally initialize models at startup.
+
+    By default models are NOT loaded at startup (lazy-loaded on first request).
+    Set ``ACESTEP_NO_INIT=false`` to force eager loading at startup.
+    """
+
+    no_init = env_bool("ACESTEP_NO_INIT", True)
+    gpu_config = get_gpu_config()
+    set_global_gpu_config(gpu_config)
+    app.state.gpu_config = gpu_config
+
+    gpu_memory_gb = gpu_config.gpu_memory_gb
+
+    print(f"\n{'='*60}")
+    print("[API Server] GPU Configuration Detected:")
+    print(f"{'='*60}")
+    print(f"  GPU Memory: {gpu_memory_gb:.2f} GB")
+    print(f"  Configuration Tier: {gpu_config.tier}")
+    print(f"  Max Duration (with LM): {gpu_config.max_duration_with_lm}s")
+    print(f"  Max Duration (without LM): {gpu_config.max_duration_without_lm}s")
+    print(f"  Max Batch Size (with LM): {gpu_config.max_batch_size_with_lm}")
+    print(f"  Max Batch Size (without LM): {gpu_config.max_batch_size_without_lm}")
+    print(f"  Default LM Init: {gpu_config.init_lm_default}")
+    print(f"  Available LM Models: {gpu_config.available_lm_models or 'None'}")
+    print(f"{'='*60}\n")
+
+    # Store init kwargs on app.state so lazy initialization can reuse them
+    app.state._model_init_kwargs = dict(
+        handler=handler,
+        llm_handler=llm_handler,
+        handler2=handler2,
+        handler3=handler3,
+        config_path2=config_path2,
+        config_path3=config_path3,
+        get_project_root=get_project_root,
+        get_model_name=get_model_name,
+        ensure_model_downloaded=ensure_model_downloaded,
+        env_bool=env_bool,
+    )
+
+    if no_init:
+        print("[API Server] Models will be lazy-loaded on first request")
+        print("[API Server] Set ACESTEP_NO_INIT=false to load models at startup")
+        print("[API Server] Server is ready to accept requests (models not loaded yet)")
+        return
+
+    print("[API Server] Eager model loading enabled (ACESTEP_NO_INIT=false)")
+    do_model_initialization(
+        app=app,
+        **app.state._model_init_kwargs,
+    )

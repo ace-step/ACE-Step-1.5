@@ -196,6 +196,17 @@ class GenerateMusicMixin:
             instruction=instruction,
         )
 
+        # Turbo models bake guidance into the distillation process and do not
+        # use CFG.  Forcing guidance_scale to 1.0 avoids double-application of
+        # guidance that produces noise or NaN/Inf on float16 (see issue #927).
+        if self.is_turbo_model() and guidance_scale != 1.0:
+            logger.info(
+                "[generate_music] Turbo model detected: overriding "
+                "guidance_scale {:.1f} -> 1.0 (turbo does not use CFG).",
+                guidance_scale,
+            )
+            guidance_scale = 1.0
+
         logger.info("[generate_music] Starting generation...")
         if progress:
             progress(0.51, desc="Preparing inputs...")

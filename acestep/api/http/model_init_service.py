@@ -5,7 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Dict, Optional
 
-from acestep.gpu_config import VRAM_AUTO_OFFLOAD_THRESHOLD_GB, get_gpu_config
+from acestep.gpu_config import (
+    VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
+    get_gpu_config,
+    resolve_lm_backend,
+)
 
 
 def initialize_models_for_request(
@@ -83,9 +87,7 @@ def initialize_models_for_request(
         os.environ["ACESTEP_INIT_LLM"] = "true"
         os.environ["ACESTEP_LM_MODEL_PATH"] = lm_model_path
 
-        lm_backend = os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower()
-        if lm_backend not in {"vllm", "pt", "mlx"}:
-            lm_backend = "vllm"
+        lm_backend = resolve_lm_backend(os.getenv("ACESTEP_LM_BACKEND"), gpu_config)
         lm_device = os.getenv("ACESTEP_LM_DEVICE", device)
         lm_offload_env = os.getenv("ACESTEP_LM_OFFLOAD_TO_CPU")
         lm_offload = env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False) if lm_offload_env is not None else offload_to_cpu

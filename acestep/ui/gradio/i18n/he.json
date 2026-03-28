@@ -300,6 +300,7 @@
     "no_codes": "❌ אין קודי אודיו זמינים. אנא צור מוזיקה תחילה.",
     "score_failed": "❌ חישוב הציון נכשל: {error}",
     "score_error": "❌ שגיאה בחישוב ציון: {error}",
+    "lrc_save_memory_disabled": "❌ מצב חיסכון בזיכרון מופעל (ACESTEP_SAVE_MEMORY=1). יצירת LRC אינה זמינה כי טנזורים ביניים אינם נשמרים.",
     "lrc_no_batch_data": "❌ לא נמצאו נתוני אצווה. אנא צור מוזיקה תחילה.",
     "lrc_no_extra_outputs": "❌ לא נמצאו פלטים נוספים.",
     "lrc_missing_tensors": "❌ חסרים טנזורים נדרשים ליצירת LRC.",

@@ -224,6 +224,14 @@ def generate_lrc_handler(dit_handler, sample_idx, current_batch_index, batch_que
         Tuple of ``(lrc_display_update, details_accordion_update, batch_queue)``.
     """
     import torch  # noqa: F401 – kept for tensor slicing
+    from acestep.gpu_config import get_global_gpu_config
+
+    if get_global_gpu_config().save_memory_mode:
+        return (
+            gr.update(value=t("messages.lrc_save_memory_disabled"), visible=True),
+            gr.skip(),
+            batch_queue,
+        )
 
     if current_batch_index not in batch_queue:
         return gr.skip(), gr.skip(), batch_queue

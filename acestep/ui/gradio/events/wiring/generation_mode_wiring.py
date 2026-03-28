@@ -46,13 +46,36 @@ def register_generation_mode_handlers(
     results_section = context.results_section
     llm_handler = context.llm_handler
 
+    # Shared handler for mode-change and initial page load — extracted to
+    # avoid duplicating the lambda and to keep both call sites in sync.
+    def _handle_mode_change(mode: str, prev: str | None):
+        """Proxy mode-change handling for both .change() and .load() events."""
+        return gen_h.handle_generation_mode_change(mode, prev, llm_handler)
+
+    mode_change_inputs = [
+        generation_section["generation_mode"],
+        generation_section["previous_generation_mode"],
+    ]
+
     # ========== Generation Mode Change ==========
     generation_section["generation_mode"].change(
-        fn=lambda mode, prev: gen_h.handle_generation_mode_change(mode, prev, llm_handler),
-        inputs=[
-            generation_section["generation_mode"],
-            generation_section["previous_generation_mode"],
-        ],
+        fn=_handle_mode_change,
+        inputs=mode_change_inputs,
+        outputs=mode_ui_outputs,
+    )
+
+    # ========== Initial Mode State on Page Load ==========
+    # compute_mode_ui_updates() controls visibility for 44 mode-dependent UI
+    # components (think_checkbox, generate_btn_row, src_audio_row, etc.) but
+    # is only triggered via the .change() event above.  Gradio does not fire
+    # .change() for the initial value assignment, so mode-dependent state is
+    # never applied on first render — causing the Think checkbox (and
+    # potentially other components) to be missing on page load.
+    # This .load() event fires once on page load to initialize all
+    # mode-dependent UI state using the same handler.
+    context.demo.load(
+        fn=_handle_mode_change,
+        inputs=mode_change_inputs,
         outputs=mode_ui_outputs,
     )
 

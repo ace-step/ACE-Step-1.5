@@ -9,6 +9,7 @@ from loguru import logger
 
 from acestep.ui.gradio.events.results.batch_management_helpers import (
     _build_saved_params,
+    _extract_scores,
     _extract_ui_core_outputs,
 )
 from acestep.ui.gradio.events.results.batch_queue import (
@@ -149,6 +150,7 @@ def generate_with_batch_management(
         track_name, complete_track_classes,
         enable_normalization, normalization_db, fade_in_duration, fade_out_duration,
         latent_shift, latent_rescale,
+        repaint_mode=repaint_mode, repaint_strength=repaint_strength,
     )
 
     next_params = saved_params.copy()
@@ -157,9 +159,12 @@ def generate_with_batch_management(
 
     extra_outputs_from_result = result[46] if len(result) > 46 and result[46] is not None else {}
 
+    scores_from_fg = _extract_scores(result)
+
     batch_queue = store_batch_in_queue(
         batch_queue, current_batch_index,
         all_audio_paths, generation_info, seed_value_for_ui,
+        scores=scores_from_fg,
         codes=codes_to_store,
         allow_lm_batch=allow_lm_batch,
         batch_size=int(batch_size_input),

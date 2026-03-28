@@ -66,7 +66,9 @@ def compute_init_defaults(
         default_quantization = False
         default_compile = False
 
-    if gpu_config.lm_backend_restriction == "pt_mlx_only":
+    if gpu_config.lm_backend_restriction == "pt_only":
+        available_backends = ["pt"]
+    elif gpu_config.lm_backend_restriction == "pt_mlx_only":
         available_backends = ["pt", "mlx"]
     else:
         available_backends = ["vllm", "pt", "mlx"]

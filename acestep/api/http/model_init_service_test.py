@@ -128,6 +128,46 @@ class ModelInitServiceTests(unittest.TestCase):
         self.assertFalse(state._llm_initialized)
         self.assertEqual("llm-failed", state._llm_init_error)
 
+    def test_init_llm_uses_pt_backend_for_legacy_cuda_gpu(self):
+        """Legacy CUDA GPU configs should coerce LM init away from vllm."""
+
+        llm = mock.Mock()
+        llm.initialize.return_value = ("ok", True)
+        state = SimpleNamespace(
+            handler=_FakeHandler(),
+            llm_handler=llm,
+            _llm_init_lock=threading.Lock(),
+            _config_path="",
+            _llm_initialized=False,
+            _llm_init_error=None,
+            _llm_lazy_load_disabled=False,
+        )
+
+        gpu_config = SimpleNamespace(
+            gpu_memory_gb=12.0,
+            offload_to_cpu_default=False,
+            recommended_backend="pt",
+            lm_backend_restriction="pt_only",
+        )
+
+        with mock.patch("acestep.api.http.model_init_service.os.makedirs"), mock.patch(
+            "acestep.api.http.model_init_service.get_gpu_config",
+            return_value=gpu_config,
+        ), mock.patch.dict("os.environ", {"ACESTEP_LM_BACKEND": "vllm"}, clear=True):
+            result = initialize_models_for_request(
+                app_state=state,
+                model_name="acestep-v15-base",
+                init_llm=True,
+                requested_lm_model_path="acestep-5Hz-lm-0.6B",
+                get_project_root=lambda: "/tmp/non-existent",
+                get_model_name=lambda p: str(p).split("/")[-1].split("\\")[-1],
+                ensure_model_downloaded=lambda *_: "",
+                env_bool=lambda *_: False,
+            )
+
+        self.assertEqual("acestep-v15-base", result["loaded_model"])
+        self.assertEqual("pt", llm.initialize.call_args.kwargs["backend"])
+
 
 if __name__ == "__main__":
     unittest.main()

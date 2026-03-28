@@ -158,21 +158,20 @@ def temporary_llm_model(
         try:
             yield
         finally:
-            if not ok_switched or not restore_params:
-                return
-            try:
-                llm.initialize(**restore_params)
+            if ok_switched and restore_params:
                 try:
-                    app.state._llm_initialized = True
-                    app.state._llm_init_error = None
-                except Exception:
-                    pass
-            except Exception as exc:
-                try:
-                    app.state._llm_initialized = False
-                    app.state._llm_init_error = str(exc)
-                except Exception:
-                    pass
+                    llm.initialize(**restore_params)
+                    try:
+                        app.state._llm_initialized = True
+                        app.state._llm_init_error = None
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    try:
+                        app.state._llm_initialized = False
+                        app.state._llm_init_error = str(exc)
+                    except Exception:
+                        pass
 
 
 def atomic_write_json(path: str, payload: Dict[str, Any]) -> None:

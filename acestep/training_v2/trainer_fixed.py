@@ -230,38 +230,79 @@ class FixedLoRATrainer:
         accelerator = device_type if device_type in ("cuda", "xpu", "mps", "cpu") else "auto"
 
         # -- Fabric init ----------------------------------------------------
-        # Always use devices=1 (integer).  Passing devices=[index] (a list)
-        # causes Fabric on Windows to create a DistributedSampler wrapper
-        # that yields 0 batches, silently breaking the training loop.
-        # Instead, we set the default CUDA device so Fabric's single-device
-        # mode picks up the correct GPU.
-        if device_type == "cuda":
-            device_idx = self.module.device.index or 0
-            torch.cuda.set_device(device_idx)
+        num_devices = max(1, getattr(cfg, "num_devices", 1))
+        strategy_cfg = getattr(cfg, "strategy", "auto")
+
+        # Cap num_devices to available GPUs to avoid Fabric launch errors.
+        if device_type == "cuda" and torch.cuda.is_available():
+            available = torch.cuda.device_count()
+            if num_devices > available:
+                logger.warning(
+                    "Requested %d devices but only %d CUDA GPUs available; clamping.",
+                    num_devices, available,
+                )
+                num_devices = max(1, available)
+
+        # DDP with a single device is pointless; fall back to auto.
+        if num_devices == 1 and strategy_cfg == "ddp":
+            strategy_cfg = "auto"
+
+        if num_devices > 1:
+            # Multi-GPU DDP mode
+            fabric_strategy = "ddp"
+        else:
+            # Single-GPU mode: set default CUDA device so Fabric picks up
+            # the correct GPU.  Passing devices=[index] (a list) on Windows
+            # causes Fabric to create a DistributedSampler wrapper that
+            # yields 0 batches, so we always use devices=1 (integer).
+            fabric_strategy = strategy_cfg if strategy_cfg != "auto" else "auto"
+            if device_type == "cuda":
+                device_idx = self.module.device.index or 0
+                torch.cuda.set_device(device_idx)
 
         self.fabric = Fabric(
             accelerator=accelerator,
-            devices=1,
+            devices=num_devices,
+            strategy=fabric_strategy,
             precision=precision,
         )
         self.fabric.launch()
 
-        yield TrainingUpdate(0, 0.0, f"[INFO] Starting training (device: {device_type}, precision: {precision})", kind="info")
+        rank = self.fabric.global_rank
+        world_size = self.fabric.world_size
+        is_main = rank == 0
 
-        # -- TensorBoard logger ---------------------------------------------
-        tb = TrainingLogger(cfg.effective_log_dir)
+        # In multi-GPU DDP, each spawned process must move the model to its
+        # own device.  The model was initially loaded on cuda:0 in train().
+        if world_size > 1:
+            target_device = self.fabric.device
+            self.module.model = self.module.model.to(target_device)
+            self.module.device = target_device
+
+        if is_main:
+            yield TrainingUpdate(
+                0, 0.0,
+                f"[INFO] Starting training (devices: {world_size}, strategy: {fabric_strategy}, precision: {precision})",
+                kind="info",
+            )
+
+        # -- TensorBoard logger (only on rank 0) ---------------------------
+        tb = TrainingLogger(cfg.effective_log_dir) if is_main else None
 
         # -- Dataloader -----------------------------------------------------
         train_loader = data_module.train_dataloader()
+        train_loader = self.fabric.setup_dataloaders(train_loader)
 
         # -- Trainable params / optimizer -----------------------------------
         trainable_params = [p for p in self.module.model.parameters() if p.requires_grad]
         if not trainable_params:
-            yield TrainingUpdate(0, 0.0, "[FAIL] No trainable parameters found", kind="fail")
-            tb.close()
+            if is_main:
+                yield TrainingUpdate(0, 0.0, "[FAIL] No trainable parameters found", kind="fail")
+                tb.close()
             return
 
-        yield TrainingUpdate(0, 0.0, f"[INFO] Training {sum(p.numel() for p in trainable_params):,} parameters", kind="info")
+        if is_main:
+            yield TrainingUpdate(0, 0.0, f"[INFO] Training {sum(p.numel() for p in trainable_params):,} parameters", kind="info")
 
         optimizer_type = getattr(cfg, "optimizer_type", "adamw")
         optimizer = build_optimizer(
@@ -271,7 +312,8 @@ class FixedLoRATrainer:
             weight_decay=cfg.weight_decay,
             device_type=self.module.device.type,
         )
-        yield TrainingUpdate(0, 0.0, f"[INFO] Optimizer: {optimizer_type}", kind="info")
+        if is_main:
+            yield TrainingUpdate(0, 0.0, f"[INFO] Optimizer: {optimizer_type}", kind="info")
 
         # -- Scheduler -------------------------------------------------------
         steps_per_epoch = max(1, math.ceil(len(train_loader) / cfg.gradient_accumulation_steps))
@@ -286,7 +328,8 @@ class FixedLoRATrainer:
             lr=cfg.learning_rate,
             optimizer_type=optimizer_type,
         )
-        yield TrainingUpdate(0, 0.0, f"[INFO] Scheduler: {scheduler_type}", kind="info")
+        if is_main:
+            yield TrainingUpdate(0, 0.0, f"[INFO] Scheduler: {scheduler_type}", kind="info")
 
         # -- Training memory features ----------------------------------------
         if getattr(cfg, "gradient_checkpointing", True):
@@ -294,30 +337,33 @@ class FixedLoRATrainer:
                 self.module.model.decoder
             )
             self.module.force_input_grads_for_checkpointing = ckpt_ok
-            if ckpt_ok:
+            if is_main:
+                if ckpt_ok:
+                    yield TrainingUpdate(
+                        0, 0.0,
+                        f"[INFO] Gradient checkpointing enabled "
+                        f"(use_cache={not cache_off}, input_grads={grads_ok})",
+                        kind="info",
+                    )
+                else:
+                    yield TrainingUpdate(
+                        0, 0.0, "[WARN] Gradient checkpointing not supported by this model",
+                        kind="warn",
+                    )
+        else:
+            if is_main:
                 yield TrainingUpdate(
                     0, 0.0,
-                    f"[INFO] Gradient checkpointing enabled "
-                    f"(use_cache={not cache_off}, input_grads={grads_ok})",
+                    "[INFO] Gradient checkpointing OFF (faster but uses more VRAM)",
                     kind="info",
                 )
-            else:
-                yield TrainingUpdate(
-                    0, 0.0, "[WARN] Gradient checkpointing not supported by this model",
-                    kind="warn",
-                )
-        else:
-            yield TrainingUpdate(
-                0, 0.0,
-                "[INFO] Gradient checkpointing OFF (faster but uses more VRAM)",
-                kind="info",
-            )
 
         # -- Encoder/VAE offloading ------------------------------------------
         if getattr(cfg, "offload_encoder", False):
             offloaded = offload_non_decoder(self.module.model)
             if offloaded:
-                yield TrainingUpdate(0, 0.0, f"[INFO] Offloaded {offloaded} model components to CPU (saves VRAM)", kind="info")
+                if is_main:
+                    yield TrainingUpdate(0, 0.0, f"[INFO] Offloaded {offloaded} model components to CPU (saves VRAM)", kind="info")
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
@@ -331,7 +377,8 @@ class FixedLoRATrainer:
 
         if cfg.resume_from and Path(cfg.resume_from).exists():
             try:
-                yield TrainingUpdate(0, 0.0, f"[INFO] Loading checkpoint from {cfg.resume_from}", kind="info")
+                if is_main:
+                    yield TrainingUpdate(0, 0.0, f"[INFO] Loading checkpoint from {cfg.resume_from}", kind="info")
                 resumed = yield from self._resume_checkpoint(
                     cfg.resume_from, optimizer, scheduler,
                 )
@@ -339,7 +386,8 @@ class FixedLoRATrainer:
                     start_epoch, global_step = resumed
             except Exception as exc:
                 logger.exception("Failed to load checkpoint")
-                yield TrainingUpdate(0, 0.0, f"[WARN] Checkpoint load failed: {exc} -- starting fresh", kind="warn")
+                if is_main:
+                    yield TrainingUpdate(0, 0.0, f"[WARN] Checkpoint load failed: {exc} -- starting fresh", kind="warn")
                 start_epoch = 0
                 global_step = 0
 
@@ -361,13 +409,26 @@ class FixedLoRATrainer:
                         accumulated_loss * cfg.gradient_accumulation_steps
                         / max(accumulation_step, 1)
                     )
-                    yield TrainingUpdate(global_step, _stop_loss, "[INFO] Training stopped by user", kind="complete")
-                    tb.close()
+                    if is_main:
+                        yield TrainingUpdate(global_step, _stop_loss, "[INFO] Training stopped by user", kind="complete")
+                        tb.close()
                     return
 
-                loss = self.module.training_step(batch)
-                loss = loss / cfg.gradient_accumulation_steps
-                self.fabric.backward(loss)
+                # In DDP with gradient accumulation, skip gradient sync on
+                # intermediate steps for better performance.  Both forward
+                # and backward must run inside the context so DDP hooks are
+                # correctly suppressed.
+                is_last_accum = (accumulation_step + 1) >= cfg.gradient_accumulation_steps
+                if world_size > 1 and not is_last_accum:
+                    with self.fabric.no_backward_sync(self.module.model.decoder):
+                        loss = self.module.training_step(batch)
+                        loss = loss / cfg.gradient_accumulation_steps
+                        self.fabric.backward(loss)
+                else:
+                    loss = self.module.training_step(batch)
+                    loss = loss / cfg.gradient_accumulation_steps
+                    self.fabric.backward(loss)
+
                 accumulated_loss += loss.item()
                 del loss  # free scalar tensor immediately
                 accumulation_step += 1
@@ -382,7 +443,7 @@ class FixedLoRATrainer:
 
                     avg_loss = accumulated_loss * cfg.gradient_accumulation_steps / accumulation_step
                     _lr = scheduler.get_last_lr()[0]
-                    if global_step % cfg.log_every == 0:
+                    if is_main and global_step % cfg.log_every == 0:
                         tb.log_loss(avg_loss, global_step)
                         tb.log_lr(_lr, global_step)
                         yield TrainingUpdate(
@@ -392,7 +453,7 @@ class FixedLoRATrainer:
                             steps_per_epoch=steps_per_epoch,
                         )
 
-                    if global_step % cfg.log_heavy_every == 0:
+                    if is_main and global_step % cfg.log_heavy_every == 0:
                         tb.log_per_layer_grad_norms(self.module.model, global_step)
 
                     optimizer.zero_grad(set_to_none=True)
@@ -417,7 +478,7 @@ class FixedLoRATrainer:
 
                 avg_loss = accumulated_loss * cfg.gradient_accumulation_steps / accumulation_step
                 _lr = scheduler.get_last_lr()[0]
-                if global_step % cfg.log_every == 0:
+                if is_main and global_step % cfg.log_every == 0:
                     tb.log_loss(avg_loss, global_step)
                     tb.log_lr(_lr, global_step)
                     yield TrainingUpdate(
@@ -436,15 +497,16 @@ class FixedLoRATrainer:
             # End of epoch
             epoch_time = time.time() - epoch_start
             avg_epoch_loss = epoch_loss / max(num_updates, 1)
-            tb.log_epoch_loss(avg_epoch_loss, epoch + 1)
-            yield TrainingUpdate(
-                step=global_step, loss=avg_epoch_loss,
-                msg=f"[OK] Epoch {epoch + 1}/{cfg.max_epochs} in {epoch_time:.1f}s, Loss: {avg_epoch_loss:.4f}",
-                kind="epoch", epoch=epoch + 1, max_epochs=cfg.max_epochs, epoch_time=epoch_time,
-            )
+            if is_main:
+                tb.log_epoch_loss(avg_epoch_loss, epoch + 1)
+                yield TrainingUpdate(
+                    step=global_step, loss=avg_epoch_loss,
+                    msg=f"[OK] Epoch {epoch + 1}/{cfg.max_epochs} in {epoch_time:.1f}s, Loss: {avg_epoch_loss:.4f}",
+                    kind="epoch", epoch=epoch + 1, max_epochs=cfg.max_epochs, epoch_time=epoch_time,
+                )
 
-            # Checkpoint
-            if (epoch + 1) % cfg.save_every_n_epochs == 0:
+            # Checkpoint (only rank 0)
+            if is_main and (epoch + 1) % cfg.save_every_n_epochs == 0:
                 ckpt_dir = str(output_dir / "checkpoints" / f"epoch_{epoch + 1}_loss_{avg_epoch_loss:.4f}")
                 self._save_checkpoint(optimizer, scheduler, epoch + 1, global_step, ckpt_dir)
                 yield TrainingUpdate(
@@ -454,6 +516,10 @@ class FixedLoRATrainer:
                     checkpoint_path=ckpt_dir,
                 )
 
+            # Barrier to sync all ranks before next epoch
+            if world_size > 1:
+                self.fabric.barrier()
+
             # Clear CUDA cache AFTER checkpoint save so serialization
             # temporaries are also freed.
             if torch.cuda.is_available():
@@ -461,33 +527,35 @@ class FixedLoRATrainer:
 
         # -- Sanity check: did we actually train? ----------------------------
         if global_step == 0:
-            tb.close()
-            yield TrainingUpdate(
-                step=0, loss=0.0,
-                msg=(
-                    "[FAIL] Training completed 0 steps -- no batches were processed.\n"
-                    "       Possible causes:\n"
-                    "         - Dataset directory is empty or contains no valid .pt files\n"
-                    "         - DataLoader failed to yield batches (device/platform issue)\n"
-                    "       Check the dataset path and try again."
-                ),
-                kind="fail",
-            )
+            if is_main:
+                tb.close()
+                yield TrainingUpdate(
+                    step=0, loss=0.0,
+                    msg=(
+                        "[FAIL] Training completed 0 steps -- no batches were processed.\n"
+                        "       Possible causes:\n"
+                        "         - Dataset directory is empty or contains no valid .pt files\n"
+                        "         - DataLoader failed to yield batches (device/platform issue)\n"
+                        "       Check the dataset path and try again."
+                    ),
+                    kind="fail",
+                )
             return
 
-        # -- Final save -----------------------------------------------------
-        final_path = str(output_dir / "final")
-        self._save_final(final_path)
-        final_loss = self.module.training_losses[-1] if self.module.training_losses else 0.0
+        # -- Final save (only rank 0) --------------------------------------
+        if is_main:
+            final_path = str(output_dir / "final")
+            self._save_final(final_path)
+            final_loss = self.module.training_losses[-1] if self.module.training_losses else 0.0
 
-        adapter_label = "LoKR" if self.adapter_type == "lokr" else "LoRA"
-        tb.flush()
-        tb.close()
-        yield TrainingUpdate(
-            step=global_step, loss=final_loss,
-            msg=(
-                f"[OK] Training complete! {adapter_label} saved to {final_path}\n"
-                f"     For inference, set your LoRA path to: {final_path}"
-            ),
-            kind="complete",
-        )
+            adapter_label = "LoKR" if self.adapter_type == "lokr" else "LoRA"
+            tb.flush()
+            tb.close()
+            yield TrainingUpdate(
+                step=global_step, loss=final_loss,
+                msg=(
+                    f"[OK] Training complete! {adapter_label} saved to {final_path}\n"
+                    f"     For inference, set your LoRA path to: {final_path}"
+                ),
+                kind="complete",
+            )

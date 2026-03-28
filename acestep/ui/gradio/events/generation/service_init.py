@@ -13,8 +13,9 @@ from acestep.ui.gradio.i18n import t
 from acestep.gpu_config import (
     get_global_gpu_config, is_lm_model_size_allowed, find_best_lm_model_on_disk,
     get_gpu_config_for_tier, set_global_gpu_config, GPU_TIER_LABELS, GPU_TIER_CONFIGS,
+    resolve_lm_backend,
 )
-from .model_config import is_pure_base_model, get_model_type_ui_settings
+from .model_config import is_pure_base_model, is_sft_model, get_model_type_ui_settings
 
 
 def _select_quantization_value(
@@ -105,11 +106,12 @@ def init_service_wrapper(
                 f"this may cause high VRAM usage or OOM."
             )
 
-    if init_llm and gpu_config.lm_backend_restriction == "pt_mlx_only" and backend == "vllm":
-        backend = gpu_config.recommended_backend
+    resolved_backend = resolve_lm_backend(backend, gpu_config)
+    if init_llm and resolved_backend != backend:
+        backend = resolved_backend
         logger.warning(
-            f"⚠️ vllm backend not supported for tier {gpu_config.tier} "
-            f"(VRAM too low for KV cache), falling back to {backend}"
+            f"⚠️ Requested LM backend is not supported for tier {gpu_config.tier} "
+            f"on this hardware, falling back to {backend}"
         )
 
     # Derive project_root from the checkpoint path (which is the checkpoints
@@ -149,9 +151,13 @@ def init_service_wrapper(
     accordion_state = gr.Accordion(open=not is_model_initialized)
 
     is_turbo = dit_handler.is_turbo_model()
-    is_pure_base = is_pure_base_model((config_path or "").lower())
+    config_path_lower = (config_path or "").lower()
+    is_pure_base = is_pure_base_model(config_path_lower)
+    # Match interactive path — SFT models need 50-step default here too.
+    is_sft = is_sft_model(config_path_lower)
     model_type_settings = get_model_type_ui_settings(
         is_turbo, current_mode=current_mode, is_pure_base=is_pure_base,
+        is_sft=is_sft,
     )
 
     gpu_config = get_global_gpu_config()
@@ -228,7 +234,9 @@ def on_tier_change(selected_tier, llm_handler=None):
     set_global_gpu_config(new_config)
     logger.info(f"🔄 Tier manually changed to {selected_tier} — updating UI defaults")
 
-    if new_config.lm_backend_restriction == "pt_mlx_only":
+    if new_config.lm_backend_restriction == "pt_only":
+        available_backends = ["pt"]
+    elif new_config.lm_backend_restriction == "pt_mlx_only":
         available_backends = ["pt", "mlx"]
     else:
         available_backends = ["vllm", "pt", "mlx"]

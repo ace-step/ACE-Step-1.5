@@ -9,7 +9,7 @@ from typing import Any
 import gradio as gr
 
 from .. import generation_handlers as gen_h
-from ...i18n import get_i18n
+from ...i18n import get_i18n, reset_language_context, set_language_context
 from .context import (
     GenerationWiringContext,
     build_auto_checkbox_inputs,
@@ -199,7 +199,13 @@ def register_generation_service_handlers(
 
 
 def _apply_runtime_language(language: str) -> dict[str, Any]:
-    """Update global i18n language for runtime-generated messages.
+    """Update i18n language at the Gradio request boundary.
+
+    Sets a per-request ``ContextVar`` so any ``t()`` calls within this
+    handler use *language*, then updates the shared instance default so
+    future requests without an explicit context inherit it.  The
+    ``ContextVar`` is reset on exit to avoid poisoning reused
+    thread-pool workers with a stale language value.
 
     Args:
         language: Selected UI language code from the language dropdown.
@@ -207,6 +213,12 @@ def _apply_runtime_language(language: str) -> dict[str, Any]:
     Returns:
         A ``gr.update`` payload preserving the selected dropdown value.
     """
-
-    get_i18n(language)
-    return gr.update(value=language)
+    # Set ContextVar for this handler's scope.  No t() calls happen here
+    # today, but the pattern establishes the request-boundary convention
+    # for future handlers that adopt per-request language isolation.
+    token = set_language_context(language)
+    try:
+        get_i18n(language)
+        return gr.update(value=language)
+    finally:
+        reset_language_context(token)

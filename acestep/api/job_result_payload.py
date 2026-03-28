@@ -122,4 +122,6 @@ def build_generation_success_response(
         "timesignature": _none_if_na_str(metas_out.get("timesignature")),
         "lm_model": lm_model_name,
         "dit_model": dit_model_name,
+        "cot_caption": getattr(params, "cot_caption", "") or "",
+        "cot_lyrics": getattr(params, "cot_lyrics", "") or "",
     }

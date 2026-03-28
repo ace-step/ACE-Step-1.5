@@ -63,11 +63,11 @@ def cfg_forward(cond_output, uncond_output, cfg_strength):
 def call_cos_tensor(tensor1, tensor2):
     """
     Calculate cosine similarity between two normalized tensors.
-    
+
     Args:
         tensor1: First tensor [B, ...]
         tensor2: Second tensor [B, ...]
-    
+
     Returns:
         Cosine similarity value [B, 1]
     """
@@ -80,11 +80,11 @@ def call_cos_tensor(tensor1, tensor2):
 def compute_perpendicular_component(latent_diff, latent_hat_uncond):
     """
     Decompose latent_diff into parallel and perpendicular components relative to latent_hat_uncond.
-    
+
     Args:
         latent_diff: Difference tensor [B, C, ...]
         latent_hat_uncond: Unconditional prediction tensor [B, C, ...]
-    
+
     Returns:
         projection: Parallel component
         perpendicular_component: Perpendicular component
@@ -116,10 +116,10 @@ def adg_forward(
 ):
     """
     ADG (Angle-based Dynamic Guidance) forward pass for Flow Matching.
-    
+
     In flow matching (including SD3), sigma represents the current timestep t_curr.
     The predictions are velocity fields v(x_t, t).
-    
+
     Args:
         latents: Current state x_t [N, T, d] where d=64
         noise_pred_cond: Conditional velocity prediction v_cond [N, T, d]
@@ -129,10 +129,16 @@ def adg_forward(
         angle_clip: Maximum angle for clipping (default: pi/6)
         apply_norm: Whether to normalize the result (ADG_w_norm variant)
         apply_clip: Whether to clip the angle (ADG_wo_clip when False)
-    
+
     Returns:
         Guided velocity prediction [N, T, d]
     """
+    if latents.shape[1] != noise_pred_cond.shape[1]:
+        if noise_pred_cond.shape[1] % latents.shape[1] != 0:
+            raise ValueError("noise_pred_cond time dimension must be a whole-number multiple of latents time dimension.")
+        repeats = noise_pred_cond.shape[1] // latents.shape[1]
+        latents = latents.repeat_interleave(repeats, dim=1)
+
     # Get batch size
     n = noise_pred_cond.shape[0]
     noise_pred_text = noise_pred_cond
@@ -161,9 +167,11 @@ def adg_forward(
     latent_diff = latent_hat_text - latent_hat_uncond
 
     # Calculate angle between conditional and unconditional predicted data
-    latent_theta = torch.acos(
-        call_cos_tensor(latent_hat_text.view(-1, c).to(float),
-                        latent_hat_uncond.reshape(-1, c).contiguous().to(float)))
+    cos_theta = call_cos_tensor(
+        latent_hat_text.view(-1, c).to(float),
+        latent_hat_uncond.reshape(-1, c).contiguous().to(float)
+    ).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+    latent_theta = torch.acos(cos_theta).view(n, t, 1)
     latent_theta_new = torch.clip(weight * latent_theta, -angle_clip, angle_clip) if apply_clip else weight * latent_theta
     proj, perp = compute_perpendicular_component(latent_diff, latent_hat_uncond)
     latent_v_new = torch.cos(latent_theta_new) * latent_hat_text
@@ -190,7 +198,7 @@ def adg_w_norm_forward(
 ):
     """
     ADG with normalization - preserves the magnitude of latent predictions.
-    
+
     This variant normalizes the final latent to maintain the same norm as the
     conditional prediction, which can help preserve image quality.
     """
@@ -213,7 +221,7 @@ def adg_wo_clip_forward(
 ):
     """
     ADG without angle clipping - allows unbounded angle adjustments.
-    
+
     This variant doesn't clip the angle, which may result in more aggressive
     guidance but could be less stable.
     """

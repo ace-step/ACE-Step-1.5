@@ -26,6 +26,7 @@ from .generation.service_init import (  # noqa: F401
 )
 from .generation.model_config import (  # noqa: F401
     is_pure_base_model,
+    is_sft_model,
     update_model_type_settings,
     get_ui_control_config,
     get_model_type_ui_settings,

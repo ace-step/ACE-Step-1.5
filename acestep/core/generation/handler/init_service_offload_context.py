@@ -1,6 +1,5 @@
 """Context manager for temporary model loading/offloading."""
 
-import gc
 import time
 from contextlib import contextmanager
 
@@ -25,6 +24,7 @@ class InitServiceOffloadContextMixin:
                     if param.device.type == "cpu":
                         logger.info(f"[_load_model_context] Moving {model_name} to {self.device} (persistent)")
                         self._recursive_to_device(model, self.device, self.dtype)
+                        self._release_system_memory()
                         if hasattr(self, "silence_latent"):
                             self.silence_latent = self.silence_latent.to(self.device).to(self.dtype)
                 except StopIteration:
@@ -37,7 +37,8 @@ class InitServiceOffloadContextMixin:
             yield
             return
 
-        logger.info(f"[_load_model_context] Loading {model_name} to {self.device}")
+        rss_before = self._get_rss_mb()
+        logger.info(f"[_load_model_context] Loading {model_name} to {self.device} (RSS: {rss_before:.0f} MB)")
         start_time = time.time()
         if model_name == "vae":
             vae_dtype = self._get_vae_dtype()
@@ -50,20 +51,36 @@ class InitServiceOffloadContextMixin:
 
         load_time = time.time() - start_time
         self.current_offload_cost += load_time
-        logger.info(f"[_load_model_context] Loaded {model_name} to {self.device} in {load_time:.4f}s")
+
+        # Free old CPU tensor storage after moving to GPU (not counted in load_time)
+        self._release_system_memory()
+        rss_after = self._get_rss_mb()
+        logger.info(
+            f"[_load_model_context] Loaded {model_name} to {self.device} in {load_time:.4f}s "
+            f"(RSS: {rss_before:.0f} -> {rss_after:.0f} MB, delta: {rss_after - rss_before:+.0f} MB)"
+        )
 
         try:
             yield
         finally:
-            logger.info(f"[_load_model_context] Offloading {model_name} to CPU")
+            rss_before = self._get_rss_mb()
+            logger.info(
+                f"[_load_model_context] Offloading {model_name} to CPU (RSS: {rss_before:.0f} MB)"
+            )
             start_time = time.time()
             if model_name == "vae":
                 self._recursive_to_device(model, "cpu", self._get_vae_dtype("cpu"))
             else:
                 self._recursive_to_device(model, "cpu")
 
-            gc.collect()
-            self._empty_cache()
             offload_time = time.time() - start_time
             self.current_offload_cost += offload_time
-            logger.info(f"[_load_model_context] Offloaded {model_name} to CPU in {offload_time:.4f}s")
+
+            # Aggressively reclaim memory: GPU cache + Python GC + OS heap trim
+            # (not counted in offload_time to keep timing accurate)
+            self._release_system_memory()
+            rss_after = self._get_rss_mb()
+            logger.info(
+                f"[_load_model_context] Offloaded {model_name} to CPU in {offload_time:.4f}s "
+                f"(RSS: {rss_before:.0f} -> {rss_after:.0f} MB, delta: {rss_after - rss_before:+.0f} MB)"
+            )

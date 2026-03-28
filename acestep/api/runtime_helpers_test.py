@@ -127,6 +127,39 @@ class RuntimeHelpersTests(unittest.TestCase):
         self.assertEqual("new-model", first_call["lm_model_path"])
         self.assertEqual(prev_params, second_call)
 
+    def test_temporary_llm_model_does_not_suppress_exception_when_switch_fails(self):
+        """Exceptions inside the context should propagate even if switch/restore is skipped."""
+
+        app = SimpleNamespace(state=SimpleNamespace(_llm_init_lock=threading.Lock()))
+        prev_params = {
+            "checkpoint_dir": "old-checkpoints",
+            "lm_model_path": "old-model",
+            "backend": "vllm",
+            "device": "cuda",
+            "offload_to_cpu": False,
+            "dtype": None,
+        }
+        llm = SimpleNamespace(
+            llm_initialized=True,
+            initialize=mock.Mock(return_value=("failed", False)),
+            last_init_params=prev_params,
+        )
+
+        with mock.patch("acestep.api.runtime_helpers.os.makedirs"):
+            with self.assertRaises(ValueError):
+                with temporary_llm_model(
+                    app=app,
+                    llm=llm,
+                    lm_model_path="new-model",
+                    get_project_root=lambda: "project-root",
+                    get_model_name=lambda _path: "new-model",
+                    ensure_model_downloaded=lambda *_: "",
+                    env_bool=lambda *_: False,
+                ):
+                    raise ValueError("boom")
+
+        self.assertEqual(1, llm.initialize.call_count)
+
     def test_atomic_write_json_replaces_target_on_success(self):
         """Atomic write helper should fsync temp file and replace destination path."""
 

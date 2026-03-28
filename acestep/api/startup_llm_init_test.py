@@ -87,6 +87,42 @@ class StartupLlmInitTests(unittest.TestCase):
         self.assertTrue(app.state._llm_initialized)
         self.assertIsNone(app.state._llm_init_error)
 
+    def test_initialize_llm_at_startup_uses_recommended_backend(self) -> None:
+        """Legacy-compatible GPU configs should default startup LM init to PyTorch."""
+
+        app = SimpleNamespace(
+            state=SimpleNamespace(
+                _llm_initialized=False,
+                _llm_init_error=None,
+                _llm_lazy_load_disabled=False,
+            )
+        )
+        llm_handler = MagicMock()
+        llm_handler.initialize.return_value = ("ok", True)
+        gpu_config = SimpleNamespace(
+            init_lm_default=True,
+            gpu_memory_gb=12.0,
+            tier="tier5",
+            available_lm_models=["acestep-5Hz-lm-0.6B"],
+            recommended_backend="pt",
+            lm_backend_restriction="pt_only",
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            initialize_llm_at_startup(
+                app=app,
+                llm_handler=llm_handler,
+                gpu_config=gpu_config,
+                device="cuda",
+                offload_to_cpu=False,
+                checkpoint_dir="k:/repo/checkpoints",
+                get_model_name=MagicMock(return_value="acestep-5Hz-lm-0.6B"),
+                ensure_model_downloaded=MagicMock(),
+                env_bool=lambda _name, default: default,
+            )
+
+        self.assertEqual("pt", llm_handler.initialize.call_args.kwargs["backend"])
+
 
 if __name__ == "__main__":
     unittest.main()

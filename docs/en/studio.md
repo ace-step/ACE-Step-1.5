@@ -8,6 +8,8 @@ This UI:
 - Talks to the same REST API (`/release_task`, `/query_result`)
 - Does not change model behavior
 
+For the standalone VST3 plugin, see [acestep.vst3](https://github.com/ace-step/acestep.vst3).
+
 ## How to use
 
 1. Start the ACE-Step API server (e.g. `uv run acestep --enable-api --port 8001` or your usual API launch command).

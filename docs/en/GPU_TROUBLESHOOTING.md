@@ -234,6 +234,33 @@ If none of the above solutions work:
 
 > **Note on `MAX_CUDA_VRAM`**: When set, this variable not only changes the tier detection logic but also calls `torch.cuda.set_per_process_memory_fraction()` to enforce a hard VRAM limit. This means OOM errors during simulation are realistic and reflect actual behavior on GPUs with that amount of VRAM. See [GPU_COMPATIBILITY.md](GPU_COMPATIBILITY.md) for the full tier table.
 
+## NaN / Noise Output on Pre-Ampere GPUs (Auto-Fixed)
+
+### Issue: Generated Audio Is Static Noise or Silence on Older NVIDIA GPUs
+
+**Symptoms:**
+- Generated audio contains only noise, static, or silence
+- You have a pre-Ampere NVIDIA GPU (GTX 10xx, GTX 16xx, or RTX 20xx series)
+- No explicit error messages in the console
+
+**Status:** Handled automatically (no user action needed)
+
+**Cause:**
+
+Pre-Ampere GPUs (compute capability < 8.0) lack native bfloat16 support, so the model runs in float16. SDPA's fused softmax kernel can overflow in float16 with longer sequences, producing NaN/Inf values in the latents.
+
+**Automatic Fix:**
+
+ACE-Step detects pre-Ampere GPUs at startup and automatically switches from SDPA to eager attention, which upcasts to float32 for the softmax computation. You will see this log message:
+
+```
+[initialize_service] Pre-Ampere CUDA detected: using eager attention for float16 numerical stability.
+```
+
+If you are still experiencing NaN/noise output despite seeing this message, please open an issue on GitHub with your GPU model and the full console log.
+
+**Reference:** See [GPU_COMPATIBILITY.md](GPU_COMPATIBILITY.md#pre-ampere-gpu-attention-fallback) for the full list of affected GPU families.
+
 ## LoRA Memory Issues (FIXED)
 
 ### Issue: High VRAM Usage with LoRA (25-30GB)

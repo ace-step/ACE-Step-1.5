@@ -46,6 +46,30 @@ If you manually select an incompatible option (e.g., trying to use vllm on a 6GB
 - **Auto Chunk Size**: VAE decode chunk size adapts to available free VRAM (64/128/256/512/1024/1536)
 - **Duration/Batch Clamping**: If you request values exceeding your tier's limits, they are clamped with a warning
 
+## Pre-Ampere GPU Attention Fallback
+
+GPUs with CUDA compute capability below 8.0 (pre-Ampere architecture) automatically use **eager attention** instead of Scaled Dot Product Attention (SDPA). This is handled at model load time in `acestep/core/generation/handler/init_service_loader.py` and requires no user configuration.
+
+**Why:** Pre-Ampere GPUs run in float16 (they lack native bfloat16 support). SDPA's fused softmax kernel can overflow in float16 with longer sequences, producing NaN or Inf values in the latents and resulting in noise or silence in the generated audio. Eager attention avoids this by upcasting to float32 for the softmax computation.
+
+**Affected GPU families:**
+
+| GPU Family | Architecture | Compute Capability | Attention Mode |
+|---|---|---|---|
+| GeForce GTX 10xx (Pascal) | Pascal | 6.x | Eager (automatic) |
+| GeForce GTX 16xx (Turing) | Turing | 7.5 | Eager (automatic) |
+| GeForce RTX 20xx (Turing) | Turing | 7.5 | Eager (automatic) |
+| GeForce RTX 30xx (Ampere) | Ampere | 8.6 | SDPA or Flash Attention |
+| GeForce RTX 40xx (Ada Lovelace) | Ada Lovelace | 8.9 | SDPA or Flash Attention |
+
+**No action is needed** -- the fallback is fully automatic. You will see a log message at startup:
+
+```
+[initialize_service] Pre-Ampere CUDA detected: using eager attention for float16 numerical stability.
+```
+
+Eager attention is slightly slower than SDPA but produces correct output on these GPUs.
+
 ## Notes
 
 - **Default settings** are automatically configured based on detected GPU memory

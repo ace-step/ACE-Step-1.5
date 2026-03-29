@@ -27,6 +27,7 @@ This service provides an HTTP-based asynchronous music generation API.
 - [Download Audio Files](#10-download-audio-files)
 - [Health Check](#11-health-check)
 - [Environment Variables](#12-environment-variables)
+- [External LM Providers (Optional)](#13-external-lm-providers-optional)
 
 ---
 
@@ -704,6 +705,105 @@ The API server can be configured using environment variables:
 | `ACESTEP_TMPDIR` | `.cache/acestep/tmp` | Temporary file directory |
 | `TRITON_CACHE_DIR` | `.cache/acestep/triton` | Triton cache directory |
 | `TORCHINDUCTOR_CACHE_DIR` | `.cache/acestep/torchinductor` | TorchInductor cache directory |
+
+---
+
+## 13. External LM Providers (Optional)
+
+By default, ACE-Step uses its local 5Hz LM (0.6B, 1.7B, or 4B parameters) for caption generation, lyrics formatting, and metadata labeling. You can optionally route these LM calls to an external AI provider instead.
+
+### Why use an external provider?
+
+- **Save GPU VRAM**: Offload caption and labeling work to a cloud API so your GPU handles only DiT inference.
+- **Better caption quality**: Larger external models (e.g., GPT-4o, Claude 3.7 Sonnet) can produce richer, more detailed captions than the local 0.6B model.
+- **Use local LLMs via Ollama**: Run a local model like Qwen3 through Ollama without loading it into the same GPU as ACE-Step.
+
+External LM is entirely optional. If none of the variables below are set, ACE-Step uses the local 5Hz LM as usual.
+
+### 13.1 Core Configuration
+
+| Variable | Values | Description |
+| :--- | :--- | :--- |
+| `ACESTEP_EXTERNAL_LM_PROVIDER` | `openai`, `claude`, `ollama`, `zai` | Select the external LM provider |
+| `ACESTEP_EXTERNAL_LM_PROTOCOL` | `openai_chat`, `anthropic_messages` | API protocol to use (auto-detected from provider if omitted) |
+| `ACESTEP_EXTERNAL_LM_MODEL` | e.g. `gpt-4o-mini`, `claude-3-7-sonnet-latest` | Model name to request from the provider |
+| `ACESTEP_EXTERNAL_BASE_URL` | URL | Override the default API endpoint URL |
+
+### 13.2 Provider API Keys
+
+| Variable | Provider | Required |
+| :--- | :--- | :--- |
+| `ACESTEP_OPENAI_API_KEY` | OpenAI | Yes |
+| `ACESTEP_ANTHROPIC_API_KEY` | Anthropic Claude | Yes |
+| `ACESTEP_OLLAMA_API_KEY` | Ollama | No (local by default) |
+| `ACESTEP_GLM_API_KEY` | Z.ai (GLM) | Yes |
+
+### 13.3 Optional Tuning
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ACESTEP_OPENAI_MAX_TOKENS` | `3072` | Max completion tokens for OpenAI/Ollama/Z.ai (openai_chat protocol) |
+| `ACESTEP_ANTHROPIC_MAX_TOKENS` | `1024` | Max completion tokens for Anthropic (anthropic_messages protocol) |
+| `ACESTEP_EXTERNAL_FORMAT_MAX_TOKENS` | `768` | Max tokens when using format-only mode (`use_format=true`) |
+| `ACESTEP_ANTHROPIC_VERSION` | `2023-06-01` | Anthropic API version header |
+| `ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC` | `43200` | How long (seconds) to cache the provider's model list. Set to `-1` to disable expiry. |
+
+### 13.4 Provider Defaults Reference
+
+Each provider has sensible defaults so you only need to set the provider and API key. The table below shows what is used when `ACESTEP_EXTERNAL_LM_MODEL` and `ACESTEP_EXTERNAL_BASE_URL` are not set.
+
+| Provider | Protocol | Default Model | Default Base URL |
+| :--- | :--- | :--- | :--- |
+| `openai` | `openai_chat` | `gpt-4o-mini` | `https://api.openai.com/v1/chat/completions` |
+| `claude` | `anthropic_messages` | `claude-3-7-sonnet-latest` | `https://api.anthropic.com/v1/messages` |
+| `ollama` | `openai_chat` | `qwen3:4b` | `http://127.0.0.1:11434/v1/chat/completions` |
+| `zai` | `openai_chat` | `glm-4.5-flash` | `https://api.z.ai/api/paas/v4/chat/completions` |
+
+### 13.5 Example Configurations
+
+**OpenAI**:
+
+```bash
+export ACESTEP_EXTERNAL_LM_PROVIDER=openai
+export ACESTEP_OPENAI_API_KEY=sk-...
+# Optional: override model
+export ACESTEP_EXTERNAL_LM_MODEL=gpt-4o
+```
+
+**Anthropic Claude**:
+
+```bash
+export ACESTEP_EXTERNAL_LM_PROVIDER=claude
+export ACESTEP_ANTHROPIC_API_KEY=sk-ant-...
+# Optional: override model
+export ACESTEP_EXTERNAL_LM_MODEL=claude-3-5-sonnet-latest
+```
+
+**Ollama (local)**:
+
+```bash
+export ACESTEP_EXTERNAL_LM_PROVIDER=ollama
+# No API key needed for local Ollama
+# Optional: override model
+export ACESTEP_EXTERNAL_LM_MODEL=qwen3:8b
+```
+
+**Z.ai (GLM)**:
+
+```bash
+export ACESTEP_EXTERNAL_LM_PROVIDER=zai
+export ACESTEP_GLM_API_KEY=your-glm-key
+# Optional: use the coding endpoint instead of the standard one
+export ACESTEP_EXTERNAL_BASE_URL=https://api.z.ai/api/coding/paas/v4/chat/completions
+```
+
+### 13.6 Runtime Settings Persistence
+
+External LM settings are also persisted to a local JSON file at `~/.local/share/acestep/config/external_lm_runtime.json` (or `$XDG_DATA_HOME/acestep/config/`) when configured through the Gradio UI. On startup, persisted settings automatically populate any missing environment variables, so you do not need to re-export them every session. Explicit environment variables always take priority over persisted values.
+
+### 13.7 Secure API Key Storage
+
+API keys can be stored securely using the system keyring (macOS Keychain, Windows Credential Manager) or via OpenSSL-encrypted files under `~/.local/share/acestep/secrets/`. The Gradio UI handles this automatically when you enter a key through the External LM setup panel. For headless or scripted use, setting the environment variable directly (e.g. `ACESTEP_OPENAI_API_KEY`) is the simplest approach.
 
 ---
 

@@ -140,7 +140,7 @@ Suitable for passing only text parameters, or referencing audio file paths that 
 | `lyrics` | string | `""` | Lyrics content |
 | `thinking` | bool | `false` | Whether to use 5Hz LM to generate audio codes (lm-dit behavior) |
 | `vocal_language` | string | `"en"` | Lyrics language (en, zh, ja, etc.) |
-| `audio_format` | string | `"mp3"` | Output format (mp3, wav, flac) |
+| `audio_format` | string | `"mp3"` | Output format: `flac`, `mp3`, `opus`, `aac`, `wav`, `wav32` |
 
 **Sample/Description Mode Parameters**:
 
@@ -248,6 +248,28 @@ These parameters control 5Hz LM sampling, used for metadata auto-completion and 
 | `repainting_start` | float | `0.0` | Repainting start time (seconds) |
 | `repainting_end` | float | null | Repainting end time (seconds), -1 for end of audio |
 | `audio_cover_strength` | float | `1.0` | Cover strength (0.0-1.0). Lower values (0.2) for style transfer. |
+| `cover_noise_strength` | float | `0.0` | Cover noise blending strength (0.0=pure noise, 1.0=closest to source audio). Used for cover/repaint tasks. |
+
+**Repaint Advanced Parameters**:
+
+| Parameter Name | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `repaint_mode` | string | `"balanced"` | Repaint preservation mode: `"conservative"` (max source retention), `"balanced"` (tunable), or `"aggressive"` (pure diffusion) |
+| `repaint_strength` | float | `0.5` | Balanced-mode repaint intensity (0.0=conservative/max source preservation, 1.0=aggressive/pure diffusion). Only active when `repaint_mode` is `"balanced"`. |
+| `repaint_latent_crossfade_frames` | int | `10` | Latent-level boundary blend width in frames (25Hz rate, so 10 frames is approx 0.4s) |
+| `repaint_wav_crossfade_sec` | float | `0.0` | Waveform-level splice crossfade in seconds (0=hard cut) |
+| `chunk_mask_mode` | string | `"auto"` | Chunk mask mode: `"explicit"` or `"auto"` |
+
+**Audio Post-Processing Parameters**:
+
+| Parameter Name | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `enable_normalization` | bool | `true` | Enable loudness normalization on the output audio |
+| `normalization_db` | float | `-1.0` | Target loudness in dB for normalization |
+| `fade_in_duration` | float | `0.0` | Fade-in duration in seconds (0=no fade-in) |
+| `fade_out_duration` | float | `0.0` | Fade-out duration in seconds (0=no fade-out) |
+| `latent_shift` | float | `0.0` | Additive shift on DiT latents before VAE decode (0=no shift) |
+| `latent_rescale` | float | `1.0` | Multiplicative rescale on DiT latents before VAE decode (1.0=no rescale) |
 
 #### Method B: File Upload (multipart/form-data)
 
@@ -411,6 +433,14 @@ curl -X POST http://localhost:8001/release_task \
 | `seed_value` | string | Seed values used (comma-separated) |
 | `lm_model` | string | LM model name used |
 | `dit_model` | string | DiT model name used |
+| `cot_caption` | string | LM-rewritten/enhanced caption from CoT reasoning (empty string if CoT was not used) |
+| `cot_lyrics` | string | LM-generated or refined lyrics from CoT reasoning (empty string if CoT was not used) |
+| `audio_paths` | array | Full list of all generated audio file URLs |
+| `bpm` | int | Extracted BPM from metadata (null if not available) |
+| `duration` | float | Extracted duration in seconds from metadata (null if not available) |
+| `genres` | string | Extracted genres from metadata (null if not available) |
+| `keyscale` | string | Extracted key/scale from metadata (null if not available) |
+| `timesignature` | string | Extracted time signature from metadata (null if not available) |
 
 ### 5.4 Usage Example
 

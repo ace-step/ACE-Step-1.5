@@ -46,6 +46,19 @@ If you manually select an incompatible option (e.g., trying to use vllm on a 6GB
 - **Auto Chunk Size**: VAE decode chunk size adapts to available free VRAM (64/128/256/512/1024/1536)
 - **Duration/Batch Clamping**: If you request values exceeding your tier's limits, they are clamped with a warning
 
+## Legacy CUDA GPU Backend Selection
+
+GPUs with a CUDA compute capability below 7.0 (pre-Volta architecture) automatically use the PyTorch (`pt`) backend for the 5Hz Language Model instead of vLLM. This affects cards such as the GTX 1080, GTX 1080 Ti, TITAN Xp, Tesla P100, and all older NVIDIA GPUs.
+
+The detection happens at startup in `acestep/gpu_config.py` (`is_legacy_cuda_gpu` at line 135). When `torch.cuda.get_device_capability()` returns a major version less than 7, the system sets `lm_backend_restriction` to `"pt_only"` and `recommended_backend` to `"pt"`, overriding the tier-level default regardless of VRAM tier.
+
+**Key points:**
+
+- **No user action required** -- the fallback is fully automatic and transparent.
+- **Which GPUs**: Any NVIDIA CUDA GPU with compute capability < 7.0 (Maxwell, Pascal, and earlier architectures). Volta (7.0) and newer GPUs are unaffected.
+- **Why**: vLLM's nano-vllm engine relies on Triton kernels and features that require Volta-class hardware or later. The PyTorch backend provides full compatibility at the cost of somewhat slower LM inference.
+- **ROCm GPUs are excluded** from this check -- the legacy detection only applies to CUDA devices.
+
 ## Notes
 
 - **Default settings** are automatically configured based on detected GPU memory

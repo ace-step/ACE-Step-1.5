@@ -27,6 +27,7 @@ This service provides an HTTP-based asynchronous music generation API.
 - [Download Audio Files](#10-download-audio-files)
 - [Health Check](#11-health-check)
 - [Environment Variables](#12-environment-variables)
+- [Training API](#training-api)
 
 ---
 
@@ -140,7 +141,7 @@ Suitable for passing only text parameters, or referencing audio file paths that 
 | `lyrics` | string | `""` | Lyrics content |
 | `thinking` | bool | `false` | Whether to use 5Hz LM to generate audio codes (lm-dit behavior) |
 | `vocal_language` | string | `"en"` | Lyrics language (en, zh, ja, etc.) |
-| `audio_format` | string | `"mp3"` | Output format (mp3, wav, flac) |
+| `audio_format` | string | `"mp3"` | Output format: `flac`, `mp3`, `opus`, `aac`, `wav`, `wav32` |
 
 **Sample/Description Mode Parameters**:
 
@@ -704,6 +705,63 @@ The API server can be configured using environment variables:
 | `ACESTEP_TMPDIR` | `.cache/acestep/tmp` | Temporary file directory |
 | `TRITON_CACHE_DIR` | `.cache/acestep/triton` | Triton cache directory |
 | `TORCHINDUCTOR_CACHE_DIR` | `.cache/acestep/torchinductor` | TorchInductor cache directory |
+
+---
+
+## Training API
+
+The API server exposes endpoints for fine-tuning adapters from preprocessed tensor datasets. Training runs asynchronously in the background; use the status and stop endpoints to monitor and control training.
+
+### LoRA Training
+
+- **URL**: `/v1/training/start`
+- **Method**: `POST`
+
+Starts a LoRA training run. See the [LoRA Training Tutorial](LoRA_Training_Tutorial.md) for parameter details.
+
+### LoKr Training
+
+- **URL**: `/v1/training/start_lokr`
+- **Method**: `POST`
+
+Starts a LoKr (Kronecker) training run. LoKr is a faster alternative to LoRA that uses Kronecker decomposition.
+
+**LoKr-specific parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `tensor_dir` | string | (required) | Directory with preprocessed tensors |
+| `output_dir` | string | `"./lokr_output"` | Output directory for checkpoints |
+| `lokr_linear_dim` | int | `64` | Linear dimension (1-256) |
+| `lokr_linear_alpha` | int | `128` | Linear alpha (1-512) |
+| `lokr_factor` | int | `-1` | Kronecker factor (-1 = auto, otherwise 1-8) |
+| `lokr_decompose_both` | bool | `false` | Decompose both matrices |
+| `lokr_use_tucker` | bool | `false` | Use Tucker decomposition |
+| `lokr_use_scalar` | bool | `false` | Use scalar calibration |
+| `lokr_weight_decompose` | bool | `true` | Enable DoRA mode |
+| `learning_rate` | float | `0.03` | Learning rate |
+| `train_epochs` | int | `500` | Training epochs |
+| `train_batch_size` | int | `1` | Batch size |
+| `gradient_accumulation` | int | `4` | Gradient accumulation steps |
+| `save_every_n_epochs` | int | `5` | Checkpoint save frequency |
+| `training_shift` | float | `3.0` | Timestep shift |
+| `training_seed` | int | `42` | Random seed |
+| `gradient_checkpointing` | bool | `false` | Trade speed for lower VRAM |
+
+**Usage example:**
+
+```bash
+curl -X POST http://localhost:8001/v1/training/start_lokr \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "tensor_dir": "/path/to/tensors",
+    "output_dir": "./lokr_output",
+    "lokr_linear_dim": 64,
+    "lokr_linear_alpha": 128,
+    "learning_rate": 0.03,
+    "train_epochs": 500
+  }'
+```
 
 ---
 

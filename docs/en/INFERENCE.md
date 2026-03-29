@@ -353,7 +353,7 @@ class FormatSampleResult:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `inference_steps` | `int` | `8` | Number of denoising steps. Turbo model: 1-20 (recommended 8). Base model: 1-200 (recommended 32-64). Higher = better quality but slower. |
-| `guidance_scale` | `float` | `7.0` | Classifier-free guidance scale (1.0-15.0). Higher values increase adherence to text prompt. Only supported for non-turbo model. Typical range: 5.0-9.0. |
+| `guidance_scale` | `float` | `7.0` | Classifier-free guidance scale (1.0-15.0). Higher values increase adherence to text prompt. Only supported for non-turbo model. Typical range: 5.0-9.0. **Note:** For turbo models, this value is automatically set to `1.0` regardless of the provided value — any user-supplied setting is silently overridden. |
 | `seed` | `int` | `-1` | Random seed for reproducibility. Use `-1` for random seed, or any positive integer for fixed seed. |
 
 ### Advanced DiT Parameters

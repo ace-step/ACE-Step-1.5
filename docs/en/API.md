@@ -196,7 +196,7 @@ User-provided values always win; LM only fills the fields that are empty/missing
 | Parameter Name | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `inference_steps` | int | `8` | Number of inference steps. Turbo model: 1-20 (recommended 8). Base model: 1-200 (recommended 32-64). |
-| `guidance_scale` | float | `7.0` | Prompt guidance coefficient. Only effective for base model. |
+| `guidance_scale` | float | `7.0` | Prompt guidance coefficient. Only effective for base model. **Note:** For turbo models, this value is automatically set to `1.0` regardless of the provided value. |
 | `use_random_seed` | bool | `true` | Whether to use random seed |
 | `seed` | int | `-1` | Specify seed (when use_random_seed=false) |
 | `batch_size` | int | `2` | Batch generation count (max 8) |

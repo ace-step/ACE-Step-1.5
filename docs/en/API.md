@@ -22,11 +22,15 @@ This service provides an HTTP-based asynchronous music generation API.
 - [Batch Query Task Results](#5-batch-query-task-results)
 - [Format Input](#6-format-input)
 - [Get Random Sample](#7-get-random-sample)
-- [List Available Models](#8-list-available-models)
-- [Server Statistics](#9-server-statistics)
-- [Download Audio Files](#10-download-audio-files)
-- [Health Check](#11-health-check)
-- [Environment Variables](#12-environment-variables)
+- [Create Sample (Simple Mode)](#8-create-sample-simple-mode)
+- [Model Initialization](#9-model-initialization)
+- [Reinitialize Service](#10-reinitialize-service)
+- [LoRA Management](#11-lora-management)
+- [List Available Models](#12-list-available-models)
+- [Server Statistics](#13-server-statistics)
+- [Download Audio Files](#14-download-audio-files)
+- [Health Check](#15-health-check)
+- [Environment Variables](#16-environment-variables)
 
 ---
 
@@ -521,16 +525,307 @@ curl -X POST http://localhost:8001/create_random_sample \
 
 ---
 
-## 8. List Available Models
+## 8. Create Sample (Simple Mode)
 
 ### 8.1 API Definition
+
+- **URL**: `/v1/create_sample`
+- **Method**: `POST`
+- **Content-Type**: `application/json` or `multipart/form-data`
+
+This is the API equivalent of the Gradio UI's "Simple Mode" Create Sample button. It takes a natural language description and uses the 5Hz LM to generate a caption, lyrics, and music metadata in one call.
+
+> **Note**: This endpoint requires the LLM to be available. If the LLM was not initialized at startup, it will attempt lazy initialization on first call.
+
+### 8.2 Request Parameters
+
+| Parameter Name | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `query` | string | `""` | Natural language description of the desired song (e.g., "a soft Bengali love song") |
+| `instrumental` | bool | `false` | Whether the sample should be instrumental (no lyrics) |
+| `vocal_language` | string | `"unknown"` | Vocal language hint (e.g., "en", "zh", "ja") |
+| `temperature` | float | `0.85` | LM sampling temperature |
+
+### 8.3 Response Example
+
+```json
+{
+  "data": {
+    "caption": "A soft Bengali love ballad with gentle acoustic guitar and light tabla rhythms",
+    "lyrics": "[Verse 1]\nTomar chokhe dekhi ami...",
+    "bpm": 72,
+    "keyscale": "D Minor",
+    "duration": 180,
+    "timesignature": "4",
+    "vocal_language": "bn"
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+### 8.4 Usage Example
+
+```bash
+curl -X POST http://localhost:8001/v1/create_sample \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query": "a soft Bengali love song for a quiet evening",
+    "instrumental": false,
+    "vocal_language": "bn",
+    "temperature": 0.85
+  }'
+```
+
+---
+
+## 9. Model Initialization
+
+### 9.1 API Definition
+
+- **URL**: `/v1/init`
+- **Method**: `POST`
+- **Content-Type**: `application/json`
+
+Initialize or switch DiT and LM models on demand. Use this to load a different DiT model or to initialize the LLM after startup without restarting the server.
+
+### 9.2 Request Parameters
+
+| Parameter Name | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `model` | string | null | DiT model name to initialize (e.g., `"acestep-v15-base"`, `"acestep-v15-turbo"`) |
+| `init_llm` | bool | `false` | Whether to initialize the LLM as part of this request |
+| `lm_model_path` | string | null | LLM model path/name (e.g., `"acestep-5Hz-lm-1.7B"`) |
+
+### 9.3 Response Example
+
+```json
+{
+  "data": {
+    "message": "Model initialization completed",
+    "loaded_model": "acestep-v15-turbo",
+    "loaded_lm_model": "acestep-5Hz-lm-0.6B",
+    "models": [...],
+    "lm_models": [...],
+    "llm_initialized": true
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+### 9.4 Usage Example
+
+```bash
+# Switch DiT model and initialize LLM
+curl -X POST http://localhost:8001/v1/init \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "acestep-v15-base",
+    "init_llm": true,
+    "lm_model_path": "acestep-5Hz-lm-1.7B"
+  }'
+```
+
+---
+
+## 10. Reinitialize Service
+
+### 10.1 API Definition
+
+- **URL**: `/v1/reinitialize`
+- **Method**: `POST`
+
+Reinitialize service components (DiT, VAE, Text Encoder, LLM) that were unloaded during training or preprocessing. This endpoint restores the full inference pipeline without restarting the server.
+
+Components are only reloaded if they are currently missing. If all components are already loaded, the endpoint returns successfully with an empty `reloaded` list.
+
+### 10.2 Request Parameters
+
+No request body is required. Authentication is enforced if an API key is configured.
+
+### 10.3 Response Example
+
+```json
+{
+  "data": {
+    "message": "Service reinitialized\nReloaded: DiT/VAE/Text Encoder, LLM",
+    "reloaded": ["DiT/VAE/Text Encoder", "LLM"]
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+### 10.4 Usage Example
+
+```bash
+curl -X POST http://localhost:8001/v1/reinitialize \
+  -H 'Authorization: Bearer your-api-key'
+```
+
+---
+
+## 11. LoRA Management
+
+These endpoints control the full lifecycle of LoRA (and LoKr/LyCORIS) adapters: loading, unloading, toggling, scaling, and querying status.
+
+### 11.1 Load LoRA Adapter
+
+- **URL**: `/v1/lora/load`
+- **Method**: `POST`
+- **Content-Type**: `application/json`
+
+Load a LoRA or LoKr adapter into the primary model.
+
+**Request Parameters**:
+
+| Parameter Name | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `lora_path` | string | Yes | Path to LoRA adapter directory or LoKr/LyCORIS safetensors file |
+| `adapter_name` | string | No | Adapter name for multi-adapter mode |
+
+**Usage Example**:
+
+```bash
+curl -X POST http://localhost:8001/v1/lora/load \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "lora_path": "/path/to/lora/adapter",
+    "adapter_name": "my-style"
+  }'
+```
+
+**Response Example**:
+
+```json
+{
+  "data": {
+    "message": "LoRA loaded successfully",
+    "lora_path": "/path/to/lora/adapter",
+    "adapter_name": "my-style"
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+### 11.2 Unload LoRA Adapter
+
+- **URL**: `/v1/lora/unload`
+- **Method**: `POST`
+
+Unload the current LoRA adapter and restore the base model weights.
+
+**Request Parameters**: None (authentication only).
+
+**Usage Example**:
+
+```bash
+curl -X POST http://localhost:8001/v1/lora/unload \
+  -H 'Authorization: Bearer your-api-key'
+```
+
+### 11.3 Toggle LoRA
+
+- **URL**: `/v1/lora/toggle`
+- **Method**: `POST`
+- **Content-Type**: `application/json`
+
+Enable or disable the loaded LoRA adapter for inference without unloading it. This is useful for A/B comparisons between the base model and the LoRA-adapted model.
+
+**Request Parameters**:
+
+| Parameter Name | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `use_lora` | bool | Yes | `true` to enable, `false` to disable |
+
+**Usage Example**:
+
+```bash
+curl -X POST http://localhost:8001/v1/lora/toggle \
+  -H 'Content-Type: application/json' \
+  -d '{"use_lora": false}'
+```
+
+### 11.4 Set LoRA Scale
+
+- **URL**: `/v1/lora/scale`
+- **Method**: `POST`
+- **Content-Type**: `application/json`
+
+Adjust the LoRA adapter strength. A scale of `1.0` applies the full adapter effect; `0.0` effectively disables it.
+
+**Request Parameters**:
+
+| Parameter Name | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `scale` | float | Yes | LoRA scale strength (0.0 to 1.0) |
+| `adapter_name` | string | No | Adapter name for multi-adapter mode |
+
+**Usage Example**:
+
+```bash
+curl -X POST http://localhost:8001/v1/lora/scale \
+  -H 'Content-Type: application/json' \
+  -d '{"scale": 0.7, "adapter_name": "my-style"}'
+```
+
+### 11.5 Get LoRA Status
+
+- **URL**: `/v1/lora/status`
+- **Method**: `GET`
+
+Returns the full adapter state for the primary handler.
+
+**Usage Example**:
+
+```bash
+curl http://localhost:8001/v1/lora/status \
+  -H 'Authorization: Bearer your-api-key'
+```
+
+**Response Example**:
+
+```json
+{
+  "data": {
+    "lora_loaded": true,
+    "use_lora": true,
+    "lora_scale": 0.7,
+    "adapter_type": "lora",
+    "scales": {"my-style": 0.7},
+    "active_adapter": "my-style",
+    "adapters": ["my-style"],
+    "synthetic_default_mode": false
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+---
+
+## 12. List Available Models
+
+### 12.1 API Definition
 
 - **URL**: `/v1/models`
 - **Method**: `GET`
 
 Returns a list of available DiT models loaded on the server.
 
-### 8.2 Response Example
+### 12.2 Response Example
 
 ```json
 {
@@ -554,7 +849,7 @@ Returns a list of available DiT models loaded on the server.
 }
 ```
 
-### 8.3 Usage Example
+### 12.3 Usage Example
 
 ```bash
 curl http://localhost:8001/v1/models
@@ -562,16 +857,16 @@ curl http://localhost:8001/v1/models
 
 ---
 
-## 9. Server Statistics
+## 13. Server Statistics
 
-### 9.1 API Definition
+### 13.1 API Definition
 
 - **URL**: `/v1/stats`
 - **Method**: `GET`
 
 Returns server runtime statistics.
 
-### 9.2 Response Example
+### 13.2 Response Example
 
 ```json
 {
@@ -594,7 +889,7 @@ Returns server runtime statistics.
 }
 ```
 
-### 9.3 Usage Example
+### 13.3 Usage Example
 
 ```bash
 curl http://localhost:8001/v1/stats
@@ -602,22 +897,22 @@ curl http://localhost:8001/v1/stats
 
 ---
 
-## 10. Download Audio Files
+## 14. Download Audio Files
 
-### 10.1 API Definition
+### 14.1 API Definition
 
 - **URL**: `/v1/audio`
 - **Method**: `GET`
 
 Download generated audio files by path.
 
-### 10.2 Request Parameters
+### 14.2 Request Parameters
 
 | Parameter Name | Type | Description |
 | :--- | :--- | :--- |
 | `path` | string | URL-encoded path to the audio file |
 
-### 10.3 Usage Example
+### 14.3 Usage Example
 
 ```bash
 # Download using the URL from task result
@@ -626,16 +921,16 @@ curl "http://localhost:8001/v1/audio?path=%2Ftmp%2Fapi_audio%2Fabc123.mp3" -o ou
 
 ---
 
-## 11. Health Check
+## 15. Health Check
 
-### 11.1 API Definition
+### 15.1 API Definition
 
 - **URL**: `/health`
 - **Method**: `GET`
 
 Returns service health status.
 
-### 11.2 Response Example
+### 15.2 Response Example
 
 ```json
 {
@@ -653,7 +948,7 @@ Returns service health status.
 
 ---
 
-## 12. Environment Variables
+## 16. Environment Variables
 
 The API server can be configured using environment variables:
 

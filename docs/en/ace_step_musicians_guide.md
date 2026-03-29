@@ -55,7 +55,7 @@ ACE-Step has two "brains" that work together, like a songwriter and a studio eng
     │   detail: instruments come into focus, vocals           │
     │   emerge, drums tighten up, mix clears.                 │
     │                                                         │
-    │   After 8 steps (fast mode) or 50 steps (quality        │
+    │   After 8 steps (turbo mode) or 32-50 steps (SFT/base   │
     │   mode), you have a finished song.                      │
     └──────────────────────┬──────────────────────────────────┘
                            │
@@ -81,11 +81,13 @@ ACE-Step has six creative modes. Think of them like different tools in a studio:
     │                  YOUR CREATIVE TOOLKIT               │
     │                                                      │
     │  🎵 Text to Music    Describe it → Get a song        │
-    │  🎨 Cover            Restyle an existing song        │
+    │  🎨 Remix            Restyle an existing song        │
     │  🖌️ Repaint          Fix one section of a song       │
-    │  🧱 Lego             Add layers to a backing track   │
-    │  🔬 Extract          Pull out individual instruments │
-    │  🎹 Complete         Add accompaniment to vocals     │
+    │  🧱 Lego *           Add layers to a backing track   │
+    │  🔬 Extract *        Pull out individual instruments │
+    │  🎹 Complete *       Add accompaniment to vocals     │
+    │                                                      │
+    │  * Only available with base/SFT models, not turbo    │
     └──────────────────────────────────────────────────────┘
 ```
 
@@ -96,9 +98,9 @@ The simplest mode. Type a description, get a song.
 **You write:** "melancholic indie folk with acoustic guitar and breathy female vocals"
 **You get:** A complete song matching that description.
 
-### Cover — Transform a Song's Style
+### Remix — Transform a Song's Style
 
-Feed it an existing song and tell it what style you want instead. It keeps the structure (melody shape, rhythm, song form) but changes everything else.
+Feed it an existing song and tell it what style you want instead. The UI button is called "Remix" (it performs a cover-style operation internally). It keeps the structure (melody shape, rhythm, song form) but changes everything else.
 
 **You provide:** A country ballad
 **You write:** "heavy metal rock with distorted guitars and screaming vocals"
@@ -116,13 +118,19 @@ Generated a song you love, except the intro is weak? Repaint lets you regenerate
 
 Have a drum loop? Add bass. Have a guitar track? Add strings on top. Lego lets you build up a song one layer at a time.
 
+> **Note:** This mode is only available when using a base/SFT model, not the default turbo model.
+
 ### Extract — Pull Apart a Mix
 
 The opposite of Lego. Give it a full mix and ask it to isolate just the vocals, or just the drums, or just the guitar.
 
+> **Note:** This mode is only available when using a base/SFT model, not the default turbo model.
+
 ### Complete — Add Accompaniment
 
 Have a vocal recording with nothing else? Complete generates the backing instruments to match.
+
+> **Note:** This mode is only available when using a base/SFT model, not the default turbo model.
 
 ---
 
@@ -144,14 +152,14 @@ A computer with a decent graphics card (GPU). The better the GPU, the faster and
 
     6-8 GB  (budget)         Songs up to 10 minutes
     ▓▓▓░░░░░░░░░░░░░░░░░    1-2 songs at a time
-                             Optional lightweight Songwriter brain (0.6B)
+                             Lightweight Songwriter brain enabled by default (0.6B)
 
     8-12 GB (mainstream)     Songs up to 10 minutes
     ▓▓▓▓▓░░░░░░░░░░░░░░░    2-4 songs at a time
-                             Songwriter brain available (0.6B)
+                             Songwriter brain enabled by default (0.6B)
 
     12-16 GB (sweet spot)    Songs up to 10 minutes
-    ▓▓▓▓▓▓▓░░░░░░░░░░░░░    2-4 songs at a time
+    ▓▓▓▓▓▓▓░░░░░░░░░░░░░    Up to 4 songs at a time
                              Full Songwriter brain (1.7B)
 
     16-20 GB (enthusiast)    Songs up to 10 minutes
@@ -159,8 +167,9 @@ A computer with a decent graphics card (GPU). The better the GPU, the faster and
                              Larger Songwriter brain (1.7B)
 
     20-24 GB (high end)      Songs up to 8 minutes
-    ▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░    2-8 songs at a time
-                             All Songwriter brains (0.6B/1.7B/4B), no offload needed
+    ▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░    Up to 8 songs at a time
+                             All Songwriter brains available (0.6B/1.7B/4B);
+                             1.7B recommended by default
 
     24 GB+ (pro)             Songs up to 10 minutes
     ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░    Up to 8 songs at a time
@@ -215,20 +224,20 @@ The project's README on GitHub walks through each step with copy-paste commands.
 
 ## The Interface: What You'll See
 
-When ACE-Step opens in your browser, you get a web interface with three main areas:
+When ACE-Step opens in your browser, you get a web interface with two main tabs:
 
 ```
     ┌─────────────────────────────────────────────────────────────┐
     │  ACE-Step 1.5                                               │
-    ├─────────────┬───────────────────┬───────────────────────────┤
-    │  Generate   │  LoRA Training    │  Dataset Explorer         │
-    ├─────────────┴───────────────────┴───────────────────────────┤
+    ├─────────────────────────┬───────────────────────────────────┤
+    │  Generation             │  LoRA Training                    │
+    ├─────────────────────────┴───────────────────────────────────┤
     │                                                             │
-    │  The Generate tab is where you'll spend 95% of your time.   │
+    │  The Generation tab is where you'll spend 95% of your time. │
     │                                                             │
     │  LoRA Training is for teaching the AI your personal style.  │
-    │                                                             │
-    │  Dataset Explorer is for browsing example prompts.          │
+    │  It contains a Dataset Builder sub-tab for preparing your   │
+    │  training data.                                             │
     │                                                             │
     └─────────────────────────────────────────────────────────────┘
 ```
@@ -354,7 +363,7 @@ One of ACE-Step's most powerful features is using existing audio to guide genera
     │      └──────────┘     like this — same warmth, same      │
     │                       texture, same vibe"                │
     │                                                          │
-    │   2. SOURCE AUDIO + COVER (restyle a song)               │
+    │   2. SOURCE AUDIO + REMIX (restyle a song)               │
     │      ┌──────────┐                                        │
     │      │ song.mp3 │──→ "Keep the STRUCTURE of this song    │
     │      └──────────┘     but change the style completely"   │
@@ -367,14 +376,14 @@ One of ACE-Step's most powerful features is using existing audio to guide genera
     └──────────────────────────────────────────────────────────┘
 ```
 
-### Cover Mode: The Style Transformer
+### Remix Mode: The Style Transformer
 
-This is the mode for turning one genre into another. The key control is **Audio Cover Strength** — a slider from 0 to 100%:
+This is the mode for turning one genre into another. The key control is **Audio Cover Strength** — a slider from 0.0 to 1.0:
 
 ```
     Audio Cover Strength
 
-    0%                     50%                    100%
+    0.0                    0.5                    1.0
     ├──────────────────────┼──────────────────────┤
     │                      │                      │
     Ignores the         Balanced              Follows the
@@ -383,16 +392,16 @@ This is the mode for turning one genre into another. The key control is **Audio 
     generation.         but transformed.      subtle changes only.
 
 
-    For dramatic genre changes (country → metal):  use 30-50%
-    For moderate changes (pop → jazz):             use 50-70%
-    For subtle changes (rock → indie rock):        use 70-90%
+    For dramatic genre changes (country → metal):  use 0.3-0.5
+    For moderate changes (pop → jazz):             use 0.5-0.7
+    For subtle changes (rock → indie rock):        use 0.7-0.9
 ```
 
 **Example: Country to Heavy Metal**
 
 1. Upload your country song as source audio
-2. Select the "Cover" task
-3. Set Audio Cover Strength to about 40%
+2. Select the "Remix" task
+3. Set Audio Cover Strength to about 0.4
 4. Write a caption like: *"heavy metal rock with heavily distorted electric guitars, aggressive double bass drumming, powerful screaming vocals, fast tempo, high energy, intense dark atmosphere"*
 5. Generate a few variations (batch size 2-4)
 6. Pick your favorite
@@ -508,8 +517,9 @@ How long does generation take? It depends on your hardware and settings:
 ```
 
 **Fast Mode vs. Quality Mode:**
-- **Turbo** (default): 8 processing steps, very fast, good quality
-- **SFT/Base**: 50 processing steps, slower, more detail and nuance
+- **Turbo** (default): 8 steps (max 20), very fast, good quality
+- **SFT**: 50 steps default (max 200), slower, more detail and nuance
+- **Base**: 32 steps default (max 200), slower, more detail and nuance
 
 Most people use Turbo for day-to-day work and switch to SFT/Base for final versions.
 
@@ -579,11 +589,11 @@ What it *is*: a powerful, free, open instrument that puts AI music generation in
     │    Lyrics:   [Verse] [Chorus] [Bridge] with words       │
     │    Click:    Generate Music                             │
     │                                                         │
-    │  RESTYLE A SONG (Cover)                                 │
+    │  RESTYLE A SONG (Remix)                                  │
     │    Upload:   Source audio                               │
-    │    Task:     Cover                                      │
+    │    Task:     Remix                                      │
     │    Caption:  Describe the NEW style                     │
-    │    Strength: 30-50% for big changes, 70-90% for subtle  │
+    │    Strength: 0.3-0.5 for big changes, 0.7-0.9 for subtle│
     │                                                         │
     │  FIX A SECTION (Repaint)                                │
     │    Upload:   Source audio                               │

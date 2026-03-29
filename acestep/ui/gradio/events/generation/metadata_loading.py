@@ -26,7 +26,7 @@ def load_metadata(file_obj, llm_handler=None):
     """
     if file_obj is None:
         gr.Warning(t("messages.no_file_selected"))
-        return [None] * 37 + [False]
+        return [None] * 40 + [False]
 
     try:
         if hasattr(file_obj, 'name'):
@@ -77,6 +77,8 @@ def load_metadata(file_obj, llm_handler=None):
         cfg_interval_start = metadata.get('cfg_interval_start', 0.0)
         cfg_interval_end = metadata.get('cfg_interval_end', 1.0)
         audio_format = metadata.get('audio_format', 'flac')
+        mp3_bitrate = metadata.get('mp3_bitrate', '128k')
+        mp3_sample_rate = metadata.get('mp3_sample_rate', 48000)
         lm_temperature = metadata.get('lm_temperature', 0.85)
         lm_cfg_scale = metadata.get('lm_cfg_scale', 2.0)
         lm_top_k = metadata.get('lm_top_k', 0)
@@ -106,6 +108,8 @@ def load_metadata(file_obj, llm_handler=None):
             custom_timesteps = ''
         instrumental = metadata.get('instrumental', False)
 
+        is_mp3 = audio_format == "mp3"
+
         gr.Info(t("messages.params_loaded", filename=os.path.basename(filepath)))
 
         return (
@@ -113,7 +117,10 @@ def load_metadata(file_obj, llm_handler=None):
             audio_duration, batch_size, inference_steps, guidance_scale, seed, random_seed,
             use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
             custom_timesteps,
-            audio_format, lm_temperature, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
+            audio_format, gr.update(visible=is_mp3),
+            gr.update(value=mp3_bitrate, visible=is_mp3),
+            gr.update(value=mp3_sample_rate, visible=is_mp3),
+            lm_temperature, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
             use_cot_metas, use_cot_caption, use_cot_language, audio_cover_strength,
             cover_noise_strength, think, audio_codes, repainting_start, repainting_end,
             track_name, complete_track_classes, instrumental,
@@ -122,10 +129,10 @@ def load_metadata(file_obj, llm_handler=None):
 
     except json.JSONDecodeError as e:
         gr.Warning(t("messages.invalid_json", error=str(e)))
-        return [None] * 37 + [False]
+        return [None] * 40 + [False]
     except Exception as e:
         gr.Warning(t("messages.load_error", error=str(e)))
-        return [None] * 37 + [False]
+        return [None] * 40 + [False]
 
 
 def _get_project_root() -> str:

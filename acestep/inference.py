@@ -189,6 +189,8 @@ class GenerationConfig:
         lm_batch_chunk_size: Batch chunk size for LM processing
         constrained_decoding_debug: Whether to enable constrained decoding debug
         audio_format: Output audio format, one of "mp3", "wav", "flac", "wav32", "opus", "aac". Default: "flac"
+        mp3_bitrate: MP3 bitrate used when audio_format="mp3". Default: "128k"
+        mp3_sample_rate: MP3 output sample rate used when audio_format="mp3". Default: 48000
     """
     batch_size: int = 2
     allow_lm_batch: bool = False
@@ -197,8 +199,8 @@ class GenerationConfig:
     lm_batch_chunk_size: int = 8
     constrained_decoding_debug: bool = False
     audio_format: str = "flac"  # Default to FLAC for fast saving
-    mp3_bitrate: str = "320k"
-    mp3_sample_rate: int = 44100
+    mp3_bitrate: str = "128k"
+    mp3_sample_rate: int = 48000
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary for JSON serialization."""
@@ -694,6 +696,10 @@ def generate_music(
             audio_params["use_lora"] = dit_handler.use_lora
             audio_params["lora_scale"] = dit_handler.lora_scale
             audio_params["lora_weights_hash"] = get_lora_weights_hash(dit_handler)
+            audio_params["audio_format"] = audio_format
+            if audio_format == "mp3":
+                audio_params["mp3_bitrate"] = getattr(config, "mp3_bitrate", "128k")
+                audio_params["mp3_sample_rate"] = getattr(config, "mp3_sample_rate", 48000)
 
             # Get audio tensor and metadata
             audio_tensor = dit_audio.get("tensor")
@@ -754,8 +760,8 @@ def generate_music(
                                                         sample_rate=sample_rate,
                                                         format=audio_format,
                                                         channels_first=True,
-                                                        mp3_bitrate=getattr(config, "mp3_bitrate", "320k"),
-                                                        mp3_sample_rate=getattr(config, "mp3_sample_rate", 44100))
+                                                        mp3_bitrate=getattr(config, "mp3_bitrate", "128k"),
+                                                        mp3_sample_rate=getattr(config, "mp3_sample_rate", 48000))
                 except Exception as e:
                     logger.error(f"[generate_music] Failed to save audio file: {e}")
                     audio_path = ""  # Fallback to empty path

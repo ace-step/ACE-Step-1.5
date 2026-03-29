@@ -317,7 +317,7 @@ This is where I belong
 
 | Control | Description |
 |---------|-------------|
-| **Think** | Enable 5Hz LM for code generation and metadata |
+| **Think** | Enable 5Hz LM for code generation and metadata. **Note:** Automatically ignored for Cover, Repaint, and Extract tasks — these tasks use source audio directly and skip the LM regardless of this setting. |
 | **ParallelThinking** | Enable parallel LM batch processing |
 | **CaptionRewrite** | Let LM enhance the input caption |
 | **AutoGen** | Automatically start next batch after completion |

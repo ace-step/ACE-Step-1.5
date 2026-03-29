@@ -384,7 +384,7 @@ class FormatSampleResult:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `thinking` | `bool` | `True` | Enable 5Hz Language Model "Chain-of-Thought" reasoning for semantic/music metadata and codes. |
+| `thinking` | `bool` | `True` | Enable 5Hz Language Model "Chain-of-Thought" reasoning for semantic/music metadata and codes. **Automatically ignored for `cover`, `repaint`, and `extract` tasks** (see note below). |
 | `lm_temperature` | `float` | `0.85` | LM sampling temperature (0.0-2.0). Higher = more creative/diverse, lower = more conservative. |
 | `lm_cfg_scale` | `float` | `2.0` | LM classifier-free guidance scale. Higher = stronger adherence to prompt. |
 | `lm_top_k` | `int` | `0` | LM top-k sampling. `0` disables top-k filtering. Typical values: 40-100. |
@@ -883,8 +883,8 @@ params = GenerationParams(
     src_audio="original_pop_song.mp3",
     caption="orchestral symphonic arrangement",
     audio_cover_strength=0.7,
-    thinking=True,  # Enable LM for metadata
-    use_cot_metas=True,
+    thinking=True,  # Note: LM is automatically skipped for cover tasks
+    use_cot_metas=True,  # Also ignored for cover tasks
 )
 
 config = GenerationConfig(batch_size=1)
@@ -1037,6 +1037,10 @@ caption="fast slow music"  # Conflicting tempos
 - Have precise metadata already
 - Need faster generation
 - Want full control over parameters
+
+**LM Automatically Skipped**:
+
+The LM is automatically skipped for `cover`, `repaint`, and `extract` task types, regardless of the `thinking` setting. These tasks work directly with source audio and do not benefit from LM planning. All LM-related parameters (`thinking`, `use_cot_metas`, `use_cot_caption`, `use_cot_language`) are ignored for these tasks. Only `text2music`, `lego`, and `complete` tasks use the LM when enabled.
 
 ### 5. Batch Processing
 

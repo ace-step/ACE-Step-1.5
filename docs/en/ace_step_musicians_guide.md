@@ -553,6 +553,8 @@ Every generation uses a random "seed" number. If you like your settings but want
 ### The Songwriter Brain Is Optional
 If you already know exactly what you want (tempo, key, structure, instruments), you can turn off "Thinking Mode" to skip Brain 1 entirely. This makes generation faster and gives you more direct control.
 
+Additionally, the Songwriter brain is **automatically skipped** for Cover, Repaint, and Extract tasks. These tasks work directly with your source audio, so Brain 1 has nothing to plan. Even if you have Thinking Mode enabled, it will be silently bypassed for these task types. The Songwriter brain is only active for Text-to-Music, Lego, and Complete tasks.
+
 ---
 
 ## What ACE-Step Is Not

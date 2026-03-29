@@ -165,6 +165,8 @@ Suitable for passing only text parameters, or referencing audio file paths that 
   - The server will use 5Hz LM to generate `audio_code_string` (lm-dit behavior).
   - DiT runs with LM-generated codes for enhanced music quality.
 
+> **Note:** The LM is **automatically skipped** for `cover`, `repaint`, and `extract` task types, even if `thinking=true` is set. These tasks work directly with source audio and do not benefit from LM planning. Setting `thinking=true` has no effect for these tasks. The LM is only used when the task type is `text2music`, `lego`, or `complete`.
+
 **Metadata Auto-Completion (Conditional)**:
 
 When `use_cot_caption=true` or `use_cot_language=true` or metadata fields are missing, the server may call 5Hz LM to fill the missing fields based on `caption`/`lyrics`:

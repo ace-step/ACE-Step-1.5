@@ -252,7 +252,7 @@
     "mp3_bitrate_label": "MP3 Bitrate",
     "mp3_bitrate_info": "MP3 encoding bitrate.",
     "mp3_sample_rate_label": "MP3 Sample Rate",
-    "mp3_sample_rate_info": "MP3 encoding sample rate in kHz."
+    "mp3_sample_rate_info": "MP3 encoding sample rate. Choose 44.1 kHz or 48 kHz."
   },
   "results": {
     "title": "🎵 Results",

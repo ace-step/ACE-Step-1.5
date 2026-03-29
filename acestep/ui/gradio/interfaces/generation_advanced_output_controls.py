@@ -8,6 +8,7 @@ from acestep.ui.gradio.i18n import t
 
 
 def _update_mp3_control_visibility(audio_format: str, service_mode: bool = False):
+    """Return visibility and interactivity updates for MP3-only controls."""
     visible = audio_format == "mp3"
     return (
         gr.update(visible=visible),

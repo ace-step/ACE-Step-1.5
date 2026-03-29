@@ -667,7 +667,7 @@ def generate_music(
         base_params_dict = params.to_dict()
 
         # Save audio files using AudioSaver (format from config)
-        audio_format = config.audio_format if config.audio_format else "flac"
+        audio_format = str(config.audio_format).strip().lower() if config.audio_format else "flac"
         audio_saver = AudioSaver(default_format=audio_format)
 
         # Use handler's temp_dir for saving files

@@ -76,9 +76,18 @@ def load_metadata(file_obj, llm_handler=None):
         use_adg = metadata.get('use_adg', False)
         cfg_interval_start = metadata.get('cfg_interval_start', 0.0)
         cfg_interval_end = metadata.get('cfg_interval_end', 1.0)
-        audio_format = metadata.get('audio_format', 'flac')
-        mp3_bitrate = metadata.get('mp3_bitrate', '128k')
-        mp3_sample_rate = metadata.get('mp3_sample_rate', 48000)
+        audio_format = str(metadata.get('audio_format', 'flac')).strip().lower()
+        if audio_format not in {'flac', 'mp3', 'opus', 'aac', 'wav', 'wav32'}:
+            audio_format = 'flac'
+        mp3_bitrate = str(metadata.get('mp3_bitrate', '128k')).strip().lower()
+        if mp3_bitrate not in {'128k', '192k', '256k', '320k'}:
+            mp3_bitrate = '128k'
+        try:
+            mp3_sample_rate = int(metadata.get('mp3_sample_rate', 48000))
+        except (TypeError, ValueError):
+            mp3_sample_rate = 48000
+        if mp3_sample_rate not in {44100, 48000}:
+            mp3_sample_rate = 48000
         lm_temperature = metadata.get('lm_temperature', 0.85)
         lm_cfg_scale = metadata.get('lm_cfg_scale', 2.0)
         lm_top_k = metadata.get('lm_top_k', 0)

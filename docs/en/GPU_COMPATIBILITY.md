@@ -64,6 +64,7 @@ If you manually select an incompatible option (e.g., trying to use vllm on a 6GB
 3. **Medium VRAM (8-16GB)**: Use the 0.6B or 1.7B LM model. `vllm` backend works well on Tier 4+.
 4. **High VRAM (16-24GB)**: Enable larger LM models (1.7B recommended). Quantization becomes optional on 20GB+.
 5. **Very High VRAM (≥24GB)**: All models fit without offloading or quantization. Use 4B LM for best quality.
+6. **CPU Offload RAM Leak**: When using CPU offload (`ACESTEP_OFFLOAD_TO_CPU=true`), system RAM usage can grow over time because intermediate tensors are retained on the CPU between generations. Set `ACESTEP_SAVE_MEMORY=1` to skip storing these intermediate tensors and disable auto_lrc/auto_score, which eliminates the RAM leak.
 
 ## Debug Mode: Simulating Different GPU Configurations
 

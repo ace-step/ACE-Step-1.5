@@ -697,6 +697,33 @@ The API server can be configured using environment variables:
 | `ACESTEP_AVG_JOB_SECONDS` | `5.0` | Initial average job duration estimate |
 | `ACESTEP_AVG_WINDOW` | `50` | Window for averaging job duration |
 
+### Generation Configuration
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ACESTEP_NO_INIT` | `true` (API server) | Skip model loading at startup; models are lazy-loaded on first request. Set to `false` to force eager loading. CLI `--no-init` flag also accepted. |
+| `ACESTEP_COMPILE_MODEL` | `false` | Enable `torch.compile` for the DiT model. Can improve throughput on supported hardware. |
+| `ACESTEP_GENERATION_TIMEOUT` | `600` | Maximum wall-clock seconds to wait for a single generation before it is considered hung. |
+| `ACESTEP_SAVE_MEMORY` | `false` | Skip storing intermediate tensors and disable auto_lrc/auto_score to reduce RAM usage. Fixes system RAM leaks when using CPU offload. Set to `1` or `true` to enable. |
+
+### Platform-Specific Configuration
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ACESTEP_ROCM_DTYPE` | `float32` | Override the compute dtype on AMD ROCm GPUs. Accepted values: `float32`, `bfloat16`, `float16`. Defaults to `float32` to avoid segfaults on GPUs with incomplete bfloat16 kernel support. |
+| `ACESTEP_MLX_VAE_FP16` | `0` | Enable FP16 VAE on Apple Silicon (MLX). Set to `1` or `true` to enable half-precision VAE decode/encode. |
+| `ACESTEP_VAE_DECODE_CHUNK_SIZE` | auto | Override the VAE decode chunk size (integer). When unset, chunk size is chosen automatically based on available free memory. |
+
+### Diagnostics
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ACESTEP_DISABLE_TQDM` | `false` | Suppress tqdm progress bars during inference. Also automatically disabled when stderr is not a TTY. |
+| `ACESTEP_DEBUG_STATS` | `false` | Enable memory and timing debug statistics during generation. |
+| `MAX_CUDA_VRAM` | (unset) | Simulate a CUDA GPU with the specified VRAM in GB for testing. Also enforces a hard VRAM cap via `torch.cuda.set_per_process_memory_fraction()`. |
+| `MAX_MPS_VRAM` | (unset) | Simulate Apple Silicon MPS GPU memory size in GB for testing. |
+| `MAX_XPU_VRAM` | (unset) | Simulate Intel XPU memory size in GB for testing. |
+
 ### Cache Configuration
 
 | Variable | Default | Description |

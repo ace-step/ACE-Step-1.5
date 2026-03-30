@@ -134,6 +134,9 @@ class GenerationParams:
     cfg_interval_end: float = 1.0
     shift: float = 1.0
     infer_method: str = "ode"  # "ode" or "sde" - diffusion inference method
+    sampler_mode: str = "euler"  # "euler" (first-order) or "heun" (second-order predictor-corrector)
+    velocity_norm_threshold: float = 0.0  # Clamp velocity prediction norms (0 = disabled, try 2.0)
+    velocity_ema_factor: float = 0.0  # Velocity EMA smoothing (0 = disabled, try 0.1)
     # Custom timesteps (parsed from string like "0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0")
     # If provided, overrides inference_steps and shift
     timesteps: Optional[List[float]] = None
@@ -628,6 +631,9 @@ def generate_music(
             "cfg_interval_end": params.cfg_interval_end,
             "shift": params.shift,
             "infer_method": params.infer_method,
+            "sampler_mode": params.sampler_mode,
+            "velocity_norm_threshold": params.velocity_norm_threshold,
+            "velocity_ema_factor": params.velocity_ema_factor,
             "timesteps": params.timesteps,
             "latent_shift": params.latent_shift,
             "latent_rescale": params.latent_rescale,

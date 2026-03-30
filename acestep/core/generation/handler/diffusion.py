@@ -35,6 +35,9 @@ class DiffusionMixin:
         encoder_attention_mask_non_cover=None,
         context_latents_non_cover=None,
         disable_tqdm: bool = False,
+        sampler_mode: str = "euler",
+        velocity_norm_threshold: float = 0.0,
+        velocity_ema_factor: float = 0.0,
     ) -> Dict[str, Any]:
         """Run the MLX diffusion loop and return generated latents.
 
@@ -57,6 +60,9 @@ class DiffusionMixin:
             encoder_attention_mask_non_cover: Unused; accepted for API compatibility.
             context_latents_non_cover: Optional non-cover context latent tensor.
             disable_tqdm: If True, suppress the diffusion progress bar.
+            sampler_mode: Sampler algorithm — ``"euler"`` or ``"heun"``.
+            velocity_norm_threshold: Velocity norm clamping threshold (0 = disabled).
+            velocity_ema_factor: Velocity EMA smoothing factor (0 = disabled).
 
         Returns:
             Dict[str, Any]: ``{"target_latents": torch.Tensor, "time_costs": dict}``.
@@ -136,6 +142,9 @@ class DiffusionMixin:
             context_latents_non_cover_np=ctx_nc_np,
             compile_model=getattr(self, "mlx_dit_compiled", False),
             disable_tqdm=disable_tqdm,
+            sampler_mode=sampler_mode,
+            velocity_norm_threshold=velocity_norm_threshold,
+            velocity_ema_factor=velocity_ema_factor,
         )
 
         target_np = result["target_latents"]

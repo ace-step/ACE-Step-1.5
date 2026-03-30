@@ -47,6 +47,32 @@ def build_dit_controls(ui_config: dict[str, Any]) -> dict[str, Any]:
                 info=t("generation.infer_method_info"),
                 elem_classes=["has-info-container"],
             )
+            sampler_mode = gr.Dropdown(
+                choices=["euler", "heun"],
+                value="euler",
+                label=t("generation.sampler_mode_label"),
+                info=t("generation.sampler_mode_info"),
+                elem_classes=["has-info-container"],
+            )
+        with gr.Row():
+            velocity_norm_threshold = gr.Slider(
+                minimum=0.0,
+                maximum=5.0,
+                value=0.0,
+                step=0.1,
+                label=t("generation.velocity_norm_threshold_label"),
+                info=t("generation.velocity_norm_threshold_info"),
+                elem_classes=["has-info-container"],
+            )
+            velocity_ema_factor = gr.Slider(
+                minimum=0.0,
+                maximum=0.5,
+                value=0.0,
+                step=0.01,
+                label=t("generation.velocity_ema_factor_label"),
+                info=t("generation.velocity_ema_factor_info"),
+                elem_classes=["has-info-container"],
+            )
         with gr.Row():
             use_adg = gr.Checkbox(
                 label=t("generation.use_adg_label"),
@@ -112,6 +138,9 @@ def build_dit_controls(ui_config: dict[str, Any]) -> dict[str, Any]:
         "inference_steps": inference_steps,
         "guidance_scale": guidance_scale,
         "infer_method": infer_method,
+        "sampler_mode": sampler_mode,
+        "velocity_norm_threshold": velocity_norm_threshold,
+        "velocity_ema_factor": velocity_ema_factor,
         "use_adg": use_adg,
         "shift": shift,
         "custom_timesteps": custom_timesteps,

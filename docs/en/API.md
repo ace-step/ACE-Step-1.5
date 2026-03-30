@@ -565,16 +565,80 @@ curl http://localhost:8001/v1/models
 
 ---
 
-## 9. Server Statistics
+## 9. Initialize or Switch Models
 
 ### 9.1 API Definition
+
+- **URL**: `/v1/init`
+- **Method**: `POST`
+
+Initialize or switch DiT and LM models on demand without restarting the server.
+
+### 9.2 Request Parameters
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `model` | string | null | DiT model name to load (e.g., `"acestep-v15-base"`). If omitted, re-initializes the current model for the target slot. |
+| `slot` | int (1-3) | 1 | Handler slot to initialize. Slots 2 and 3 require `ACESTEP_CONFIG_PATH2` / `ACESTEP_CONFIG_PATH3` to have been set at startup. |
+| `init_llm` | bool | false | Whether to also initialize the LM in this request. |
+| `lm_model_path` | string | null | LM model path override (e.g., `"acestep-5Hz-lm-1.7B"`). |
+
+### 9.3 Response Example
+
+```json
+{
+  "data": {
+    "message": "Model initialization completed",
+    "slot": 2,
+    "loaded_model": "acestep-v15-base",
+    "loaded_lm_model": null,
+    "models": [
+      {"name": "acestep-v15-base", "is_default": false, "is_loaded": true},
+      {"name": "acestep-v15-turbo", "is_default": true, "is_loaded": true}
+    ],
+    "lm_models": [],
+    "llm_initialized": false
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+### 9.4 Usage Examples
+
+```bash
+# Initialize default slot (slot 1)
+curl -X POST http://localhost:8001/v1/init \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "acestep-v15-base"}'
+
+# Load a different model into slot 2
+curl -X POST http://localhost:8001/v1/init \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "acestep-v15-base", "slot": 2}'
+
+# Initialize slot 1 with LM
+curl -X POST http://localhost:8001/v1/init \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "acestep-v15-turbo", "init_llm": true, "lm_model_path": "acestep-5Hz-lm-1.7B"}'
+```
+
+> **Note**: Slots 2 and 3 are only available when `ACESTEP_CONFIG_PATH2` / `ACESTEP_CONFIG_PATH3` environment variables were set before starting the server. Attempting to initialize an unavailable slot returns a `400` error.
+
+---
+
+## 10. Server Statistics
+
+### 10.1 API Definition
 
 - **URL**: `/v1/stats`
 - **Method**: `GET`
 
 Returns server runtime statistics.
 
-### 9.2 Response Example
+### 10.2 Response Example
 
 ```json
 {
@@ -597,7 +661,7 @@ Returns server runtime statistics.
 }
 ```
 
-### 9.3 Usage Example
+### 10.3 Usage Example
 
 ```bash
 curl http://localhost:8001/v1/stats
@@ -605,22 +669,22 @@ curl http://localhost:8001/v1/stats
 
 ---
 
-## 10. Download Audio Files
+## 11. Download Audio Files
 
-### 10.1 API Definition
+### 11.1 API Definition
 
 - **URL**: `/v1/audio`
 - **Method**: `GET`
 
 Download generated audio files by path.
 
-### 10.2 Request Parameters
+### 11.2 Request Parameters
 
 | Parameter Name | Type | Description |
 | :--- | :--- | :--- |
 | `path` | string | URL-encoded path to the audio file |
 
-### 10.3 Usage Example
+### 11.3 Usage Example
 
 ```bash
 # Download using the URL from task result
@@ -629,16 +693,16 @@ curl "http://localhost:8001/v1/audio?path=%2Ftmp%2Fapi_audio%2Fabc123.mp3" -o ou
 
 ---
 
-## 11. Health Check
+## 12. Health Check
 
-### 11.1 API Definition
+### 12.1 API Definition
 
 - **URL**: `/health`
 - **Method**: `GET`
 
 Returns service health status.
 
-### 11.2 Response Example
+### 12.2 Response Example
 
 ```json
 {
@@ -656,7 +720,7 @@ Returns service health status.
 
 ---
 
-## 12. Environment Variables
+## 13. Environment Variables
 
 The API server can be configured using environment variables:
 

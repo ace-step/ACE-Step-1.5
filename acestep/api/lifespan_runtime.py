@@ -108,6 +108,8 @@ def initialize_lifespan_runtime(
     app.state.handler3 = handler3
     app.state._initialized2 = False
     app.state._initialized3 = False
+    app.state._init_error2 = None
+    app.state._init_error3 = None
     app.state._config_path = os.getenv("ACESTEP_CONFIG_PATH", "acestep-v15-turbo")
     app.state._config_path2 = config_path2
     app.state._config_path3 = config_path3

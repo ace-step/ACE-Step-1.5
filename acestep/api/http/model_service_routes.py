@@ -18,6 +18,14 @@ class InitModelRequest(BaseModel):
     """Request payload for on-demand DiT/LM model initialization."""
 
     model: Optional[str] = Field(default=None, description="DiT model name to initialize (e.g., 'acestep-v15-base')")
+    slot: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=3,
+        description="Handler slot to initialize (1, 2, or 3). Defaults to 1. "
+        "Slots 2 and 3 require ACESTEP_CONFIG_PATH2 / ACESTEP_CONFIG_PATH3 "
+        "to have been set at startup so that the handler was constructed.",
+    )
     init_llm: bool = Field(default=False, description="Whether to initialize LLM as part of this request")
     lm_model_path: Optional[str] = Field(default=None, description="LLM model path/name (e.g., 'acestep-5Hz-lm-1.7B')")
 
@@ -193,6 +201,7 @@ def register_model_service_routes(
                     lambda: initialize_models_for_request(
                         app_state=app.state,
                         model_name=request.model,
+                        slot=request.slot,
                         init_llm=request.init_llm,
                         requested_lm_model_path=request.lm_model_path,
                         get_project_root=get_project_root,
@@ -205,6 +214,7 @@ def register_model_service_routes(
                 return wrap_response(
                     {
                         "message": "Model initialization completed",
+                        "slot": result.get("slot", 1),
                         "loaded_model": result.get("loaded_model"),
                         "loaded_lm_model": result.get("loaded_lm_model"),
                         "models": inventory["models"],
@@ -212,5 +222,10 @@ def register_model_service_routes(
                         "llm_initialized": inventory["llm_initialized"],
                     }
                 )
+            except RuntimeError as exc:
+                msg = str(exc)
+                if "slot" in msg.lower() and "not available" in msg.lower():
+                    return wrap_response(None, code=400, error=msg)
+                return wrap_response(None, code=500, error=f"Model initialization failed: {msg}")
             except Exception as exc:
                 return wrap_response(None, code=500, error=f"Model initialization failed: {str(exc)}")

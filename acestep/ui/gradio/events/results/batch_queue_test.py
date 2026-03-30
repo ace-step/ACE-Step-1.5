@@ -227,7 +227,7 @@ class CaptureCurrentParamsTests(unittest.TestCase):
             "repainting_start", "repainting_end", "instruction_display_gen",
             "audio_cover_strength", "cover_noise_strength", "task_type",
             "use_adg", "cfg_interval_start", "cfg_interval_end", "shift",
-            "infer_method", "custom_timesteps", "audio_format", "lm_temperature",
+            "infer_method", "custom_timesteps", "audio_format", "mp3_bitrate", "mp3_sample_rate", "lm_temperature",
             "think_checkbox", "lm_cfg_scale", "lm_top_k", "lm_top_p",
             "lm_negative_prompt", "use_cot_metas", "use_cot_caption",
             "use_cot_language", "constrained_decoding_debug", "allow_lm_batch",

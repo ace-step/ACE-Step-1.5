@@ -54,6 +54,53 @@ class GenerateMusicMixin:
     orchestration flow.
     """
 
+    def _verify_decoder_device_dtype(self) -> None:
+        """Ensure all decoder parameters are on ``self.device`` and ``self.dtype``.
+
+        CPU-offload round-trips can leave PEFT/LoRA adapter weights on the
+        wrong device or in the wrong dtype, which silently produces NaN/Inf
+        during the diffusion forward pass.  This method detects and fixes
+        such mismatches before generation begins.
+        """
+        decoder = getattr(self.model, "decoder", None)
+        if decoder is None:
+            return
+
+        wrong_device = []
+        wrong_dtype = []
+        for name, param in decoder.named_parameters():
+            if not self._is_on_target_device(param, self.device):
+                wrong_device.append(name)
+            if param.is_floating_point() and param.dtype != self.dtype:
+                wrong_dtype.append(name)
+
+        if wrong_device or wrong_dtype:
+            if wrong_device:
+                logger.warning(
+                    f"[generate_music] LoRA sanity check: {len(wrong_device)} decoder "
+                    f"parameters on wrong device (expected {self.device}), fixing: "
+                    f"{wrong_device[:5]}{'...' if len(wrong_device) > 5 else ''}"
+                )
+            if wrong_dtype:
+                logger.warning(
+                    f"[generate_music] LoRA sanity check: {len(wrong_dtype)} decoder "
+                    f"parameters have wrong dtype (expected {self.dtype}), fixing: "
+                    f"{wrong_dtype[:5]}{'...' if len(wrong_dtype) > 5 else ''}"
+                )
+            decoder.to(device=self.device, dtype=self.dtype)
+
+        # Final verification — use recursive move if simple .to() wasn't enough
+        still_wrong = [
+            name for name, p in decoder.named_parameters()
+            if not self._is_on_target_device(p, self.device)
+        ]
+        if still_wrong:
+            logger.warning(
+                f"[generate_music] {len(still_wrong)} params still on wrong device "
+                f"after decoder.to(), using recursive move"
+            )
+            self._recursive_to_device(decoder, self.device, self.dtype)
+
     def _vram_preflight_check(
         self,
         actual_batch_size: int,
@@ -206,6 +253,14 @@ class GenerateMusicMixin:
                 guidance_scale,
             )
             guidance_scale = 1.0
+
+        # When LoRA is active, verify all decoder parameters are on the
+        # expected device and dtype.  CPU-offload round-trips can leave PEFT
+        # adapter weights on the wrong device, causing NaN in the diffusion
+        # forward pass.  The check is cheap and prevents a hard-to-debug
+        # generation failure.
+        if getattr(self, "lora_loaded", False) and getattr(self, "use_lora", False):
+            self._verify_decoder_device_dtype()
 
         logger.info("[generate_music] Starting generation...")
         if progress:

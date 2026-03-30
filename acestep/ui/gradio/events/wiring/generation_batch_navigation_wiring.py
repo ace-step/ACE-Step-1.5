@@ -139,6 +139,8 @@ def _build_capture_current_params_inputs(generation_section: dict[str, Any]) -> 
         generation_section["infer_method"],
         generation_section["custom_timesteps"],
         generation_section["audio_format"],
+        generation_section["mp3_bitrate"],
+        generation_section["mp3_sample_rate"],
         generation_section["lm_temperature"],
         generation_section["think_checkbox"],
         generation_section["lm_cfg_scale"],

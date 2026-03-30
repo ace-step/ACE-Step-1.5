@@ -38,7 +38,7 @@ dependencies = [
     "numba>=0.63.1",
     "vector-quantize-pytorch>=1.27.15",
     "torchcodec>=0.9.1; platform_machine != 'aarch64'",
-    "torchao>=0.14.1,<0.16.0; platform_machine != 'aarch64'",
+    "torchao>=0.16.0,<0.17.0; platform_machine != 'aarch64'",
     "torchao; platform_machine == 'aarch64'",
     "toml",
     # MLX dependencies (Apple Silicon native acceleration - macOS only)

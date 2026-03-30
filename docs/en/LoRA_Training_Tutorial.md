@@ -279,6 +279,84 @@ Enter the save path for tensor files, click to start preprocessing, and wait for
 
 ---
 
+## LoKr Training (Alternative to LoRA)
+
+LoKr (Low-rank Kronecker product) is an alternative adapter method that uses Kronecker decomposition instead of low-rank matrix factorization. Compared to standard LoRA, LoKr offers significantly faster training times -- what previously took an hour can often complete in around 5 minutes -- making it particularly well-suited for consumer-grade GPUs.
+
+### How LoKr Differs from LoRA
+
+| Aspect | LoRA | LoKr |
+|--------|------|------|
+| Decomposition | Low-rank matrix factorization | Kronecker product decomposition |
+| Training speed | Baseline | Up to 10x faster |
+| Default learning rate | 1e-4 | 0.03 |
+| Default epochs | 10 | 500 |
+| DoRA support | No | Yes (enabled by default via `weight_decompose`) |
+
+### LoKr Parameters
+
+#### Adapter-Specific Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| **lokr_linear_dim** | 64 | Linear dimension of the LoKr adapter (1-256) |
+| **lokr_linear_alpha** | 128 | Linear alpha scaling factor (1-512, typically 2x dim) |
+| **lokr_factor** | -1 (auto) | Kronecker factor. -1 lets the algorithm choose automatically. Valid range: 1-8 when set manually |
+| **lokr_decompose_both** | false | Decompose both matrices in the Kronecker product |
+| **lokr_use_tucker** | false | Use Tucker decomposition for additional compression |
+| **lokr_use_scalar** | false | Enable scalar calibration |
+| **lokr_weight_decompose** | true | Enable DoRA (Weight-Decomposed Low-Rank Adaptation) mode |
+
+#### Shared Training Parameters
+
+These parameters are shared between LoRA and LoKr training:
+
+| Parameter | LoRA Default | LoKr Default | Description |
+|-----------|-------------|-------------|-------------|
+| **learning_rate** | 1e-4 | 0.03 | Optimization learning rate |
+| **train_epochs** | 10 | 500 | Maximum training epochs |
+| **train_batch_size** | 1 | 1 | Training batch size |
+| **gradient_accumulation** | 4 | 4 | Gradient accumulation steps (effective batch = batch_size x accumulation) |
+| **save_every_n_epochs** | 5 | 5 | Checkpoint save frequency |
+| **training_shift** | 3.0 | 3.0 | Timestep shift for turbo model |
+| **training_seed** | 42 | 42 | Random seed for reproducibility |
+| **gradient_checkpointing** | false | false | Trade compute speed for lower VRAM usage. Enable this if you are running out of VRAM during training |
+| **use_fp8** | false | N/A | Use FP8 precision when the runtime supports it (LoRA only) |
+
+### Using LoKr in the Gradio UI
+
+1. Switch to the **Train LoKr** tab (next to the Train LoRA tab)
+2. Load your preprocessed tensor dataset (same tensors used for LoRA training)
+3. Adjust LoKr-specific parameters if needed (defaults work well for most cases)
+4. Click **Start Training** and monitor the loss curve
+5. Export the trained adapter when training completes
+
+### Using LoKr via the API
+
+LoKr training is also available through the HTTP API:
+
+```bash
+curl -X POST http://localhost:8001/v1/training/start_lokr \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "tensor_dir": "/path/to/preprocessed/tensors",
+    "output_dir": "./lokr_output",
+    "lokr_linear_dim": 64,
+    "lokr_linear_alpha": 128,
+    "lokr_factor": -1,
+    "lokr_weight_decompose": true,
+    "learning_rate": 0.03,
+    "train_epochs": 500,
+    "train_batch_size": 1,
+    "gradient_accumulation": 4,
+    "save_every_n_epochs": 5
+  }'
+```
+
+The endpoint mirrors the LoRA training API (`POST /v1/training/start`), with LoKr-specific parameters replacing the LoRA rank/alpha/dropout fields. Training progress can be monitored using the same status and stop endpoints used for LoRA training.
+
+---
+
 ## Using LoRA
 
 1. After training completes, **restart Gradio** and reload models (do not select the LM model).

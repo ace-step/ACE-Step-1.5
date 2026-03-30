@@ -346,7 +346,9 @@ class FormatSampleResult:
 | `keyscale` | `str` | `""` | Musical key (e.g., "C Major", "Am", "F# minor"). Empty string enables auto-detection. |
 | `timesignature` | `str` | `""` | Time signature (2 for '2/4', 3 for '3/4', 4 for '4/4', 6 for '6/8'). Empty string enables auto-detection. |
 | `vocal_language` | `str` | `"unknown"` | Language code for vocals (ISO 639-1). Supported: `"en"`, `"zh"`, `"ja"`, `"es"`, `"fr"`, etc. Use `"unknown"` for auto-detection. |
-| `duration` | `float` | `-1.0` | Target audio length in seconds (10-600). If <= 0 or None, model chooses automatically based on lyrics length. |
+| `duration` | `float` | `-1.0` | Target audio length in seconds (10-600). If <= 0 or None, falls back to a deterministic **120-second default** (see note below). |
+
+> **Duration fallback**: When `duration` is `-1`, `0`, or `None`, the system uses a fixed default of **120 seconds** instead of choosing a random length. This ensures deterministic output. If you need a specific duration, always set it explicitly.
 
 ### Generation Parameters
 
@@ -1024,6 +1026,7 @@ caption="fast slow music"  # Conflicting tempos
 - **With Lyrics**: Auto-detection recommended (set `duration=-1` or leave default)
 - **Short clips**: 10-20 seconds minimum
 - **Long form**: Up to 600 seconds (10 minutes) maximum
+- **Default behavior**: When `duration=-1` or is unset, the system falls back to **120 seconds**. This is a deterministic default, not random. Set an explicit value if you need a different length.
 
 ### 4. LM Usage
 

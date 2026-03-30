@@ -186,7 +186,9 @@ User-provided values always win; LM only fills the fields that are empty/missing
 | `bpm` | int | null | Specify tempo (BPM), range 30-300 |
 | `key_scale` | string | `""` | Key/scale (e.g., "C Major", "Am"). Aliases: `keyscale`, `keyScale` |
 | `time_signature` | string | `""` | Time signature (2, 3, 4, 6 for 2/4, 3/4, 4/4, 6/8). Aliases: `timesignature`, `timeSignature` |
-| `audio_duration` | float | null | Generation duration (seconds), range 10-600. Aliases: `duration`, `target_duration` |
+| `audio_duration` | float | null | Generation duration (seconds), range 10-600. When set to `-1` or omitted, defaults to **120 seconds**. Aliases: `duration`, `target_duration` |
+
+> **Duration fallback**: When `audio_duration` is `-1`, `0`, `null`, or omitted, the server uses a deterministic default of **120 seconds**. This replaces earlier behavior where an unset duration could produce random lengths. If you need a specific duration, always set it explicitly.
 
 **Audio Codes (Optional)**:
 

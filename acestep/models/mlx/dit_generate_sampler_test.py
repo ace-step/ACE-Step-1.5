@@ -13,14 +13,20 @@ from acestep.models.mlx.dit_generate import (
 
 
 def _make_fake_decoder():
-    """Build a mock decoder that returns deterministic velocity predictions."""
+    """Build a mock decoder that returns input-dependent velocity predictions.
+
+    Uses a simple function of the input so that Heun (which evaluates at a
+    different point) produces genuinely different averaged velocity.
+    """
     import mlx.core as mx
 
     def _forward(hidden_states, timestep, timestep_r,
                  encoder_hidden_states, context_latents,
                  cache=None, use_cache=False):
-        # Return small constant velocity prediction + fresh cache
-        vt = mx.ones_like(hidden_states) * 0.01
+        # Input-dependent: v = 0.01 * hidden + 0.005 * t
+        # This makes v(xt) != v(xt_predicted), so Heun differs from Euler
+        t_expand = timestep.reshape(-1, 1, 1)
+        vt = 0.01 * hidden_states + 0.005 * t_expand
         return vt, cache
 
     decoder = MagicMock()
@@ -140,9 +146,29 @@ class HeunSamplerTests(unittest.TestCase):
             sampler_mode="heun",
             **common_kwargs,
         )
-        # With a non-trivial decoder they should differ; with our constant mock
-        # the difference is due to the averaging step in Heun
         self.assertEqual(euler_result["target_latents"].shape, heun_result["target_latents"].shape)
+        # Heun averages two evaluations so should produce numerically different output
+        self.assertFalse(
+            np.allclose(euler_result["target_latents"], heun_result["target_latents"]),
+            "Heun and Euler should produce different results with the same seed",
+        )
+
+    def test_heun_sde_logs_warning(self):
+        """Heun + SDE should still work but the combination falls back to Euler SDE."""
+        import logging
+        with self.assertLogs("acestep.models.mlx.dit_generate", level=logging.WARNING) as cm:
+            mlx_generate_diffusion(
+                mlx_decoder=_make_fake_decoder(),
+                encoder_hidden_states_np=np.zeros((1, 2, 4), dtype=np.float32),
+                context_latents_np=np.zeros((1, 4, 4), dtype=np.float32),
+                src_latents_shape=(1, 4, 4),
+                seed=42,
+                infer_method="sde",
+                sampler_mode="heun",
+                shift=3.0,
+                disable_tqdm=True,
+            )
+        self.assertTrue(any("not supported with SDE" in msg for msg in cm.output))
 
 
 class VelocityNormClampTests(unittest.TestCase):
@@ -213,6 +239,30 @@ class VelocityEMATests(unittest.TestCase):
         )
         self.assertIn("target_latents", result)
         self.assertFalse(np.any(np.isnan(result["target_latents"])))
+
+
+class GenerationParamsValidationTests(unittest.TestCase):
+    """Verify GenerationParams validates sampler parameters."""
+
+    def test_invalid_sampler_mode_raises(self):
+        from acestep.inference import GenerationParams
+        with self.assertRaises(ValueError):
+            GenerationParams(sampler_mode="invalid")
+
+    def test_negative_norm_threshold_raises(self):
+        from acestep.inference import GenerationParams
+        with self.assertRaises(ValueError):
+            GenerationParams(velocity_norm_threshold=-1.0)
+
+    def test_ema_factor_out_of_range_raises(self):
+        from acestep.inference import GenerationParams
+        with self.assertRaises(ValueError):
+            GenerationParams(velocity_ema_factor=1.5)
+
+    def test_valid_params_accepted(self):
+        from acestep.inference import GenerationParams
+        p = GenerationParams(sampler_mode="heun", velocity_norm_threshold=2.0, velocity_ema_factor=0.1)
+        self.assertEqual(p.sampler_mode, "heun")
 
 
 class DiffusionBridgeNewParamsTests(unittest.TestCase):

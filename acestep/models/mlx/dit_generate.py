@@ -203,7 +203,13 @@ def mlx_generate_diffusion(
     use_ema = velocity_ema_factor > 0
 
     if use_heun:
-        logger.info("[MLX-DiT] Using Heun (second-order) sampler for higher-quality output.")
+        if infer_method == "sde":
+            logger.warning(
+                "[MLX-DiT] Heun sampler is not supported with SDE inference method. "
+                "Falling back to Euler for SDE steps. Use infer_method='ode' for Heun."
+            )
+        else:
+            logger.info("[MLX-DiT] Using Heun (second-order) sampler for higher-quality output.")
     if use_norm_clamp:
         logger.info("[MLX-DiT] Velocity norm clamping enabled (threshold=%.2f).", velocity_norm_threshold)
     if use_ema:
@@ -382,6 +388,7 @@ def mlx_generate_diffusion(
                 # Average the two velocity predictions (trapezoidal rule)
                 vt_avg = 0.5 * (vt + vt2)
                 xt = xt - vt_avg * dt_arr
+                vt = vt_avg  # store averaged velocity for EMA
             elif infer_method == "sde":
                 t_unsq = mx.full((bsz, 1, 1), current_t)
                 pred_clean = xt - vt * t_unsq

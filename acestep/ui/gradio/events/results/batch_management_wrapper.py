@@ -144,6 +144,7 @@ def generate_with_batch_management(
         text2music_audio_code_string, repainting_start, repainting_end,
         instruction_display_gen, audio_cover_strength, cover_noise_strength, task_type,
         use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
+        sampler_mode, velocity_norm_threshold, velocity_ema_factor,
         audio_format, mp3_bitrate, mp3_sample_rate, lm_temperature,
         think_checkbox, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
         use_cot_metas, use_cot_caption, use_cot_language,

@@ -172,6 +172,21 @@ class GenerationParams:
     cot_caption: str = ""
     cot_lyrics: str = ""
 
+    def __post_init__(self):
+        """Validate sampler parameters."""
+        if self.sampler_mode not in ("euler", "heun"):
+            raise ValueError(
+                f"Invalid sampler_mode '{self.sampler_mode}'. Must be 'euler' or 'heun'."
+            )
+        if self.velocity_norm_threshold < 0:
+            raise ValueError(
+                f"velocity_norm_threshold must be >= 0, got {self.velocity_norm_threshold}"
+            )
+        if not (0 <= self.velocity_ema_factor <= 1.0):
+            raise ValueError(
+                f"velocity_ema_factor must be in [0, 1.0], got {self.velocity_ema_factor}"
+            )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary for JSON serialization."""
         return asdict(self)

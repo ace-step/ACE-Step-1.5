@@ -89,6 +89,8 @@ def generate_next_batch_background(
             infer_method=params.get("infer_method"),
             custom_timesteps=params.get("custom_timesteps"),
             audio_format=params.get("audio_format"),
+            mp3_bitrate=params.get("mp3_bitrate"),
+            mp3_sample_rate=params.get("mp3_sample_rate"),
             lm_temperature=params.get("lm_temperature"),
             think_checkbox=params.get("think_checkbox"),
             lm_cfg_scale=params.get("lm_cfg_scale"),

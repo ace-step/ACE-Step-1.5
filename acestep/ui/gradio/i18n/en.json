@@ -248,7 +248,11 @@
     "timesig_auto_label": "TimeSig Auto",
     "vocal_lang_auto_label": "Language Auto",
     "duration_auto_label": "Duration Auto",
-    "reset_all_auto": "🔄 Reset All to Auto"
+    "reset_all_auto": "🔄 Reset All to Auto",
+    "mp3_bitrate_label": "MP3 Bitrate",
+    "mp3_bitrate_info": "MP3 encoding bitrate.",
+    "mp3_sample_rate_label": "MP3 Sample Rate",
+    "mp3_sample_rate_info": "MP3 encoding sample rate. Choose 44.1 kHz or 48 kHz."
   },
   "results": {
     "title": "🎵 Results",

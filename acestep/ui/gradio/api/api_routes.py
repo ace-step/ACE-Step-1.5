@@ -525,6 +525,8 @@ async def release_task(request: Request, authorization: Optional[str] = Header(N
             use_random_seed=use_random_seed,
             seeds=resolved_seeds,
             audio_format=get_param("audio_format", default="flac"),
+            mp3_bitrate=get_param("mp3_bitrate", default="128k"),
+            mp3_sample_rate=get_param("mp3_sample_rate", default=48000),
         )
 
         # Get output directory

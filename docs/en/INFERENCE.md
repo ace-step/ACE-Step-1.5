@@ -422,7 +422,7 @@ These fields are automatically populated by the LM when CoT reasoning is enabled
 | `seeds` | `Optional[List[int]]` | `None` | List of seeds for batch generation. If provided, will be padded with random seeds if fewer than batch_size. Can also be single int. |
 | `lm_batch_chunk_size` | `int` | `8` | Maximum batch size per LM inference chunk (GPU memory constraint). |
 | `constrained_decoding_debug` | `bool` | `False` | Enable debug logging for constrained decoding. |
-| `audio_format` | `str` | `"flac"` | Output audio format. Options: `"mp3"`, `"wav"`, `"flac"`. Default is FLAC for fast saving. |
+| `audio_format` | `str` | `"flac"` | Output audio format. Options: `"flac"`, `"mp3"`, `"opus"`, `"aac"`, `"wav"`, `"wav32"`. Default is FLAC for fast saving. |
 
 ---
 
@@ -1000,13 +1000,13 @@ caption="fast slow music"  # Conflicting tempos
 - Enable `use_adg=True`
 - Set `guidance_scale=7.0-9.0`
 - Set `shift=3.0` for better timestep distribution
-- Use lossless audio format (`audio_format="wav"`)
+- Use lossless audio format (`audio_format="wav"` or `"wav32"` for 32-bit float)
 
 **For Speed**:
 - Use turbo model with `inference_steps=8`
 - Disable ADG (`use_adg=False`)
 - Use `infer_method="ode"` (default)
-- Use compressed format (`audio_format="mp3"`) or default FLAC
+- Use compressed format (`audio_format="mp3"`, `"opus"`, or `"aac"`) or default FLAC
 
 **For Consistency**:
 - Set `use_random_seed=False` in config

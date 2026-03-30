@@ -273,7 +273,7 @@ This is where I belong
 | **Guidance Scale** | 7.0 | CFG strength (base model only). Higher = follows prompt more |
 | **Seed** | -1 | Random seed. Use comma-separated values for batches |
 | **Random Seed** | ✓ | When checked, generates random seeds |
-| **Audio Format** | mp3 | Output format: mp3, flac |
+| **Audio Format** | mp3 | Output format: flac, mp3, opus, aac, wav, wav32 |
 | **Shift** | 3.0 | Timestep shift factor (1.0-5.0). Recommended 3.0 for turbo |
 | **Inference Method** | ode | ode (Euler, faster) or sde (stochastic) |
 | **Custom Timesteps** | - | Override timesteps (e.g., "0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0") |

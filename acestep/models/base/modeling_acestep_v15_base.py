@@ -1280,7 +1280,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         self.time_embed_r = TimestepEmbedding(in_channels=256, time_embed_dim=inner_dim)
 
         # Project encoder hidden states to model dimension
-        condition_dim = getattr(config, "encoder_hidden_size", config.hidden_size)
+        condition_dim = getattr(config, "encoder_hidden_size", None) or config.hidden_size
         self.condition_embedder = nn.Linear(condition_dim, inner_dim, bias=True)
 
         # Output normalization and projection
@@ -1604,13 +1604,13 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         self.decoder = AceStepDiTModel(config)  # Main diffusion transformer
         # Build encoder config: use separate encoder_hidden_size when available
         # (4B models have encoder_hidden_size=2048 != hidden_size=2560)
-        _enc_hs = getattr(config, "encoder_hidden_size", config.hidden_size)
+        _enc_hs = getattr(config, "encoder_hidden_size", None) or config.hidden_size
         if _enc_hs != config.hidden_size:
             encoder_config = copy.deepcopy(config)
             encoder_config.hidden_size = _enc_hs
-            encoder_config.intermediate_size = getattr(config, "encoder_intermediate_size", config.intermediate_size)
-            encoder_config.num_attention_heads = getattr(config, "encoder_num_attention_heads", config.num_attention_heads)
-            encoder_config.num_key_value_heads = getattr(config, "encoder_num_key_value_heads", config.num_key_value_heads)
+            encoder_config.intermediate_size = getattr(config, "encoder_intermediate_size", None) or config.intermediate_size
+            encoder_config.num_attention_heads = getattr(config, "encoder_num_attention_heads", None) or config.num_attention_heads
+            encoder_config.num_key_value_heads = getattr(config, "encoder_num_key_value_heads", None) or config.num_key_value_heads
         else:
             encoder_config = config
         self.encoder = AceStepConditionEncoder(encoder_config)  # Condition encoder

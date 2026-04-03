@@ -686,13 +686,13 @@ def generate_music(
                     vocal_language=dit_input_vocal_language,
                     caption=dit_input_caption,
                     lyrics=dit_input_lyrics)
-                if not params.bpm or params.bpm <= 0:
+                if (not params.bpm or params.bpm <= 0) and bpm and int(bpm) > 0:
                     params.cot_bpm = bpm
                 if not params.keyscale:
                     params.cot_keyscale = key_scale
                 if not params.timesignature:
                     params.cot_timesignature = time_signature
-                if not params.duration or params.duration <= 0:
+                if (not params.duration or params.duration <= 0) and audio_duration and float(audio_duration) > 0:
                     params.cot_duration = audio_duration
                 if not params.vocal_language:
                     params.cot_vocal_language = vocal_language

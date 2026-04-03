@@ -67,12 +67,12 @@ def build_generation_success_response(
     lm_metadata = result.extra_outputs.get("lm_metadata", {})
     metas_out = normalize_metas(lm_metadata)
 
-    if params.cot_bpm:
+    if params.cot_bpm and (not isinstance(params.cot_bpm, (int, float)) or params.cot_bpm > 0):
         metas_out["bpm"] = params.cot_bpm
     elif bpm and (not isinstance(bpm, (int, float)) or bpm > 0):
         metas_out["bpm"] = bpm
 
-    if params.cot_duration:
+    if params.cot_duration and (not isinstance(params.cot_duration, (int, float)) or params.cot_duration > 0):
         metas_out["duration"] = params.cot_duration
     elif audio_duration and (not isinstance(audio_duration, (int, float)) or audio_duration > 0):
         metas_out["duration"] = audio_duration

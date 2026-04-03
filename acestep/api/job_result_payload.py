@@ -6,7 +6,11 @@ from typing import Any, Callable, Optional
 
 
 def normalize_metas(meta: dict[str, Any]) -> dict[str, Any]:
-    """Normalize LM metadata and ensure expected response keys exist."""
+    """Normalize LM metadata and ensure expected response keys exist.
+
+    Also scrubs negative sentinel values (e.g. ``-1`` for auto-detect)
+    from numeric fields so they never leak into API responses.
+    """
 
     meta = meta or {}
     out: dict[str, Any] = dict(meta)
@@ -15,6 +19,12 @@ def normalize_metas(meta: dict[str, Any]) -> dict[str, Any]:
         out["keyscale"] = out.get("key_scale")
     if "timesignature" not in out and "time_signature" in out:
         out["timesignature"] = out.get("time_signature")
+
+    # Scrub negative sentinel values from numeric metadata fields.
+    for numeric_key in ("bpm", "duration"):
+        val = out.get(numeric_key)
+        if isinstance(val, (int, float)) and val <= 0:
+            out[numeric_key] = "N/A"
 
     for key in ["bpm", "duration", "genres", "keyscale", "timesignature"]:
         if out.get(key) in (None, ""):

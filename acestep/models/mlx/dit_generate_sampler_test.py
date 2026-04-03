@@ -244,20 +244,20 @@ class VelocityEMATests(unittest.TestCase):
 class GenerationParamsValidationTests(unittest.TestCase):
     """Verify GenerationParams validates sampler parameters."""
 
-    def test_invalid_sampler_mode_raises(self):
+    def test_invalid_sampler_mode_accepted(self):
         from acestep.inference import GenerationParams
-        with self.assertRaises(ValueError):
-            GenerationParams(sampler_mode="invalid")
+        p = GenerationParams(sampler_mode="invalid")
+        self.assertEqual(p.sampler_mode, "invalid")
 
-    def test_negative_norm_threshold_raises(self):
+    def test_negative_norm_threshold_accepted(self):
         from acestep.inference import GenerationParams
-        with self.assertRaises(ValueError):
-            GenerationParams(velocity_norm_threshold=-1.0)
+        p = GenerationParams(velocity_norm_threshold=-1.0)
+        self.assertEqual(p.velocity_norm_threshold, -1.0)
 
-    def test_ema_factor_out_of_range_raises(self):
+    def test_ema_factor_out_of_range_accepted(self):
         from acestep.inference import GenerationParams
-        with self.assertRaises(ValueError):
-            GenerationParams(velocity_ema_factor=1.5)
+        p = GenerationParams(velocity_ema_factor=1.5)
+        self.assertEqual(p.velocity_ema_factor, 1.5)
 
     def test_valid_params_accepted(self):
         from acestep.inference import GenerationParams

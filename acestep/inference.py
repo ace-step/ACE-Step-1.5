@@ -174,123 +174,12 @@ class GenerationParams:
     cot_lyrics: str = ""
 
     def __post_init__(self):
-        """Validate and clamp parameters to safe ranges."""
-        # --- Hard validation (raise on truly invalid values) ---
-        if self.sampler_mode not in ("euler", "heun"):
-            raise ValueError(
-                f"Invalid sampler_mode '{self.sampler_mode}'. Must be 'euler' or 'heun'."
-            )
-        if self.infer_method not in ("ode", "sde"):
-            raise ValueError(
-                f"Invalid infer_method '{self.infer_method}'. Must be 'ode' or 'sde'."
-            )
-        if self.task_type not in TASK_TYPES:
-            raise ValueError(
-                f"Invalid task_type '{self.task_type}'. Must be one of {TASK_TYPES}."
-            )
-        if self.velocity_norm_threshold < 0:
-            raise ValueError(
-                f"velocity_norm_threshold must be >= 0, got {self.velocity_norm_threshold}"
-            )
-        if not (0 <= self.velocity_ema_factor <= 1.0):
-            raise ValueError(
-                f"velocity_ema_factor must be in [0, 1.0], got {self.velocity_ema_factor}"
-            )
-
-        # --- Soft clamping (clamp to safe range with warning) ---
-        if self.inference_steps < 1:
-            logger.warning(
-                "inference_steps={} is invalid, clamping to 1.", self.inference_steps,
-            )
+        # shift=0 causes 0/0=NaN in timestep formula; shift<0 is nonsensical
+        if self.shift is not None and self.shift <= 0:
+            self.shift = 1.0
+        # inference_steps=0 produces empty diffusion loop (silent output)
+        if self.inference_steps is not None and self.inference_steps < 1:
             self.inference_steps = 1
-        elif self.inference_steps > 200:
-            logger.warning(
-                "inference_steps={} exceeds maximum, clamping to 200.", self.inference_steps,
-            )
-            self.inference_steps = 200
-
-        if self.guidance_scale < 0.0:
-            logger.warning(
-                "guidance_scale={:.2f} is negative, clamping to 0.0.", self.guidance_scale,
-            )
-            self.guidance_scale = 0.0
-        elif self.guidance_scale > 20.0:
-            logger.warning(
-                "guidance_scale={:.2f} exceeds maximum, clamping to 20.0.", self.guidance_scale,
-            )
-            self.guidance_scale = 20.0
-
-        if self.duration == 0.0:
-            logger.warning(
-                "duration=0.0 is not valid (use -1 for auto), resetting to auto (-1).",
-            )
-            self.duration = -1.0
-        elif 0 < self.duration < 1.0:
-            logger.warning(
-                "duration={:.1f}s is below minimum, clamping to 1s.", self.duration,
-            )
-            self.duration = 1.0
-        elif self.duration > DURATION_MAX:
-            logger.warning(
-                "duration={:.1f}s exceeds maximum, clamping to {}s.", self.duration, DURATION_MAX,
-            )
-            self.duration = float(DURATION_MAX)
-
-        if self.bpm is not None:
-            if self.bpm <= 0:
-                # Sentinel value (e.g. -1 or 0) means "auto-detect" – clear to None
-                # so the LM CoT can determine the appropriate BPM.
-                self.bpm = None
-            elif self.bpm < BPM_MIN:
-                logger.warning(
-                    "bpm={} is below minimum, clamping to {}.", self.bpm, BPM_MIN,
-                )
-                self.bpm = BPM_MIN
-            elif self.bpm > BPM_MAX:
-                logger.warning(
-                    "bpm={} exceeds maximum, clamping to {}.", self.bpm, BPM_MAX,
-                )
-                self.bpm = BPM_MAX
-
-        if self.timesignature not in ("", "auto"):
-            try:
-                ts_int = int(self.timesignature)
-                if ts_int not in VALID_TIME_SIGNATURES:
-                    logger.warning(
-                        "timesignature={} is invalid (valid: {}), resetting to auto.",
-                        self.timesignature, VALID_TIME_SIGNATURES,
-                    )
-                    self.timesignature = ""
-            except (ValueError, TypeError):
-                logger.warning(
-                    "timesignature='{}' is not a valid integer, resetting to auto.",
-                    self.timesignature,
-                )
-                self.timesignature = ""
-
-        if self.shift <= 0.0:
-            logger.warning(
-                "shift={:.3f} is invalid (must be > 0), clamping to 0.1.", self.shift,
-            )
-            self.shift = 0.1
-
-        self.audio_cover_strength = max(0.0, min(1.0, self.audio_cover_strength))
-        self.cover_noise_strength = max(0.0, min(1.0, self.cover_noise_strength))
-        self.cfg_interval_start = max(0.0, min(1.0, self.cfg_interval_start))
-        self.cfg_interval_end = max(0.0, min(1.0, self.cfg_interval_end))
-        if self.cfg_interval_start > self.cfg_interval_end:
-            logger.warning(
-                "cfg_interval_start={:.2f} > cfg_interval_end={:.2f}, swapping to restore valid window.",
-                self.cfg_interval_start, self.cfg_interval_end,
-            )
-            self.cfg_interval_start, self.cfg_interval_end = self.cfg_interval_end, self.cfg_interval_start
-
-        if self.repainting_end >= 0 and self.repainting_start > self.repainting_end:
-            logger.warning(
-                "repainting_start={:.2f} > repainting_end={:.2f}, swapping to restore valid window.",
-                self.repainting_start, self.repainting_end,
-            )
-            self.repainting_start, self.repainting_end = self.repainting_end, self.repainting_start
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary for JSON serialization."""

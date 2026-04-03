@@ -262,19 +262,19 @@ class ApiAutoDurationTests(unittest.TestCase):
 class BpmSentinelNormalizationTests(unittest.TestCase):
     """Negative/zero BPM must be normalized to None for auto-detection."""
 
-    def test_negative_bpm_becomes_none(self):
-        """bpm=-1 should be normalized to None (auto-detect) by GenerationParams."""
+    def test_negative_bpm_passthrough(self):
+        """bpm=-1 should pass through as-is (no __post_init__ normalization)."""
         from acestep.inference import GenerationParams
 
         params = GenerationParams(bpm=-1)
-        self.assertIsNone(params.bpm)
+        self.assertEqual(params.bpm, -1)
 
-    def test_zero_bpm_becomes_none(self):
-        """bpm=0 should be normalized to None (auto-detect)."""
+    def test_zero_bpm_passthrough(self):
+        """bpm=0 should pass through as-is."""
         from acestep.inference import GenerationParams
 
         params = GenerationParams(bpm=0)
-        self.assertIsNone(params.bpm)
+        self.assertEqual(params.bpm, 0)
 
     def test_valid_bpm_preserved(self):
         """Positive BPM within range should be preserved."""

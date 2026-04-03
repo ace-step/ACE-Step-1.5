@@ -2,12 +2,58 @@
 
 import math
 import random
-from typing import Optional
-from pathlib import Path
+from typing import Optional, Tuple
 
+import numpy as np
 import torch
 import soundfile as sf
 from loguru import logger
+
+
+def _read_audio_file(audio_file: str) -> Tuple[np.ndarray, int]:
+    """Read an audio file, with torchaudio fallback for formats unsupported by soundfile.
+
+    soundfile (libsndfile) supports WAV/FLAC/OGG/MP3 etc. but NOT AAC/M4A/MP4.
+    When soundfile fails, we fall back to torchaudio.load() which uses torchcodec
+    and can handle virtually any format via FFmpeg.
+
+    Args:
+        audio_file: Path to the audio file.
+
+    Returns:
+        Tuple of (audio_np in float32 with shape [samples] or [samples, channels],
+        sample_rate).
+
+    Raises:
+        RuntimeError: If both soundfile and torchaudio fail to read the file.
+    """
+    # Fast path: try soundfile directly (no torchcodec/FFmpeg overhead)
+    sf_err = None
+    try:
+        audio_np, sr = sf.read(audio_file, dtype="float32")
+        return audio_np, sr
+    except Exception as exc:
+        sf_err = exc
+        logger.debug(
+            "[_read_audio_file] soundfile cannot read '{}': {}. Trying torchaudio fallback.",
+            audio_file, sf_err,
+        )
+
+    # Slow path: torchaudio (uses torchcodec -> FFmpeg under the hood)
+    try:
+        import torchaudio
+
+        waveform, sr = torchaudio.load(audio_file)
+        # torchaudio returns [channels, samples], convert to numpy [samples, channels]
+        audio_np = waveform.numpy().T  # -> [samples, channels]
+        if audio_np.shape[1] == 1:
+            audio_np = audio_np.squeeze(1)  # -> [samples] for mono
+        return audio_np.astype(np.float32), sr
+    except Exception as ta_err:
+        raise RuntimeError(
+            f"Cannot read '{audio_file}': soundfile ({sf_err}) "
+            f"and torchaudio ({ta_err}) both failed."
+        ) from ta_err
 
 
 class IoAudioMixin:
@@ -41,6 +87,13 @@ class IoAudioMixin:
 
         return torch.clamp(audio, -1.0, 1.0)
 
+    @staticmethod
+    def _numpy_to_channels_first(audio_np: np.ndarray) -> torch.Tensor:
+        """Convert numpy audio array to channels-first torch tensor."""
+        if audio_np.ndim == 1:
+            return torch.from_numpy(audio_np).unsqueeze(0)
+        return torch.from_numpy(audio_np.T)
+
     def process_target_audio(self, audio_file: Optional[str]) -> Optional[torch.Tensor]:
         """Load and normalize target audio file.
 
@@ -54,15 +107,10 @@ class IoAudioMixin:
             return None
 
         try:
-            import soundfile as sf
-
-            audio_np, sr = sf.read(audio_file, dtype="float32")
-            if audio_np.ndim == 1:
-                audio = torch.from_numpy(audio_np).unsqueeze(0)
-            else:
-                audio = torch.from_numpy(audio_np.T)
+            audio_np, sr = _read_audio_file(audio_file)
+            audio = self._numpy_to_channels_first(audio_np)
             return self._normalize_audio_to_stereo_48k(audio, sr)
-        except (OSError, RuntimeError, ValueError):
+        except Exception:
             logger.exception("[process_target_audio] Error processing target audio")
             return None
 
@@ -82,12 +130,8 @@ class IoAudioMixin:
             return None
 
         try:
-            # Use soundfile instead of torchaudio to avoid torchcodec dependency
-            audio_np, sr = sf.read(audio_file, dtype="float32")
-            if audio_np.ndim == 1:
-                audio = torch.from_numpy(audio_np).unsqueeze(0)
-            else:
-                audio = torch.from_numpy(audio_np.T)
+            audio_np, sr = _read_audio_file(audio_file)
+            audio = self._numpy_to_channels_first(audio_np)
 
             logger.debug(
                 f"[process_reference_audio] Reference audio shape: {audio.shape}"
@@ -125,7 +169,7 @@ class IoAudioMixin:
             back_audio = audio[:, back_start : back_start + segment_frames]
 
             return torch.cat([front_audio, middle_audio, back_audio], dim=-1)
-        except (OSError, RuntimeError, ValueError) as exc:
+        except Exception as exc:
             logger.warning(
                 f"[process_reference_audio] Invalid or unsupported reference audio: {exc}"
             )
@@ -144,13 +188,9 @@ class IoAudioMixin:
             return None
 
         try:
-            # Use soundfile instead of torchaudio to avoid torchcodec dependency
-            audio_np, sr = sf.read(audio_file, dtype="float32")
-            if audio_np.ndim == 1:
-                audio = torch.from_numpy(audio_np).unsqueeze(0)
-            else:
-                audio = torch.from_numpy(audio_np.T)
+            audio_np, sr = _read_audio_file(audio_file)
+            audio = self._numpy_to_channels_first(audio_np)
             return self._normalize_audio_to_stereo_48k(audio, sr)
-        except (OSError, RuntimeError, ValueError):
+        except Exception:
             logger.exception("[process_src_audio] Error processing source audio")
             return None

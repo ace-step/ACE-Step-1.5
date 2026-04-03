@@ -254,5 +254,42 @@ class ApiAutoDurationTests(unittest.TestCase):
         self.assertEqual(setup.params.duration, 60.0)
 
 
+# ---------------------------------------------------------------------------
+# Fix 5: BPM sentinel normalization (issue #1022)
+# ---------------------------------------------------------------------------
+
+@unittest.skipIf(build_generation_setup is None, f"import unavailable: {_IMPORT_ERROR}")
+class BpmSentinelNormalizationTests(unittest.TestCase):
+    """Negative/zero BPM must be normalized to None for auto-detection."""
+
+    def test_negative_bpm_becomes_none(self):
+        """bpm=-1 should be normalized to None (auto-detect) by GenerationParams."""
+        from acestep.inference import GenerationParams
+
+        params = GenerationParams(bpm=-1)
+        self.assertIsNone(params.bpm)
+
+    def test_zero_bpm_becomes_none(self):
+        """bpm=0 should be normalized to None (auto-detect)."""
+        from acestep.inference import GenerationParams
+
+        params = GenerationParams(bpm=0)
+        self.assertIsNone(params.bpm)
+
+    def test_valid_bpm_preserved(self):
+        """Positive BPM within range should be preserved."""
+        from acestep.inference import GenerationParams
+
+        params = GenerationParams(bpm=120)
+        self.assertEqual(120, params.bpm)
+
+    def test_none_bpm_stays_none(self):
+        """bpm=None should remain None."""
+        from acestep.inference import GenerationParams
+
+        params = GenerationParams(bpm=None)
+        self.assertIsNone(params.bpm)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -69,12 +69,12 @@ def build_generation_success_response(
 
     if params.cot_bpm:
         metas_out["bpm"] = params.cot_bpm
-    elif bpm:
+    elif bpm and (not isinstance(bpm, (int, float)) or bpm > 0):
         metas_out["bpm"] = bpm
 
     if params.cot_duration:
         metas_out["duration"] = params.cot_duration
-    elif audio_duration:
+    elif audio_duration and (not isinstance(audio_duration, (int, float)) or audio_duration > 0):
         metas_out["duration"] = audio_duration
 
     if params.cot_keyscale:

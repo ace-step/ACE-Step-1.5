@@ -237,7 +237,11 @@ class GenerationParams:
             self.duration = float(DURATION_MAX)
 
         if self.bpm is not None:
-            if self.bpm < BPM_MIN:
+            if self.bpm <= 0:
+                # Sentinel value (e.g. -1 or 0) means "auto-detect" – clear to None
+                # so the LM CoT can determine the appropriate BPM.
+                self.bpm = None
+            elif self.bpm < BPM_MIN:
                 logger.warning(
                     "bpm={} is below minimum, clamping to {}.", self.bpm, BPM_MIN,
                 )

@@ -7,10 +7,11 @@ from typing import Any, Callable, Optional
 
 from acestep.inference import GenerationConfig, GenerationParams
 
-# Sensible fallback when the API receives a null/missing audio_duration.
-# This prevents -1.0/None from propagating into the LLM and DiT, which
-# can cause unconstrained code generation and downstream tensor mismatches.
-_API_DEFAULT_DURATION_SECONDS: float = 120.0
+# Sentinel value indicating the LM should auto-calculate duration from
+# lyrics length and song structure.  Downstream handlers
+# (``Text2MusicParams.__post_init__``, ``_prepare_generate_music_runtime``,
+# and the LLM CoT phase) all recognise negative values as "auto".
+_AUTO_DURATION_SENTINEL: float = -1.0
 
 
 @dataclass
@@ -164,7 +165,7 @@ def build_generation_setup(
         bpm=bpm,
         keyscale=key_scale,
         timesignature=time_signature,
-        duration=audio_duration if (audio_duration and audio_duration > 0) else _API_DEFAULT_DURATION_SECONDS,
+        duration=float(audio_duration) if (audio_duration is not None and float(audio_duration) > 0) else _AUTO_DURATION_SENTINEL,
         inference_steps=req.inference_steps,
         seed=req.seed,
         guidance_scale=req.guidance_scale,
@@ -193,7 +194,7 @@ def build_generation_setup(
         lm_top_k=lm_top_k,
         lm_top_p=lm_top_p,
         lm_negative_prompt=req.lm_negative_prompt,
-        use_cot_metas=not sample_mode and not format_has_duration,
+        use_cot_metas=not sample_mode,
         use_cot_caption=use_cot_caption,
         use_cot_language=use_cot_language,
         use_constrained_decoding=True,

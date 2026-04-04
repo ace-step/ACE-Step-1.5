@@ -46,15 +46,24 @@ def build_service_toggles(
     """
 
     with gr.Row():
-        lm_info_text = t("service.init_llm_info")
-        if not gpu_config.available_lm_models:
+        backend_value = str(params.get("backend", "")).strip().lower() if service_pre_initialized else ""
+        init_llm_default_value = (
+            params.get("init_llm", init_lm_default) if service_pre_initialized else init_lm_default
+        )
+        lm_info_text = (
+            t("service.init_llm_info_external")
+            if backend_value == "external"
+            else t("service.init_llm_info")
+        )
+        if backend_value != "external" and not gpu_config.available_lm_models:
             lm_info_text += " " + t("service.lm_unavailable_vram")
         init_llm_checkbox = gr.Checkbox(
             label=t("service.init_llm_label"),
-            value=params.get("init_llm", init_lm_default) if service_pre_initialized else init_lm_default,
+            value=init_llm_default_value,
             info=lm_info_text,
             elem_classes=["has-info-container"],
         )
+        init_llm_local_state = gr.State(value=init_llm_default_value)
 
         flash_attn_available = dit_handler.is_flash_attention_available(device_value)
         use_flash_attention_checkbox = gr.Checkbox(
@@ -108,6 +117,7 @@ def build_service_toggles(
         )
     return {
         "init_llm_checkbox": init_llm_checkbox,
+        "init_llm_local_state": init_llm_local_state,
         "use_flash_attention_checkbox": use_flash_attention_checkbox,
         "offload_to_cpu_checkbox": offload_to_cpu_checkbox,
         "offload_dit_to_cpu_checkbox": offload_dit_to_cpu_checkbox,

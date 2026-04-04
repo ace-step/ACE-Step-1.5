@@ -22,6 +22,17 @@ from .service_init import (
     refresh_checkpoints,
     init_service_wrapper,
     on_tier_change,
+    update_llm_backend_ui,
+    hydrate_external_lm_provider_fields,
+)
+from .external_lm_setup import (
+    hydrate_external_lm_setup_fields,
+    apply_external_lm_base_url_preset,
+    sync_external_lm_base_url_preset,
+    fetch_external_lm_models,
+    save_external_lm_settings,
+    test_external_lm_endpoint,
+    run_external_lm_runtime_doctor,
 )
 from .model_config import (
     is_pure_base_model,

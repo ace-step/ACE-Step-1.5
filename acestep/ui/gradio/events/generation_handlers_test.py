@@ -317,6 +317,54 @@ class GenerationHandlersTests(unittest.TestCase):
         warning_mock.assert_called_once_with(_t("messages.lm_not_initialized"))
 
     @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Warning")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.format_sample")
+    def test_handle_format_caption_allows_external_text_backend(
+        self,
+        format_sample_mock,
+        warning_mock,
+        info_mock,
+    ):
+        """Caption formatting should run when an external text backend is configured."""
+
+        llm_handler = SimpleNamespace(
+            llm_initialized=False,
+            llm_backend="external",
+            has_available_text_llm=lambda: True,
+        )
+        format_sample_mock.return_value = SimpleNamespace(
+            success=True,
+            caption="expanded caption",
+            lyrics="lyrics",
+            bpm=118,
+            duration=30.0,
+            keyscale="C minor",
+            language="en",
+            timesignature="4/4",
+            status_message="formatted",
+        )
+
+        result = generation_handlers.handle_format_caption(
+            llm_handler=llm_handler,
+            caption="caption",
+            lyrics="lyrics",
+            bpm=118,
+            audio_duration=30.0,
+            key_scale="C minor",
+            time_signature="4/4",
+            lm_temperature=0.85,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(result[0], "expanded caption")
+        self.assertEqual(result[-1], "formatted")
+        format_sample_mock.assert_called_once()
+        warning_mock.assert_not_called()
+        info_mock.assert_called_once()
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Info")
     @patch("acestep.ui.gradio.events.generation.llm_format_actions.format_sample")
     def test_handle_format_lyrics_strips_quotes(self, format_sample_mock, info_mock):
         """Lyrics-only formatting should strip wrapper quotes from returned lyrics."""

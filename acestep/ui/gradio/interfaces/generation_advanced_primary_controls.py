@@ -6,18 +6,15 @@ import gradio as gr
 
 from acestep.ui.gradio.i18n import t
 
+from .generation_external_lm_controls import (
+    build_external_lm_controls as _build_external_lm_controls_impl,
+)
+
 
 def build_lora_controls() -> dict[str, Any]:
-    """Create LoRA adapter controls for loading and scaling inference adapters.
+    """Create LoRA adapter controls for loading and scaling inference adapters."""
 
-    Args:
-        None.
-
-    Returns:
-        A component map containing LoRA path, action buttons, toggles, and status controls.
-    """
-
-    with gr.Accordion(t("generation.lora_accordion_title"), open=False, elem_classes=["has-info-container"]):
+    with gr.Accordion(t("generation.lora_accordion_title"), open=False):
         with gr.Row():
             lora_path = gr.Textbox(
                 label=t("generation.lora_path_label"),
@@ -60,17 +57,36 @@ def build_lora_controls() -> dict[str, Any]:
     }
 
 
+def build_external_lm_controls(
+    *,
+    service_pre_initialized: bool,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """Create the external-LM configuration accordion shown above LM controls."""
+
+    components = _build_external_lm_controls_impl(
+        service_pre_initialized=service_pre_initialized,
+        params=params,
+    )
+    return {
+        "external_llm_accordion": components["external_llm_accordion"],
+        "external_llm_provider": components["external_llm_provider"],
+        "external_llm_base_url_preset": components["external_llm_base_url_preset"],
+        "external_llm_model": components["external_llm_model"],
+        "external_llm_fetch_models_btn": components["external_llm_fetch_models_btn"],
+        "external_llm_base_url": components["external_llm_base_url"],
+        "external_llm_api_key": components["external_llm_api_key"],
+        "external_llm_status": components["external_llm_status"],
+        "external_llm_save_btn": components["external_llm_save_btn"],
+        "external_llm_test_btn": components["external_llm_test_btn"],
+        "external_llm_doctor_btn": components["external_llm_doctor_btn"],
+    }
+
+
 def build_lm_controls(service_mode: bool) -> dict[str, Any]:
-    """Create language-model generation controls for advanced settings.
+    """Create language-model generation controls for advanced settings."""
 
-    Args:
-        service_mode: Whether the UI is running in service mode (disables some controls).
-
-    Returns:
-        A component map containing LM sampling, CoT, negative prompt, and batch controls.
-    """
-
-    with gr.Accordion(t("generation.advanced_lm_section"), open=False, elem_classes=["has-info-container"]):
+    with gr.Accordion(t("generation.advanced_lm_section"), open=False):
         with gr.Row():
             lm_temperature = gr.Slider(
                 label=t("generation.lm_temperature_label"),

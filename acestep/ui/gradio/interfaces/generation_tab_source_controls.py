@@ -86,7 +86,6 @@ def build_lm_code_hint_controls() -> dict[str, Any]:
         t("generation.lm_codes_hints"),
         open=False,
         visible=True,
-        elem_classes=["has-info-container"],
     ) as text2music_audio_codes_group:
         with gr.Row(equal_height=True):
             lm_codes_audio_upload = gr.Audio(label=t("generation.source_audio"), type="filepath", scale=3)

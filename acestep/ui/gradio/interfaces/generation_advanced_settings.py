@@ -17,6 +17,7 @@ from .generation_advanced_output_controls import (
     build_output_controls,
 )
 from .generation_advanced_primary_controls import (
+    build_external_lm_controls,
     build_lm_controls,
     build_lora_controls,
 )
@@ -70,6 +71,10 @@ def create_advanced_settings_section(
         )
         lora_components = build_lora_controls()
         dit_components = build_dit_controls(ui_config)
+        external_lm_components = build_external_lm_controls(
+            service_pre_initialized=service_pre_initialized,
+            params=init_params or {},
+        )
         lm_components = build_lm_controls(service_mode=service_mode)
         output_components = build_output_controls(
             service_pre_initialized=service_pre_initialized,
@@ -80,6 +85,7 @@ def create_advanced_settings_section(
 
     result: dict[str, Any] = {"advanced_settings_accordion": advanced_settings_accordion}
     result.update(dit_components)
+    result.update(external_lm_components)
     result.update(lm_components)
     result.update(output_components)
     result.update(automation_components)

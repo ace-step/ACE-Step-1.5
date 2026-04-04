@@ -85,7 +85,10 @@ def build_format_request_intent(
 
     user_metadata = user_metadata or {}
     intent_parts = [
-        "Please format and enrich the following for ACE-Step generation.",
+        "Please enhance the following ACE-Step caption without changing its core intent.",
+        "Rewrite the caption into a clearer, richer production brief that stays faithful to the user's idea.",
+        "Keep the original genre, mood, vocal intent, and key instrumentation unless the metadata explicitly says otherwise.",
+        "Do not invent a different song concept or random cinematic scene.",
         f"Caption: {caption or ''}",
         f"Lyrics: {lyrics or ''}",
     ]

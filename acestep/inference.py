@@ -1240,14 +1240,6 @@ def format_sample(
         ...     print(f"BPM: {result.bpm}")
         ...     print(f"Lyrics: {result.lyrics}")
     """
-    # Check if LLM is initialized
-    if not llm_handler.llm_initialized:
-        return FormatSampleResult(
-            status_message="5Hz LM not initialized. Please initialize it first.",
-            success=False,
-            error="LLM not initialized",
-        )
-    
     try:
         # Call LLM formatting
         metadata, status = llm_handler.format_sample_from_input(

@@ -162,23 +162,29 @@ def build_lm_backend_controls(
         A component map containing ``lm_model_path`` and ``backend_dropdown``.
     """
 
+    backend_choices = list(available_backends)
+    if "external" not in backend_choices:
+        backend_choices.append("external")
+
     with gr.Row():
         all_lm_models = llm_handler.get_available_5hz_lm_models()
         default_lm_model = find_best_lm_model_on_disk(recommended_lm, all_lm_models)
-        lm_model_path = gr.Dropdown(
-            label=t("service.lm_model_path_label"),
-            choices=all_lm_models,
-            value=params.get("lm_model_path", default_lm_model) if service_pre_initialized else default_lm_model,
-            info=t("service.lm_model_path_info")
-            + (
-                f" (Recommended: {recommended_lm})"
-                if recommended_lm
-                else " (LM not available for this GPU tier)"
-            ),
-            elem_classes=["has-info-container"],
-        )
+        backend_value = params.get("backend", recommended_backend) if service_pre_initialized else recommended_backend
+        with gr.Column(visible=str(backend_value).strip().lower() != "external") as local_lm_column:
+            lm_model_path = gr.Dropdown(
+                label=t("service.lm_model_path_label"),
+                choices=all_lm_models,
+                value=params.get("lm_model_path", default_lm_model) if service_pre_initialized else default_lm_model,
+                info=t("service.lm_model_path_info")
+                + (
+                    f" (Recommended: {recommended_lm})"
+                    if recommended_lm
+                    else " (LM not available for this GPU tier)"
+                ),
+                elem_classes=["has-info-container"],
+            )
         backend_dropdown = gr.Dropdown(
-            choices=available_backends,
+            choices=backend_choices,
             value=params.get("backend", recommended_backend) if service_pre_initialized else recommended_backend,
             label=t("service.backend_label"),
             info=t("service.backend_info")
@@ -190,6 +196,7 @@ def build_lm_backend_controls(
             elem_classes=["has-info-container"],
         )
     return {
+        "local_lm_column": local_lm_column,
         "lm_model_path": lm_model_path,
         "backend_dropdown": backend_dropdown,
     }

@@ -235,6 +235,18 @@ class ExternalLmCaptioningTests(unittest.TestCase):
         self.assertIn("Caption: Dreamy synth-pop", intent)
         self.assertIn("Lyrics: City lights / carry me home", intent)
 
+    def test_build_format_request_intent_emphasizes_faithful_enhancement(self) -> None:
+        """The prompt should steer providers toward anchored rewrites, not random reinvention."""
+
+        intent = build_format_request_intent(
+            caption="Dreamy synth-pop with airy vocals",
+            lyrics="[Verse]\nCity lights",
+            user_metadata={},
+        )
+
+        self.assertIn("stays faithful to the user's idea", intent)
+        self.assertIn("Do not invent a different song concept", intent)
+
 
 if __name__ == "__main__":
     unittest.main()

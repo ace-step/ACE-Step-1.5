@@ -1,4 +1,5 @@
 """LLM formatting action handlers for generation UI text fields."""
+
 from typing import Optional
 
 import gradio as gr
@@ -8,12 +9,9 @@ from acestep.ui.gradio.i18n import t
 
 from .llm_action_params import build_user_metadata, convert_lm_params
 from .validation import clamp_duration_to_gpu_limit
-
-
 def _format_failure_response(update_count: int, status_message: str):
     """Build a standardized failure response with update placeholders."""
     return (*([gr.update()] * update_count), status_message)
-
 
 def _clean_optional_wrapped_quotes(text: Optional[str]) -> Optional[str]:
     """Strip a single layer of leading/trailing quote characters when present."""
@@ -25,8 +23,6 @@ def _clean_optional_wrapped_quotes(text: Optional[str]) -> Optional[str]:
     ):
         return text[1:-1]
     return text
-
-
 def _execute_format_sample(
     llm_handler,
     caption: str,
@@ -40,19 +36,22 @@ def _execute_format_sample(
     lm_top_p: float,
     constrained_decoding_debug: bool,
 ):
-    """Run shared format-sample workflow.
+    """Run shared format-sample workflow and return result, duration, and status."""
+    has_text_llm = bool(getattr(llm_handler, "llm_initialized", False))
+    availability_check = getattr(llm_handler, "has_available_text_llm", None)
+    if callable(availability_check):
+        has_text_llm = bool(availability_check())
 
-    Returns:
-        Tuple of ``(result_or_none, audio_duration_value_or_none, status_message)``.
-    """
-    if not llm_handler.llm_initialized:
-        status_message = t("messages.lm_not_initialized")
+    if not has_text_llm:
+        if (getattr(llm_handler, "llm_backend", "") or "").strip().lower() == "external":
+            status_message = t("messages.external_lm_not_configured")
+        else:
+            status_message = t("messages.lm_not_initialized")
         gr.Warning(status_message)
         return None, None, status_message
 
     user_metadata = build_user_metadata(bpm, audio_duration, key_scale, time_signature)
     top_k_value, top_p_value = convert_lm_params(lm_top_k, lm_top_p)
-
     result = format_sample(
         llm_handler=llm_handler,
         caption=caption,
@@ -74,7 +73,6 @@ def _execute_format_sample(
     clamped_duration = clamp_duration_to_gpu_limit(result.duration, llm_handler)
     duration_value = clamped_duration if clamped_duration and clamped_duration > 0 else -1
     return result, duration_value, result.status_message
-
 
 def handle_format_sample(
     llm_handler,
@@ -106,7 +104,6 @@ def handle_format_sample(
 
     if result is None:
         return _format_failure_response(update_count=8, status_message=status_message)
-
     return (
         result.caption,
         result.lyrics,
@@ -118,7 +115,6 @@ def handle_format_sample(
         True,
         status_message,
     )
-
 
 def handle_format_caption(
     llm_handler,
@@ -133,11 +129,7 @@ def handle_format_caption(
     lm_top_p: float,
     constrained_decoding_debug: bool = False,
 ):
-    """Format only caption via LLM while leaving lyrics unchanged in UI wiring.
-
-    Any outer single/double quotes added by the LLM are stripped from the
-    returned caption for cleaner textbox display.
-    """
+    """Format caption only and strip wrapper quotes from the returned caption."""
     result, duration_value, status_message = _execute_format_sample(
         llm_handler=llm_handler,
         caption=caption,
@@ -154,7 +146,6 @@ def handle_format_caption(
 
     if result is None:
         return _format_failure_response(update_count=7, status_message=status_message)
-
     return (
         _clean_optional_wrapped_quotes(result.caption),
         result.bpm,
@@ -165,7 +156,6 @@ def handle_format_caption(
         True,
         status_message,
     )
-
 
 def handle_format_lyrics(
     llm_handler,
@@ -180,11 +170,7 @@ def handle_format_lyrics(
     lm_top_p: float,
     constrained_decoding_debug: bool = False,
 ):
-    """Format only lyrics via LLM while leaving caption unchanged in UI wiring.
-
-    Any outer single/double quotes added by the LLM are stripped from the
-    returned lyrics for cleaner textbox display.
-    """
+    """Format lyrics only and strip wrapper quotes from the returned lyrics."""
     result, duration_value, status_message = _execute_format_sample(
         llm_handler=llm_handler,
         caption=caption,
@@ -201,7 +187,6 @@ def handle_format_lyrics(
 
     if result is None:
         return _format_failure_response(update_count=7, status_message=status_message)
-
     return (
         _clean_optional_wrapped_quotes(result.lyrics),
         result.bpm,

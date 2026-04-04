@@ -22,11 +22,15 @@ def build_task_focus_guidance(*, task_focus: str) -> str:
     normalized_focus = (task_focus or "all").strip().lower()
     if normalized_focus == "format":
         return (
-            "For format focus: preserve user intent, then expand it into a fuller standard song caption. "
-            "Write a linear narrative description of the arrangement that covers who is singing, the "
-            "singer's delivery or mood, the core instrumentation, how the song progresses from intro to "
-            "verse to chorus or drop to outro, and how the mix or energy evolves. "
-            "Keep the caption under 200 words. "
+            "For format focus: treat this as a faithful caption enhancement task, not a fresh composition brief. "
+            "Preserve the user's core genre, mood, era cues, instrumentation, and vocal intent, then expand them "
+            "into a fuller but still grounded song caption. "
+            "Write a single linear narrative description of the arrangement that covers who is singing if vocals "
+            "are requested, the singer's delivery or mood, the core instrumentation already implied by the user, "
+            "how the song progresses from intro to verse to chorus or drop to outro, and how the mix or energy evolves. "
+            "Do not invent unrelated scenes, genres, instruments, or production gimmicks that are not supported by "
+            "the original caption or metadata. "
+            "Prefer a concise, production-usable caption in roughly 45 to 110 words. "
             "Set instrumental to true or false only, never to an instrument list or free-form text. "
             "Do not output reasoning, analysis, or commentary outside the JSON object. "
             "Do not change the core genre or mood unless required for coherence."
@@ -102,6 +106,7 @@ def build_request_for_protocol(
     messages: list[dict[str, str]],
     base_url: str,
     max_tokens: int | None = None,
+    temperature: float = 0.4,
     disable_thinking: bool = False,
     require_json_output: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str]]:
@@ -115,7 +120,7 @@ def build_request_for_protocol(
         payload = {
             "model": model,
             "max_tokens": max_tokens or int(os.getenv("ACESTEP_ANTHROPIC_MAX_TOKENS", "1024")),
-            "temperature": 0.4,
+            "temperature": temperature,
             "system": system_message["content"],
             "messages": [{"role": "user", "content": user_message["content"]}],
         }
@@ -132,7 +137,7 @@ def build_request_for_protocol(
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens or int(os.getenv("ACESTEP_OPENAI_MAX_TOKENS", "3072")),
-        "temperature": 0.4,
+        "temperature": temperature,
     }
     if require_json_output and provider in {"openai", "zai"}:
         payload["response_format"] = {"type": "json_object"}

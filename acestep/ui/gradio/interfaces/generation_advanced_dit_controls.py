@@ -18,7 +18,7 @@ def build_dit_controls(ui_config: dict[str, Any]) -> dict[str, Any]:
         A component map containing DiT sampling, CFG interval, ADG, shift, and seed controls.
     """
 
-    with gr.Accordion(t("generation.advanced_dit_section"), open=True, elem_classes=["has-info-container"]):
+    with gr.Accordion(t("generation.advanced_dit_section"), open=True):
         create_help_button("generation_advanced")
         with gr.Row():
             inference_steps = gr.Slider(

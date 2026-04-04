@@ -26,6 +26,10 @@ from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.text_tasks.external_ai_types import ExternalAIClientError
+from acestep.text_tasks.external_lm_credentials import resolve_external_api_key
+from acestep.text_tasks.external_lm_format_client import request_external_format_plan
+from acestep.text_tasks.external_lm_providers import get_external_provider_profile
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -79,6 +83,72 @@ class LLMHandler:
         # MLX model reference (used when llm_backend == "mlx")
         self._mlx_model = None
         self._mlx_model_path = None
+        self.external_config: Dict[str, str] = {}
+
+    def _get_external_provider(self) -> str:
+        """Return the configured external provider with a stable default."""
+
+        provider = str((self.external_config or {}).get("provider", "")).strip().lower()
+        return provider or "openai"
+
+    def has_external_llm_config(self) -> bool:
+        """Return whether the external text-LLM path is ready for format mode."""
+
+        if (self.llm_backend or "").strip().lower() != "external":
+            return False
+
+        try:
+            profile = get_external_provider_profile(self._get_external_provider())
+        except ValueError:
+            return False
+
+        model = str((self.external_config or {}).get("model", "")).strip()
+        base_url = str((self.external_config or {}).get("base_url", "")).strip()
+        api_key = resolve_external_api_key(
+            provider=profile.provider_id,
+            api_key=str((self.external_config or {}).get("api_key", "")).strip(),
+        )
+        if not model or not base_url:
+            return False
+        if profile.api_key_required and not api_key:
+            return False
+        return True
+
+    def has_available_text_llm(self) -> bool:
+        """Return whether text-only LM features can run right now."""
+
+        return bool(getattr(self, "llm_initialized", False) or self.has_external_llm_config())
+
+    def _format_sample_from_external_llm(
+        self,
+        *,
+        caption: str,
+        lyrics: str,
+        user_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Dict[str, Any], str]:
+        """Run format mode against the configured external text model."""
+
+        try:
+            profile = get_external_provider_profile(self._get_external_provider())
+            plan = request_external_format_plan(
+                provider=profile.provider_id,
+                protocol=str((self.external_config or {}).get("protocol", "")).strip() or profile.protocol,
+                model=str((self.external_config or {}).get("model", "")).strip(),
+                base_url=str((self.external_config or {}).get("base_url", "")).strip(),
+                api_key=str((self.external_config or {}).get("api_key", "")).strip(),
+                caption=caption,
+                lyrics=lyrics,
+                user_metadata=user_metadata or {},
+            )
+        except ExternalAIClientError as exc:
+            logger.warning("External LM format request failed: {}", exc)
+            return {}, f"❌ {exc}"
+
+        metadata = plan.to_dict()
+        metadata["language"] = plan.vocal_language
+        metadata["keyscale"] = plan.key_scale
+        metadata["timesignature"] = plan.time_signature
+        return metadata, f"✅ Format completed successfully (external {profile.label})"
 
     def _clear_accelerator_cache(self) -> None:
         """Release freed accelerator memory back to the driver.
@@ -2220,6 +2290,13 @@ class LLMHandler:
             print(metadata['caption'])  # "A dramatic and powerful Latin pop track..."
             print(metadata['bpm'])      # 100
         """
+        if (self.llm_backend or "").strip().lower() == "external":
+            return self._format_sample_from_external_llm(
+                caption=caption,
+                lyrics=lyrics,
+                user_metadata=user_metadata,
+            )
+
         if not getattr(self, "llm_initialized", False):
             return {}, "❌ 5Hz LM not initialized. Please initialize it first."
 

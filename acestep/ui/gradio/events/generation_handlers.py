@@ -23,6 +23,17 @@ from .generation.service_init import (  # noqa: F401
     refresh_checkpoints,
     init_service_wrapper,
     on_tier_change,
+    update_llm_backend_ui,
+    hydrate_external_lm_provider_fields,
+)
+from .generation.external_lm_setup import (  # noqa: F401
+    hydrate_external_lm_setup_fields,
+    apply_external_lm_base_url_preset,
+    sync_external_lm_base_url_preset,
+    fetch_external_lm_models,
+    save_external_lm_settings,
+    test_external_lm_endpoint,
+    run_external_lm_runtime_doctor,
 )
 from .generation.model_config import (  # noqa: F401
     is_pure_base_model,

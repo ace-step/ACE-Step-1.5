@@ -139,6 +139,32 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             text-align: center;
             line-height: 1.4;
         }
+        .external-lm-api-key input {
+            background: var(--input-background-fill) !important;
+            color: var(--body-text-color) !important;
+            box-shadow: none !important;
+        }
+        .external-lm-api-key input:-webkit-autofill,
+        .external-lm-api-key input:-webkit-autofill:hover,
+        .external-lm-api-key input:-webkit-autofill:focus {
+            -webkit-text-fill-color: var(--body-text-color) !important;
+            -webkit-box-shadow: 0 0 0 1000px var(--input-background-fill) inset !important;
+            transition: background-color 9999s ease-in-out 0s;
+        }
+        .external-lm-status {
+            min-height: 96px;
+            padding: 0.85rem 1rem;
+            border: 1px solid var(--border-color-primary);
+            border-radius: 10px;
+            background: var(--input-background-fill);
+        }
+        .external-lm-status,
+        .external-lm-status * {
+            white-space: pre-wrap;
+        }
+        .external-lm-status p {
+            margin: 0;
+        }
 
         /* --- On-hover Tooltips --- */
         /* Safely ensure parents don't clip the tooltips using the container class */

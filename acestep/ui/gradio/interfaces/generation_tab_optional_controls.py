@@ -30,7 +30,6 @@ def build_optional_parameter_controls(
         t("generation.optional_params"),
         open=True,
         visible=True,
-        elem_classes=["has-info-container"],
     ) as optional_params_accordion:
         with gr.Row():
             bpm = gr.Number(

@@ -75,6 +75,19 @@
         const el = findInput(spec.elemId, spec.type);
         if (!el) return undefined;
 
+        if (spec.type === "dropdown") {
+            const maps = document.getElementById(spec.elemId + "-maps");
+            if (maps) {
+                try {
+                    const mapsData = JSON.parse(maps.dataset.maps);
+                    const value = el.value;
+                    const pair = mapsData.find(item => item[0] === value);
+                    if (pair !== undefined) return pair[1];
+                } catch (e) {
+                    console.warn(`[UserPreferences] Failed to parse mapping for ${spec.elemId}:`, e);
+                }
+            }
+        }
         if (spec.type === "checkbox") return el.checked;
         if (spec.type === "slider" || spec.type === "number") {
             const v = Number(el.value);

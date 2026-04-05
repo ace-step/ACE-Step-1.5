@@ -50,6 +50,11 @@ class SaveScriptTests(unittest.TestCase):
         script_asset = _load_preferences_script()
         self.assertTrue(script_asset)
 
+    def test_external_script_contains_mapping_logic(self):
+        script_asset = _load_preferences_script()
+        self.assertIn("dataset.maps", script_asset)
+        self.assertIn("JSON.parse", script_asset)
+
     def test_script_contains_localstorage_persistence(self):
         script = get_user_preferences_head()
         self.assertIn("<script>", script)

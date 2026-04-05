@@ -1,5 +1,7 @@
 """Output and automation controls for generation advanced settings."""
 
+import html
+import json
 from typing import Any
 
 import gradio as gr
@@ -9,6 +11,7 @@ from acestep.ui.gradio.i18n import t
 
 _MP3_BITRATE_CHOICES = [("128 kbps", "128k"), ("192 kbps", "192k"), ("256 kbps", "256k"), ("320 kbps", "320k")]
 _MP3_SAMPLE_RATE_CHOICES = [("48 kHz", 48000), ("44.1 kHz", 44100)]
+_AUDIO_FORMAT_CHOICES = [("FLAC", "flac"), ("MP3", "mp3"), ("Opus", "opus"), ("AAC", "aac"), ("WAV (16-bit)", "wav"), ("WAV (32-bit Float)", "wav32")]
 
 
 def _update_mp3_control_visibility(audio_format: str, service_mode: bool = False):
@@ -45,14 +48,7 @@ def build_output_controls(
         with gr.Row():
             with gr.Column(scale=1):
                 audio_format = gr.Dropdown(
-                    choices=[
-                        ("FLAC", "flac"),
-                        ("MP3", "mp3"),
-                        ("Opus", "opus"),
-                        ("AAC", "aac"),
-                        ("WAV (16-bit)", "wav"),
-                        ("WAV (32-bit Float)", "wav32"),
-                    ],
+                    choices=_AUDIO_FORMAT_CHOICES,
                     value=initial_audio_format,
                     label=t("generation.audio_format_label"),
                     info=t("generation.audio_format_info"),
@@ -62,12 +58,7 @@ def build_output_controls(
                 )
                 with gr.Row(visible=initial_mp3_visible) as mp3_controls_row:
                     mp3_bitrate = gr.Dropdown(
-                        choices=[
-                            ("128 kbps", "128k"),
-                            ("192 kbps", "192k"),
-                            ("256 kbps", "256k"),
-                            ("320 kbps", "320k"),
-                        ],
+                        choices=_MP3_BITRATE_CHOICES,
                         value=params.get("mp3_bitrate", "128k"),
                         label=t("generation.mp3_bitrate_label"),
                         info=t("generation.mp3_bitrate_info"),
@@ -78,10 +69,7 @@ def build_output_controls(
                         scale=1,
                     )
                     mp3_sample_rate = gr.Dropdown(
-                        choices=[
-                            ("48 kHz", 48000),
-                            ("44.1 kHz", 44100),
-                        ],
+                        choices=_MP3_SAMPLE_RATE_CHOICES,
                         value=params.get("mp3_sample_rate", 48000),
                         label=t("generation.mp3_sample_rate_label"),
                         info=t("generation.mp3_sample_rate_info"),
@@ -109,6 +97,16 @@ def build_output_controls(
             inputs=[audio_format],
             outputs=[mp3_controls_row, mp3_bitrate, mp3_sample_rate],
         )
+        dropdowns = [
+            (audio_format, _AUDIO_FORMAT_CHOICES),
+            (mp3_bitrate, _MP3_BITRATE_CHOICES),
+            (mp3_sample_rate, _MP3_SAMPLE_RATE_CHOICES),
+        ]
+        for dd, choices in dropdowns:
+            safe_json = html.escape(json.dumps(choices))
+            gr.HTML(
+                f'<div id="{dd.elem_id}-maps" data-maps="{safe_json}" style="display: none;"></div>'
+            )
         with gr.Row():
             enable_normalization = gr.Checkbox(
                 label=t("generation.enable_normalization"),

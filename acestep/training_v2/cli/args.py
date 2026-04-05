@@ -1,8 +1,9 @@
 """
 Argparse construction for ACE-Step Training V2 CLI.
 
-Contains ``build_root_parser`` and all ``_add_*`` argument-group helpers,
-plus shared constants (``_DEFAULT_NUM_WORKERS``, ``VARIANT_DIR_MAP``).
+Contains ``build_root_parser``, ``build_fixed_standalone_parser``, and all
+``_add_*`` argument-group helpers, plus shared constants
+(``_DEFAULT_NUM_WORKERS``, ``VARIANT_DIR_MAP``).
 """
 
 from __future__ import annotations
@@ -24,6 +25,46 @@ VARIANT_DIR_MAP = {
 # ===========================================================================
 # Root parser
 # ===========================================================================
+
+def build_fixed_standalone_parser() -> argparse.ArgumentParser:
+    """Build a standalone argparse parser for the ``fixed`` subcommand.
+
+    Used when invoking ``python -m acestep.training_v2.cli.train_fixed``
+    directly, without requiring a positional ``fixed`` subcommand argument.
+    Equivalent to ``python train.py fixed`` but callable as a module.
+    """
+    formatter_class = argparse.HelpFormatter
+    try:
+        from acestep.training_v2.ui.help_formatter import RichHelpFormatter
+        formatter_class = RichHelpFormatter
+    except ImportError:
+        pass
+
+    parser = argparse.ArgumentParser(
+        prog="python -m acestep.training_v2.cli.train_fixed",
+        description="ACE-Step corrected LoRA training: continuous timesteps + CFG dropout",
+        formatter_class=formatter_class,
+    )
+
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        default=False,
+        help="Disable Rich output; use plain text (also set automatically when stdout is not a TTY)",
+    )
+    parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        default=False,
+        help="Skip the confirmation prompt and start training immediately",
+    )
+
+    _add_common_training_args(parser)
+    _add_fixed_args(parser)
+
+    return parser
+
 
 def build_root_parser() -> argparse.ArgumentParser:
     """Build the top-level argparse parser with all subcommands."""

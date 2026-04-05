@@ -136,7 +136,7 @@ class GenerateMusicRequestMixin:
         elif task_type in _src_audio_required_tasks:
             if self._has_non_empty_audio_codes(audio_code_string):
                 logger.info(
-                    "[generate_music] %s task: no src_audio but audio codes provided, proceeding with codes",
+                    "[generate_music] {} task: no src_audio but audio codes provided, proceeding with codes",
                     task_type,
                 )
             else:

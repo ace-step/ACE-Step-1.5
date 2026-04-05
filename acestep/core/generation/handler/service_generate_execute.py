@@ -209,12 +209,12 @@ class ServiceGenerateExecuteMixin:
                         )
                         _tc = outputs.get("time_costs", {})
                         logger.info(
-                            "[service_generate] DiT diffusion complete via MLX (%.2fs total, %.3fs/step).",
+                            "[service_generate] DiT diffusion complete via MLX ({:.2f}s total, {:.3f}s/step).",
                             _tc.get("diffusion_time_cost", 0),
                             _tc.get("diffusion_per_step_time_cost", 0),
                         )
                     except Exception as exc:
-                        logger.warning("[service_generate] MLX diffusion failed (%s); falling back to PyTorch.", exc)
+                        logger.warning("[service_generate] MLX diffusion failed ({}); falling back to PyTorch.", exc)
                         outputs = self.model.generate_audio(**generate_kwargs)
                 else:
                     logger.info("[service_generate] DiT diffusion via PyTorch ({})...", self.device)

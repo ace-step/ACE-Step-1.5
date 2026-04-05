@@ -121,10 +121,35 @@
         for (const key of Object.keys(PREFS)) {
             const spec = PREFS[key];
             const el = findInput(spec.elemId, spec.type);
-            if (!el || wiredElements.has(el)) continue;
-            wiredElements.add(el);
-            el.addEventListener("input", scheduleSave, { passive: true });
-            el.addEventListener("change", scheduleSave, { passive: true });
+            if (el && !wiredElements.has(el)) {
+                wiredElements.add(el);
+                el.addEventListener("input", scheduleSave, { passive: true });
+                el.addEventListener("change", scheduleSave, { passive: true });
+                
+                if (spec.type === "dropdown") {
+                    const nativeInputValue = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 
+                        "value"
+                    );
+
+                    if (!nativeInputValue || !nativeInputValue.set || !nativeInputValue.get) continue;
+
+                    try {
+                        Object.defineProperty(el, "value", {
+                            configurable: true,
+                            get: function() {
+                                return nativeInputValue.get.call(this);
+                            },
+                            set: function(val) {
+                                nativeInputValue.set.call(this, val);
+                                scheduleSave();
+                            }
+                        });
+                    } catch (e) {
+                        console.warn(`[UserPreferences] Could not hook value for ${spec.elemId}:`, e);
+                    }
+                }
+            }
         }
     };
 

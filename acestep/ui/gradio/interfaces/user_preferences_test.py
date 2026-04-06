@@ -165,7 +165,6 @@ class RestoreTests(unittest.TestCase):
 
     def test_restore_preferences_with_values(self):
         """Values arrive as a JSON string from the dummy Textbox."""
-        import json
         data = ["flac", "192k", 44100, 0.7, False, -2.0, 0.5, 0.5, 0.1, 1.1, 4]
         result = restore_preferences(json.dumps(data), _num_outputs=len(PREF_KEYS))
         self.assertEqual(result[0], "flac")
@@ -185,7 +184,6 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(len(result), len(PREF_KEYS))
 
     def test_restore_preferences_partial_nulls(self):
-        import json
         data = ["opus", None, None, 0.5, True, -1.0, 0.0, 0.0, 0.0, 1.0, 8]
         result = restore_preferences(json.dumps(data), _num_outputs=len(PREF_KEYS))
         self.assertEqual(result[0], "opus")
@@ -197,7 +195,6 @@ class RestoreTests(unittest.TestCase):
         # indices 1, 2 should be gr.update()
 
     def test_restore_preferences_all_nulls(self):
-        import json
         data = [None] * len(PREF_KEYS)
         result = restore_preferences(json.dumps(data), _num_outputs=len(PREF_KEYS))
         self.assertEqual(len(result), len(PREF_KEYS))

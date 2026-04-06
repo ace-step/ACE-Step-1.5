@@ -122,8 +122,19 @@ class GenerateMusicDecodeMixin:
         Returns:
             Tuple of decoded waveforms, CPU latents, and updated time-cost payload.
         """
+        def _emit_decode_progress(value: float, desc: str) -> None:
+            if progress:
+                progress(value, desc=desc)
+
+        def _decode_chunk_progress(current: int, total: int, desc: str) -> None:
+            if total <= 0:
+                return
+            frac = min(1.0, max(0.0, current / total))
+            mapped = 0.82 + 0.16 * frac
+            _emit_decode_progress(mapped, desc)
+
         if progress:
-            progress(0.8, desc="Decoding audio...")
+            _emit_decode_progress(0.8, "Preparing audio decode...")
         logger.info("[generate_music] Decoding latents with VAE...")
         start_time = time.time()
         with torch.inference_mode():
@@ -168,12 +179,19 @@ class GenerateMusicDecodeMixin:
                         pred_latents_for_decode = pred_latents_for_decode.cpu()
                         self._empty_cache()
                 try:
+                    _emit_decode_progress(0.82, "Decoding audio chunks...")
                     if use_tiled_decode:
                         logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
-                        pred_wavs = self.tiled_decode(pred_latents_for_decode)
+                        pred_wavs = self.tiled_decode(
+                            pred_latents_for_decode,
+                            progress_callback=_decode_chunk_progress,
+                        )
                     elif using_mlx_vae:
                         try:
-                            pred_wavs = self._mlx_vae_decode(pred_latents_for_decode)
+                            pred_wavs = self._mlx_vae_decode(
+                                pred_latents_for_decode,
+                                progress_callback=_decode_chunk_progress,
+                            )
                         except Exception as exc:
                             logger.warning(
                                 f"[generate_music] MLX direct decode failed ({exc}), falling back to PyTorch"
@@ -202,6 +220,7 @@ class GenerateMusicDecodeMixin:
                 if torch.any(peak > 1.0):
                     pred_wavs = pred_wavs / peak.clamp(min=1.0)
                 self._empty_cache()
+                _emit_decode_progress(0.98, "Decoding audio chunks...")
         gc.collect()
         self._empty_cache()
         end_time = time.time()

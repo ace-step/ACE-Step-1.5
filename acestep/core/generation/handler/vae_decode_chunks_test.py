@@ -74,6 +74,32 @@ class VaeDecodeChunksMixinTests(unittest.TestCase):
         self.assertTrue(torch.equal(out, torch.full((1, 2, 7), 9.0)))
         self.assertEqual(host.decode_on_cpu_calls, 1)
 
+    def test_gpu_to_offload_fallback_keeps_progress_monotonic(self):
+        """Offload retry progress should not rewind after GPU OOM progress has started."""
+        host = _ChunksHost()
+        updates = []
+
+        def _gpu_oom(*args, **kwargs):
+            kwargs["progress_callback"](3, 4, "Decoding audio chunks...")
+            raise torch.cuda.OutOfMemoryError("gpu oom")
+
+        def _offload_ok(*args, **kwargs):
+            kwargs["progress_callback"](1, 4, "Decoding audio chunks...")
+            kwargs["progress_callback"](4, 4, "Decoding audio chunks...")
+            return torch.ones(1, 2, 5)
+
+        host._tiled_decode_gpu = _gpu_oom
+        host._tiled_decode_offload_cpu = _offload_ok
+        host._tiled_decode_inner(
+            torch.zeros(1, 4, 20),
+            chunk_size=8,
+            overlap=2,
+            offload_wav_to_cpu=False,
+            progress_callback=lambda current, total, desc: updates.append((current, total, desc)),
+        )
+
+        self.assertEqual([current for current, _, _ in updates], [3, 3, 4])
+
 
 if __name__ == "__main__":
     unittest.main()

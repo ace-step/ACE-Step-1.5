@@ -46,8 +46,9 @@ class VaeDecodeMixinTests(unittest.TestCase):
         host.use_mlx_vae = True
         host.mlx_vae = object()
 
-        def _mlx_raise(_latents):
+        def _mlx_raise(_latents, progress_callback=None):
             """Raise MLX failure to exercise fallback path."""
+            _ = progress_callback
             raise ValueError("mlx failed")
 
         host._mlx_vae_decode = _mlx_raise

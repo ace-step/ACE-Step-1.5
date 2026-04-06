@@ -77,9 +77,10 @@ class TestCotCfgScaleFixed(unittest.TestCase):
 
     def test_cot_phase_uses_cfg_scale_1(self):
         """generate_from_formatted_prompt called during CoT must receive cfg_scale=1.0."""
-        handler = LLMHandler()
+        handler = _make_handler()
         handler.llm_initialized = True
         handler.llm_backend = "pt"
+        handler.llm = MagicMock()
 
         captured_cfg = {}
 
@@ -88,34 +89,23 @@ class TestCotCfgScaleFixed(unittest.TestCase):
             return "<think>metadata</think>"
 
         with patch.object(handler, "_run_pt", side_effect=fake_run_pt):
-            with patch.object(handler, "build_formatted_prompt", return_value="PROMPT"):
-                with patch.object(
-                    handler,
-                    "_format_metadata_as_cot",
-                    return_value="",
-                ):
-                    with patch.object(
-                        handler,
-                        "build_formatted_prompt_with_cot",
-                        return_value="PROMPT_WITH_COT",
-                    ):
-                        # Simulate Phase 1 CoT call via generate_from_formatted_prompt
-                        # by calling the internal helper directly
-                        handler.generate_from_formatted_prompt(
-                            formatted_prompt="PROMPT",
-                            cfg={
-                                "temperature": 0.6,
-                                "cfg_scale": 1.0,  # already 1.0 for CoT
-                                "negative_prompt": "NO USER INPUT",
-                                "top_k": None,
-                                "top_p": None,
-                                "repetition_penalty": 1.0,
-                                "target_duration": None,
-                                "generation_phase": "cot",
-                                "caption": "test",
-                                "lyrics": "test",
-                            },
-                        )
+            # Simulate Phase 1 CoT call via generate_from_formatted_prompt by
+            # invoking the helper directly with a current-valid handler state.
+            handler.generate_from_formatted_prompt(
+                formatted_prompt="PROMPT",
+                cfg={
+                    "temperature": 0.6,
+                    "cfg_scale": 1.0,  # already 1.0 for CoT
+                    "negative_prompt": "NO USER INPUT",
+                    "top_k": None,
+                    "top_p": None,
+                    "repetition_penalty": 1.0,
+                    "target_duration": None,
+                    "generation_phase": "cot",
+                    "caption": "test",
+                    "lyrics": "test",
+                },
+            )
         # cfg_scale must be 1.0 for CoT – captured during _run_pt call
         self.assertEqual(captured_cfg.get("cfg_scale"), 1.0)
 
@@ -136,7 +126,7 @@ class TestCotCfgScaleFixed(unittest.TestCase):
 
         with patch.object(handler, "generate_from_formatted_prompt", side_effect=capturing_gen):
             with patch.object(handler, "build_formatted_prompt", return_value="P"):
-                with patch.object(handler, "_parse_metadata_from_cot", return_value={}):
+                with patch.object(handler, "parse_lm_output", return_value=({}, "")):
                     with patch.object(handler, "_format_metadata_as_cot", return_value=""):
                         with patch.object(
                             handler, "build_formatted_prompt_with_cot", return_value="P2"
@@ -469,6 +459,119 @@ class TestPerSequenceEosTracking(unittest.TestCase):
         generated_len = result.shape[1] - input_ids.shape[1]
         self.assertEqual(generated_len, 1)
         self.assertEqual(result[0, -1].item(), eos_id)
+
+
+@unittest.skipIf(LLMHandler is None, f"llm_inference import unavailable: {_IMPORT_ERROR}")
+class TestLmProgressCallbacks(unittest.TestCase):
+    """Progress callback coverage for LM token generation and phase mapping."""
+
+    def test_generate_with_cfg_custom_emits_token_progress(self):
+        """CFG token loop should emit monotonic per-token progress callbacks."""
+        handler = _make_handler()
+        eos_id = 1
+        vocab_size = 10
+        handler.llm_tokenizer.eos_token_id = eos_id
+
+        model = MagicMock()
+        logits = torch.full((2, 1, vocab_size), -100.0)
+        logits[:, :, 2] = 100.0
+        outputs = SimpleNamespace(logits=logits, past_key_values=None)
+        model.return_value = outputs
+        model.generation_config = MagicMock()
+        model.generation_config.use_cache = False
+        handler.llm = model
+
+        updates = []
+        handler._generate_with_cfg_custom(
+            batch_input_ids=torch.zeros((2, 3), dtype=torch.long),
+            batch_attention_mask=None,
+            max_new_tokens=2,
+            temperature=1.0,
+            cfg_scale=1.0,
+            top_k=None,
+            top_p=None,
+            repetition_penalty=1.0,
+            pad_token_id=eos_id,
+            streamer=None,
+            progress_callback=lambda current, total, desc: updates.append((current, total, desc)),
+        )
+
+        self.assertEqual(updates, [(1, 2, "LLM CFG Generation"), (2, 2, "LLM CFG Generation")])
+
+    def test_generate_with_stop_condition_maps_phase_progress_to_outer_callback(self):
+        """Phase callbacks should surface token progress onto the outer progress callback."""
+        handler = LLMHandler()
+        handler.llm_initialized = True
+        handler.llm_backend = "pt"
+
+        updates = []
+
+        def fake_generate_from_formatted_prompt(*args, **kwargs):
+            progress_callback = kwargs.get("progress_callback")
+            if progress_callback is not None:
+                progress_callback(5, 10, "LLM CFG Generation")
+                progress_callback(10, 10, "LLM CFG Generation")
+            return "<think>bpm: 120\n</think>", "ok"
+
+        with patch.object(handler, "generate_from_formatted_prompt", side_effect=fake_generate_from_formatted_prompt):
+            with patch.object(handler, "build_formatted_prompt", return_value="PROMPT"):
+                with patch.object(handler, "parse_lm_output", return_value=({"bpm": 120}, "")):
+                    handler.generate_with_stop_condition(
+                        caption="test caption",
+                        lyrics="test lyrics",
+                        cfg_scale=2.0,
+                        temperature=0.6,
+                        negative_prompt="",
+                        top_k=None,
+                        top_p=None,
+                        repetition_penalty=1.0,
+                        infer_type="dit",
+                        progress=lambda value, desc=None: updates.append((value, desc)),
+                    )
+
+        llm_cfg_updates = [value for value, desc in updates if desc == "LLM CFG Generation"]
+        self.assertTrue(llm_cfg_updates)
+        self.assertGreaterEqual(min(llm_cfg_updates), 0.1)
+        self.assertLessEqual(max(llm_cfg_updates), 0.3)
+        self.assertIn((0.3, "LLM metadata generation complete"), updates)
+
+    def test_generate_with_stop_condition_closes_audio_code_phase_band(self):
+        """Phase 2 should emit an explicit terminal progress update on early success."""
+        handler = LLMHandler()
+        handler.llm_initialized = True
+        handler.llm_backend = "pt"
+
+        updates = []
+        call_count = {"count": 0}
+
+        def fake_generate_from_formatted_prompt(*args, **kwargs):
+            call_count["count"] += 1
+            progress_callback = kwargs.get("progress_callback")
+            if progress_callback is not None:
+                progress_callback(5, 10, "LLM CFG Generation")
+            if call_count["count"] == 1:
+                return "<think>bpm: 120\n</think>", "ok"
+            return "<|audio_code_1|><|audio_code_2|>", "ok"
+
+        with patch.object(handler, "generate_from_formatted_prompt", side_effect=fake_generate_from_formatted_prompt):
+            with patch.object(handler, "build_formatted_prompt", return_value="PROMPT"):
+                with patch.object(handler, "parse_lm_output", side_effect=[({"bpm": 120}, ""), ({}, "<|audio_code_1|><|audio_code_2|>")]):
+                    with patch.object(handler, "_format_metadata_as_cot", return_value="cot"):
+                        with patch.object(handler, "build_formatted_prompt_with_cot", return_value="PROMPT2"):
+                            handler.generate_with_stop_condition(
+                                caption="test caption",
+                                lyrics="test lyrics",
+                                cfg_scale=2.0,
+                                temperature=0.6,
+                                negative_prompt="",
+                                top_k=None,
+                                top_p=None,
+                                repetition_penalty=1.0,
+                                infer_type="llm_dit",
+                                progress=lambda value, desc=None: updates.append((value, desc)),
+                            )
+
+        self.assertIn((0.5, "LLM audio code generation complete"), updates)
 
 
 if __name__ == "__main__":

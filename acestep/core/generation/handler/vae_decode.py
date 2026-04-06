@@ -19,6 +19,7 @@ class VaeDecodeMixin:
         chunk_size: Optional[int] = None,
         overlap: int = 64,
         offload_wav_to_cpu: Optional[bool] = None,
+        progress_callback=None,
     ):
         """Decode latents using tiling to reduce VRAM usage.
 
@@ -32,6 +33,8 @@ class VaeDecodeMixin:
             overlap: Overlap in latent frames between adjacent windows.
             offload_wav_to_cpu: Whether decoded waveform chunks should be
                 offloaded to CPU immediately to reduce VRAM pressure.
+            progress_callback: Optional callback receiving
+                ``(current_step, total_steps, desc)`` for chunk decode progress.
 
         Returns:
             Decoded waveform tensor shaped ``[batch, audio_channels, samples]``.
@@ -39,7 +42,7 @@ class VaeDecodeMixin:
         # ---- MLX fast path (macOS Apple Silicon) ----
         if self.use_mlx_vae and self.mlx_vae is not None:
             try:
-                result = self._mlx_vae_decode(latents)
+                result = self._mlx_vae_decode(latents, progress_callback=progress_callback)
                 return result
             except Exception as exc:
                 logger.warning(
@@ -74,7 +77,13 @@ class VaeDecodeMixin:
                 overlap = min(overlap, _mps_overlap)
 
         try:
-            return self._tiled_decode_inner(latents, chunk_size, overlap, offload_wav_to_cpu)
+            return self._tiled_decode_inner(
+                latents,
+                chunk_size,
+                overlap,
+                offload_wav_to_cpu,
+                progress_callback=progress_callback,
+            )
         except (NotImplementedError, RuntimeError) as exc:
             if not _is_mps:
                 raise

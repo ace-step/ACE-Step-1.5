@@ -15,6 +15,7 @@ class _Host(ServiceGenerateExecuteMixin, ServiceGenerateOutputsMixin):
     def __init__(self):
         """Initialize static runtime fields for helper-method tests."""
         self.device = "cpu"
+        self.disable_tqdm = False
         self.silence_latent = torch.zeros(1, 4, 4, dtype=torch.float32)
 
 
@@ -58,6 +59,47 @@ class ServiceGenerateExecuteMixinTests(unittest.TestCase):
         self.assertEqual(kwargs["infer_steps"], 16)
         self.assertEqual(kwargs["timesteps"].dtype, torch.float32)
         self.assertEqual(kwargs["timesteps"].device.type, "cpu")
+        self.assertTrue(kwargs["use_progress_bar"])
+        self.assertIsNone(kwargs["progress_callback"])
+
+    def test_build_generate_kwargs_forwards_runtime_progress_callback(self):
+        """Runtime callbacks should be forwarded into model-generation kwargs."""
+        host = _Host()
+        payload = {
+            "text_hidden_states": torch.zeros(1, 2),
+            "text_attention_mask": torch.ones(1, 2),
+            "lyric_hidden_states": torch.zeros(1, 2),
+            "lyric_attention_mask": torch.ones(1, 2),
+            "refer_audio_acoustic_hidden_states_packed": torch.zeros(1, 2),
+            "refer_audio_order_mask": torch.zeros(1, dtype=torch.long),
+            "src_latents": torch.zeros(1, 4, 4),
+            "chunk_mask": torch.ones(1, 4, dtype=torch.bool),
+            "is_covers": torch.tensor([True]),
+            "non_cover_text_hidden_states": None,
+            "non_cover_text_attention_masks": None,
+            "precomputed_lm_hints_25Hz": None,
+        }
+        def callback(current, total, desc):
+            return (current, total, desc)
+
+        kwargs = host._build_service_generate_kwargs(
+            payload=payload,
+            seed_param=123,
+            infer_steps=16,
+            guidance_scale=7.0,
+            audio_cover_strength=1.0,
+            cover_noise_strength=0.0,
+            infer_method="ode",
+            use_adg=False,
+            cfg_interval_start=0.0,
+            cfg_interval_end=1.0,
+            shift=1.0,
+            timesteps=None,
+            progress_callback=callback,
+        )
+
+        self.assertIs(kwargs["progress_callback"], callback)
+        self.assertTrue(kwargs["use_progress_bar"])
 
     def test_attach_service_outputs_persists_required_fields(self):
         """Attached payload fields should be available to downstream handlers."""

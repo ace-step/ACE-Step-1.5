@@ -9,7 +9,7 @@ import traceback
 import time
 import random
 import warnings
-from typing import Optional, Dict, Any, Tuple, List, Union
+from typing import Callable, Optional, Dict, Any, Tuple, List, Union
 from contextlib import contextmanager
 
 import yaml
@@ -874,6 +874,7 @@ class LLMHandler:
         lyrics: str = "",
         cot_text: str = "",
         seeds: Optional[List[int]] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Union[str, List[str]]:
         """
         Unified vllm generation function supporting both single and batch modes.
@@ -959,6 +960,8 @@ class LLMHandler:
                 output_texts.append(str(output))
 
         # Return single string for single mode, list for batch mode
+        if progress_callback is not None:
+            progress_callback(1, 1, "vLLM generation")
         return output_texts[0] if not is_batch else output_texts
 
     def _run_pt_single(
@@ -982,6 +985,7 @@ class LLMHandler:
         caption: str,
         lyrics: str,
         cot_text: str,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> str:
         """Internal helper function for single-item PyTorch generation."""
         inputs = self.llm_tokenizer(
@@ -1060,6 +1064,7 @@ class LLMHandler:
                     pad_token_id=self.llm_tokenizer.pad_token_id or self.llm_tokenizer.eos_token_id,
                     streamer=None,
                     constrained_processor=constrained_processor,
+                    progress_callback=progress_callback,
                 )
 
                 # Extract only the conditional output (first in batch)
@@ -1077,6 +1082,7 @@ class LLMHandler:
                     pad_token_id=self.llm_tokenizer.pad_token_id or self.llm_tokenizer.eos_token_id,
                     streamer=None,
                     constrained_processor=constrained_processor,
+                    progress_callback=progress_callback,
                 )
             else:
                 # Generate without CFG using native generate() parameters
@@ -1143,6 +1149,7 @@ class LLMHandler:
         lyrics: str = "",
         cot_text: str = "",
         seeds: Optional[List[int]] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Union[str, List[str]]:
         """
         Unified PyTorch generation function supporting both single and batch modes.
@@ -1158,6 +1165,7 @@ class LLMHandler:
         # loads to GPU once and offloads once, instead of per-item.
         if is_batch:
             output_texts = []
+            batch_total = len(formatted_prompt_list)
 
             with self._load_model_context():
                 for i, formatted_prompt in enumerate(formatted_prompt_list):
@@ -1168,6 +1176,15 @@ class LLMHandler:
                             torch.cuda.manual_seed_all(seeds[i])
                         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                             torch.mps.manual_seed(seeds[i])
+
+                    item_progress_callback = None
+                    item_progress_state = {"current": 0, "total": 0, "desc": ""}
+                    if progress_callback is not None:
+                        def _item_progress(current, total, desc, index=i):
+                            item_progress_state.update(current=current, total=total, desc=desc)
+                            progress_callback(index * total + current, batch_total * total, desc)
+
+                        item_progress_callback = _item_progress
 
                     # Generate using single-item method with batch-mode defaults
                     output_text = self._run_pt_single(
@@ -1190,9 +1207,20 @@ class LLMHandler:
                         caption=caption,
                         lyrics=lyrics,
                         cot_text=cot_text,
+                        progress_callback=item_progress_callback,
                     )
 
                     output_texts.append(output_text)
+                    if (
+                        progress_callback is not None
+                        and item_progress_state["total"] > 0
+                        and item_progress_state["current"] < item_progress_state["total"]
+                    ):
+                        progress_callback(
+                            (i + 1) * item_progress_state["total"],
+                            batch_total * item_progress_state["total"],
+                            item_progress_state["desc"],
+                        )
 
             return output_texts
 
@@ -1219,6 +1247,7 @@ class LLMHandler:
             caption=caption,
             lyrics=lyrics,
             cot_text=cot_text,
+            progress_callback=progress_callback,
         )
 
     def has_all_metas(self, user_metadata: Optional[Dict[str, Optional[str]]]) -> bool:
@@ -1340,6 +1369,20 @@ class LLMHandler:
             else:
                 seeds = seeds[:actual_batch_size]
 
+        def _make_phase_progress_callback(
+            start: float,
+            end: float,
+            default_desc: str,
+        ) -> Callable[[int, int, str], None]:
+            def _callback(current: int, total: int, desc: str) -> None:
+                if total <= 0:
+                    return
+                frac = min(1.0, max(0.0, current / total))
+                mapped = start + (end - start) * frac
+                progress(mapped, desc or default_desc)
+
+            return _callback
+
         # ========== PHASE 1: CoT Generation ==========
         # Skip CoT if all metadata are user-provided OR caption is already formatted
         progress(0.1, f"Phase 1: Generating CoT metadata (once for all items)...")
@@ -1380,6 +1423,11 @@ class LLMHandler:
                 use_constrained_decoding=use_constrained_decoding,
                 constrained_decoding_debug=constrained_decoding_debug,
                 stop_at_reasoning=True,  # Always stop at </think> in Phase 1
+                progress_callback=_make_phase_progress_callback(
+                    0.1,
+                    0.3,
+                    "LLM metadata generation",
+                ),
             )
 
             phase1_time = time.time() - phase1_start
@@ -1399,6 +1447,7 @@ class LLMHandler:
                 logger.info(f"Batch Phase 1 completed in {phase1_time:.2f}s. Generated metadata: {list(metadata.keys())}")
             else:
                 logger.info(f"Phase 1 completed in {phase1_time:.2f}s. Generated metadata: {list(metadata.keys())}")
+            progress(0.3, "LLM metadata generation complete")
         else:
             # Use user-provided metadata
             if is_batch:
@@ -1468,7 +1517,12 @@ class LLMHandler:
         formatted_prompt_with_cot = self.build_formatted_prompt_with_cot(caption, lyrics, cot_text)
         logger.info(f"generate_with_stop_condition: formatted_prompt_with_cot={formatted_prompt_with_cot}")
 
-        progress(0.5, f"Phase 2: Generating audio codes for {actual_batch_size} items...")
+        progress(0.31, f"Phase 2: Generating audio codes for {actual_batch_size} items...")
+        phase2_progress_callback = _make_phase_progress_callback(
+            0.31,
+            0.5,
+            "LLM audio code generation",
+        )
         if is_batch:
             # Batch mode: generate codes for all items
             formatted_prompts = [formatted_prompt_with_cot] * actual_batch_size
@@ -1492,6 +1546,7 @@ class LLMHandler:
                         lyrics=lyrics,
                         cot_text=cot_text,
                         seeds=seeds,
+                        progress_callback=phase2_progress_callback,
                     )
                 elif self.llm_backend == "mlx":
                     codes_outputs = self._run_mlx(
@@ -1510,6 +1565,7 @@ class LLMHandler:
                         lyrics=lyrics,
                         cot_text=cot_text,
                         seeds=seeds,
+                        progress_callback=phase2_progress_callback,
                     )
                 else:  # pt backend
                     codes_outputs = self._run_pt(
@@ -1528,6 +1584,7 @@ class LLMHandler:
                         lyrics=lyrics,
                         cot_text=cot_text,
                         seeds=seeds,
+                        progress_callback=phase2_progress_callback,
                     )
             except Exception as e:
                 error_msg = f"Error in batch codes generation: {str(e)}"
@@ -1557,6 +1614,7 @@ class LLMHandler:
                 metadata_list.append(metadata.copy())  # Same metadata for all
 
             phase2_time = time.time() - phase2_start
+            progress(0.5, "LLM audio code generation complete")
 
             # Log results
             codes_counts = [len(codes.split('<|audio_code_')) - 1 if codes else 0 for codes in audio_codes_list]
@@ -1602,6 +1660,7 @@ class LLMHandler:
                 use_constrained_decoding=use_constrained_decoding,
                 constrained_decoding_debug=constrained_decoding_debug,
                 stop_at_reasoning=False,  # Generate codes until EOS
+                progress_callback=phase2_progress_callback,
             )
 
             if not codes_output_text:
@@ -1621,6 +1680,7 @@ class LLMHandler:
                 }
 
             phase2_time = time.time() - phase2_start
+            progress(0.5, "LLM audio code generation complete")
 
             # Parse audio codes from output (metadata should be same as Phase 1)
             _, audio_codes = self.parse_lm_output(codes_output_text)
@@ -2321,6 +2381,7 @@ class LLMHandler:
         use_constrained_decoding: bool = True,
         constrained_decoding_debug: bool = False,
         stop_at_reasoning: bool = False,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Tuple[str, str]:
         """
         Generate raw LM text output from a pre-built formatted prompt.
@@ -2394,6 +2455,7 @@ class LLMHandler:
                     caption=caption,
                     lyrics=lyrics,
                     cot_text=cot_text,
+                    progress_callback=progress_callback,
                 )
                 self._clear_accelerator_cache()
                 return output_text, f"✅ Generated successfully (vllm) | length={len(output_text)}"
@@ -2420,6 +2482,7 @@ class LLMHandler:
                     caption=caption,
                     lyrics=lyrics,
                     cot_text=cot_text,
+                    progress_callback=progress_callback,
                 )
                 self._clear_accelerator_cache()
                 return output_text, f"✅ Generated successfully (mlx) | length={len(output_text)}"
@@ -2445,6 +2508,7 @@ class LLMHandler:
                 caption=caption,
                 lyrics=lyrics,
                 cot_text=cot_text,
+                progress_callback=progress_callback,
             )
             self._clear_accelerator_cache()
             return output_text, f"✅ Generated successfully (pt) | length={len(output_text)}"
@@ -2486,6 +2550,7 @@ class LLMHandler:
         pad_token_id: int,
         streamer: Optional[BaseStreamer],
         constrained_processor: Optional[MetadataConstrainedLogitsProcessor] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> torch.Tensor:
         """
         Custom generation loop with constrained decoding support (non-CFG).
@@ -2558,6 +2623,8 @@ class LLMHandler:
                 # Update streamer
                 if streamer is not None:
                     streamer.put(next_tokens_unsqueezed)
+                if progress_callback is not None:
+                    progress_callback(step + 1, max_new_tokens, "LLM Constrained Decoding")
 
                 if should_stop:
                     break
@@ -2583,6 +2650,7 @@ class LLMHandler:
         pad_token_id: int,
         streamer: Optional[BaseStreamer],
         constrained_processor: Optional[MetadataConstrainedLogitsProcessor] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> torch.Tensor:
         """
         Custom CFG generation loop that:
@@ -2729,6 +2797,8 @@ class LLMHandler:
                 # Update streamer
                 if streamer is not None:
                     streamer.put(next_tokens_unsqueezed)  # Stream conditional tokens
+                if progress_callback is not None:
+                    progress_callback(step + 1, max_new_tokens, "LLM CFG Generation")
 
                 # Stop generation only when ALL sequences have finished
                 if seq_finished.all():
@@ -3005,6 +3075,7 @@ class LLMHandler:
         lyrics: str,
         cot_text: str,
         seeds: Optional[List[int]] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> List[str]:
         """
         Optimized native MLX batch generation for codes phase.
@@ -3322,6 +3393,8 @@ class LLMHandler:
                     item_last_logits[i] = logits_out[:, -1:, :]
 
             pbar.update(1)
+            if progress_callback is not None:
+                progress_callback(step + 1, max_new_tokens, f"MLX {cfg_label}Batch Gen (native, n={batch_size})")
 
             # Periodic memory cleanup
             if step % 256 == 0 and step > 0:
@@ -3370,6 +3443,7 @@ class LLMHandler:
         caption: str,
         lyrics: str,
         cot_text: str,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> str:
         """
         Optimized native MLX generation using mlx-lm infrastructure.
@@ -3628,6 +3702,8 @@ class LLMHandler:
             new_tokens.append(token_id)
             all_token_ids.append(token_id)
             pbar.update(1)
+            if progress_callback is not None:
+                progress_callback(step + 1, max_new_tokens, tqdm_desc)
 
             # Update constrained processor FSM state
             if constrained_processor is not None:
@@ -3693,6 +3769,7 @@ class LLMHandler:
         caption: str,
         lyrics: str,
         cot_text: str,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> str:
         """
         MLX-accelerated single-item generation.
@@ -3723,6 +3800,7 @@ class LLMHandler:
                 caption=caption,
                 lyrics=lyrics,
                 cot_text=cot_text,
+                progress_callback=progress_callback,
             )
         except Exception as _native_err:
             logger.warning(
@@ -3872,6 +3950,8 @@ class LLMHandler:
             new_tokens.append(token_id)
             all_token_ids.append(token_id)
             pbar.update(1)
+            if progress_callback is not None:
+                progress_callback(step + 1, max_new_tokens, tqdm_desc)
 
             # Update constrained processor state
             if constrained_processor is not None:
@@ -3934,6 +4014,7 @@ class LLMHandler:
         lyrics: str = "",
         cot_text: str = "",
         seeds: Optional[List[int]] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Union[str, List[str]]:
         """
         Unified MLX generation function supporting both single and batch modes.
@@ -3983,6 +4064,7 @@ class LLMHandler:
                         lyrics=lyrics,
                         cot_text=cot_text,
                         seeds=seeds,
+                        progress_callback=progress_callback,
                     )
                 except Exception as e:
                     logger.warning(
@@ -3997,6 +4079,15 @@ class LLMHandler:
                 # Set MLX seed for reproducibility
                 if seeds and i < len(seeds):
                     mx.random.seed(seeds[i])
+
+                item_progress_callback = None
+                item_progress_state = {"current": 0, "total": 0, "desc": ""}
+                if progress_callback is not None:
+                    def _item_progress(current, total, desc, index=i, batch_total=batch_size):
+                        item_progress_state.update(current=current, total=total, desc=desc)
+                        progress_callback(index * total + current, batch_total * total, desc)
+
+                    item_progress_callback = _item_progress
 
                 output_text = self._run_mlx_single(
                     formatted_prompt=formatted_prompt,
@@ -4018,8 +4109,19 @@ class LLMHandler:
                     caption=caption,
                     lyrics=lyrics,
                     cot_text=cot_text,
+                    progress_callback=item_progress_callback,
                 )
                 output_texts.append(output_text)
+                if (
+                    progress_callback is not None
+                    and item_progress_state["total"] > 0
+                    and item_progress_state["current"] < item_progress_state["total"]
+                ):
+                    progress_callback(
+                        (i + 1) * item_progress_state["total"],
+                        batch_size * item_progress_state["total"],
+                        item_progress_state["desc"],
+                    )
             return output_texts
 
         # Single mode
@@ -4044,6 +4146,7 @@ class LLMHandler:
             caption=caption,
             lyrics=lyrics,
             cot_text=cot_text,
+            progress_callback=progress_callback,
         )
 
     # =========================================================================

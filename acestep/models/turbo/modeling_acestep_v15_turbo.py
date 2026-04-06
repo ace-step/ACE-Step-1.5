@@ -1844,6 +1844,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         non_cover_text_attention_mask: Optional[torch.FloatTensor] = None,
         precomputed_lm_hints_25Hz: Optional[torch.FloatTensor] = None,
         audio_codes: Optional[torch.FloatTensor] = None,
+        use_progress_bar: bool = True,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
         shift: float = 3.0,
         timesteps: Optional[torch.Tensor] = None,
         cover_noise_strength: float = 0.0,
@@ -2045,6 +2047,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             # On final step, directly compute x0 from noise
             if step_idx == num_steps - 1:
                 xt = self.get_x0_from_noise(xt, vt, t_curr_tensor)
+                if progress_callback is not None:
+                    progress_callback(step_idx + 1, num_steps, "DiT diffusion...")
                 prev_vt = vt
                 break
 
@@ -2104,6 +2108,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 xt = _repaint_step_injection(
                     xt, clean_src_latents, repaint_mask, t_after_step, noise,
                 )
+            if progress_callback is not None:
+                progress_callback(step_idx + 1, num_steps, "DiT diffusion...")
         
         x_gen = xt
         if repaint_mask is not None and clean_src_latents is not None and repaint_crossfade_frames > 0:

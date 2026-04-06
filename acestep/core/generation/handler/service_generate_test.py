@@ -128,10 +128,12 @@ class ServiceGenerateMixinTests(unittest.TestCase):
         """It forwards runtime tuning controls to downstream helper invocations."""
         host = _Host()
         custom_timesteps = [1.0, 0.5, 0.0]
+        progress_callback = lambda current, total, desc: (current, total, desc)
         host.service_generate(
             captions="cap", lyrics="lyr", guidance_scale=9.5, audio_cover_strength=0.7,
             cover_noise_strength=0.2, use_adg=True, cfg_interval_start=0.1, cfg_interval_end=0.9,
             shift=1.3, infer_method="sde", timesteps=custom_timesteps, return_intermediate=False,
+            progress_callback=progress_callback,
         )
         build_kwargs = host.calls["_build_service_generate_kwargs"]
         self.assertEqual(build_kwargs["guidance_scale"], 9.5)
@@ -139,6 +141,7 @@ class ServiceGenerateMixinTests(unittest.TestCase):
         self.assertEqual(build_kwargs["cover_noise_strength"], 0.2)
         self.assertTrue(build_kwargs["use_adg"])
         self.assertEqual(build_kwargs["timesteps"], custom_timesteps)
+        self.assertIs(build_kwargs["progress_callback"], progress_callback)
         self.assertFalse(host.calls["_attach_service_generate_outputs"]["return_intermediate"])
         execute_kwargs = host.calls["_execute_service_generate_diffusion"]
         self.assertEqual(execute_kwargs["infer_method"], "sde")

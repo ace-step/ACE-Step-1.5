@@ -5,7 +5,7 @@ It coordinates request normalization, batch preparation, diffusion execution,
 and output attachment without owning model internals.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 
@@ -47,6 +47,7 @@ class ServiceGenerateMixin:
         chunk_mask_modes: Optional[List[str]] = None,
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
@@ -79,6 +80,8 @@ class ServiceGenerateMixin:
             timesteps: Optional explicit diffusion timestep sequence.
             repaint_crossfade_frames: Crossfade width (latent frames) at repaint
                 boundaries for boundary blending.  ~0.4s at 25 Hz.
+            progress_callback: Optional diffusion-step callback receiving
+                ``(current_step, total_steps, desc)``.
             sampler_mode: Sampler algorithm — ``"euler"`` or ``"heun"``.
             velocity_norm_threshold: Velocity norm clamping threshold (0 = disabled).
             velocity_ema_factor: Velocity EMA smoothing factor (0 = disabled).
@@ -140,6 +143,7 @@ class ServiceGenerateMixin:
             timesteps=timesteps,
             repaint_crossfade_frames=repaint_crossfade_frames,
             repaint_injection_ratio=repaint_injection_ratio,
+            progress_callback=progress_callback,
             sampler_mode=sampler_mode,
             velocity_norm_threshold=velocity_norm_threshold,
             velocity_ema_factor=velocity_ema_factor,

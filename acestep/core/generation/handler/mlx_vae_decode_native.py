@@ -28,7 +28,7 @@ class MlxVaeDecodeNativeMixin:
             raise RuntimeError("MLX VAE decode requested but mlx_vae is not initialized.")
         return self.mlx_vae.decode
 
-    def _mlx_vae_decode(self, latents_torch):
+    def _mlx_vae_decode(self, latents_torch, progress_callback=None):
         """Decode batched PyTorch latents using native MLX VAE decode.
 
         Args:
@@ -52,7 +52,18 @@ class MlxVaeDecodeNativeMixin:
         decode_fn = self._resolve_mlx_decode_fn()
         audio_parts = []
         for idx in range(batch_size):
-            decoded = self._mlx_decode_single(latents_mx[idx : idx + 1], decode_fn=decode_fn)
+            item_progress_callback = None
+            if progress_callback is not None:
+                def _item_progress(current, total, desc, offset=idx, batch_total=batch_size):
+                    progress_callback(offset * total + current, batch_total * total, desc)
+
+                item_progress_callback = _item_progress
+
+            decoded = self._mlx_decode_single(
+                latents_mx[idx : idx + 1],
+                decode_fn=decode_fn,
+                progress_callback=item_progress_callback,
+            )
             if decoded.dtype != mx.float32:
                 decoded = decoded.astype(mx.float32)
             mx.eval(decoded)
@@ -71,7 +82,7 @@ class MlxVaeDecodeNativeMixin:
         )
         return torch.from_numpy(audio_ncl)
 
-    def _mlx_decode_single(self, z_nlc, decode_fn=None):
+    def _mlx_decode_single(self, z_nlc, decode_fn=None, progress_callback=None):
         """Decode a single MLX latent sample with optional tiling.
 
         Args:
@@ -91,7 +102,10 @@ class MlxVaeDecodeNativeMixin:
         mlx_overlap = 64
 
         if latent_frames <= mlx_chunk:
-            return decode_fn(z_nlc)
+            out = decode_fn(z_nlc)
+            if progress_callback is not None:
+                progress_callback(1, 1, "Decoding audio chunks...")
+            return out
 
         stride = mlx_chunk - 2 * mlx_overlap
         num_steps = math.ceil(latent_frames / stride)
@@ -115,5 +129,7 @@ class MlxVaeDecodeNativeMixin:
             audio_len = audio_chunk.shape[1]
             end_idx = audio_len - trim_end if trim_end > 0 else audio_len
             decoded_parts.append(audio_chunk[:, trim_start:end_idx, :])
+            if progress_callback is not None:
+                progress_callback(idx + 1, num_steps, "Decoding audio chunks...")
 
         return mx.concatenate(decoded_parts, axis=1)

@@ -1854,6 +1854,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         precomputed_lm_hints_25Hz: Optional[torch.FloatTensor] = None,
         audio_codes: Optional[torch.FloatTensor] = None,
         use_progress_bar: bool = True,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
         use_adg: bool = False,
         shift: float = 1.0,
         cover_noise_strength: float = 0.0,
@@ -2129,6 +2130,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     xt = _repaint_step_injection(
                         xt, clean_src_latents, repaint_mask, t_after_step, noise,
                     )
+                if progress_callback is not None:
+                    progress_callback(step_idx + 1, infer_steps, "DiT diffusion...")
 
         x_gen = xt
         if repaint_mask is not None and clean_src_latents is not None and repaint_crossfade_frames > 0:

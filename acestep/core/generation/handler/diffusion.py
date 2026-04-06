@@ -34,6 +34,7 @@ class DiffusionMixin:
         encoder_hidden_states_non_cover=None,
         encoder_attention_mask_non_cover=None,
         context_latents_non_cover=None,
+        progress_callback=None,
         disable_tqdm: bool = False,
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
@@ -59,6 +60,8 @@ class DiffusionMixin:
             encoder_hidden_states_non_cover: Optional non-cover conditioning tensor.
             encoder_attention_mask_non_cover: Unused; accepted for API compatibility.
             context_latents_non_cover: Optional non-cover context latent tensor.
+            progress_callback: Optional diffusion-step callback receiving
+                ``(current_step, total_steps, desc)``.
             disable_tqdm: If True, suppress the diffusion progress bar.
             sampler_mode: Sampler algorithm — ``"euler"`` or ``"heun"``.
             velocity_norm_threshold: Velocity norm clamping threshold (0 = disabled).
@@ -141,6 +144,7 @@ class DiffusionMixin:
             encoder_hidden_states_non_cover_np=enc_nc_np,
             context_latents_non_cover_np=ctx_nc_np,
             compile_model=getattr(self, "mlx_dit_compiled", False),
+            progress_callback=progress_callback,
             disable_tqdm=disable_tqdm,
             sampler_mode=sampler_mode,
             velocity_norm_threshold=velocity_norm_threshold,

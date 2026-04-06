@@ -115,7 +115,7 @@ def _build_restore_js() -> str:
     # Sentinel array returned when there is nothing to restore.  Using null
     # lets the Python fn detect "no stored prefs" and return gr.update()
     # for every output, preserving the values already rendered on the page.
-    skip_sentinel = f"[null]"
+    skip_sentinel = "[null]"
     return f"""(_dummy) => {{
         const STORAGE_KEY = {json.dumps(_STORAGE_KEY)};
         const SCHEMA_VERSION = {_SCHEMA_VERSION};

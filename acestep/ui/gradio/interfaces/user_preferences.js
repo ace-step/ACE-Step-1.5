@@ -98,7 +98,24 @@
 
     // ── Save (debounced) ─────────────────────────────────────────────
 
+    const syncMp3Row = () => {
+        const row = document.getElementById("acestep-mp3-controls-row");
+        if (!row) return;
+        const val = readValue("audio_format");
+        if (val === undefined) return;
+        const show = val === "mp3";
+        row.style.display = show ? "" : "none";
+        for (const id of ["acestep-mp3-bitrate", "acestep-mp3-sample-rate"]) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.style.display = show ? "" : "none";
+                el.classList.toggle("hidden", !show);
+            }
+        }
+    };
+
     const scheduleSave = () => {
+        syncMp3Row();
         if (saveTimer !== null) {
             clearTimeout(saveTimer);
         }
@@ -151,6 +168,7 @@
                 }
             }
         }
+        syncMp3Row();
     };
 
     // ── MutationObserver – re-wire after Gradio re-renders ───────────

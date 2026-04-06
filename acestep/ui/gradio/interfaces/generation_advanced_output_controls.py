@@ -56,7 +56,7 @@ def build_output_controls(
                     elem_classes=["has-info-container"],
                     interactive=not service_mode,
                 )
-                with gr.Row(visible=initial_mp3_visible) as mp3_controls_row:
+                with gr.Row(visible=initial_mp3_visible, elem_id="acestep-mp3-controls-row") as mp3_controls_row:
                     mp3_bitrate = gr.Dropdown(
                         choices=_MP3_BITRATE_CHOICES,
                         value=params.get("mp3_bitrate", "128k"),

@@ -157,12 +157,11 @@ class LLMHandler:
             logger.warning(f"[LLM vLLM] Failed to clean torch distributed state: {exc}")
 
     def _get_checkpoint_dir(self) -> str:
-        """Get checkpoint directory, prioritizing persistent storage"""
+        """Get checkpoint directory via the shared resolver."""
         if self.persistent_storage_path:
             return os.path.join(self.persistent_storage_path, "checkpoints")
-        current_file = os.path.abspath(__file__)
-        project_root = os.path.dirname(os.path.dirname(current_file))
-        return os.path.join(project_root, "checkpoints")
+        from acestep.model_downloader import get_checkpoints_dir
+        return str(get_checkpoints_dir())
 
     def get_available_5hz_lm_models(self) -> List[str]:
         """Scan and return all model directory names starting with 'acestep-5Hz-lm-'"""

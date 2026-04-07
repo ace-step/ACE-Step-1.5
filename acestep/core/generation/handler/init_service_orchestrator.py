@@ -118,9 +118,10 @@ class InitServiceOrchestratorMixin:
             env_ckpt = os.environ.get("ACESTEP_CHECKPOINTS_DIR")
             if env_ckpt:
                 checkpoint_dir = str(get_checkpoints_dir())
+            elif project_root:
+                checkpoint_dir = os.path.join(project_root, "checkpoints")
             else:
-                base_root = project_root or self._get_project_root()
-                checkpoint_dir = os.path.join(base_root, "checkpoints")
+                checkpoint_dir = str(get_checkpoints_dir())
             checkpoint_path = Path(checkpoint_dir)
 
             precheck_failure = self._ensure_models_present(

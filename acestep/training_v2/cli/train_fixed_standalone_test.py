@@ -98,12 +98,10 @@ class TestBuildFixedStandaloneParser(unittest.TestCase):
         self.assertTrue(args.yes)
 
     def test_accepts_preprocess_mode(self):
-        """Parser accepts --preprocess flag for preprocessing mode."""
+        """Parser accepts --preprocess without requiring training-only flags."""
         parser = self._get_parser()
         args = parser.parse_args([
             "--checkpoint-dir", "/tmp/ckpt",
-            "--dataset-dir", "/tmp/data",
-            "--output-dir", "/tmp/out",
             "--preprocess",
             "--audio-dir", "/tmp/audio",
             "--tensor-output", "/tmp/tensors",
@@ -180,8 +178,6 @@ class TestTrainFixedMainBehavior(unittest.TestCase):
         test_argv = [
             "train_fixed",
             "--checkpoint-dir", "/tmp/ckpt",
-            "--dataset-dir", "/tmp/data",
-            "--output-dir", "/tmp/out",
             "--preprocess",
             "--audio-dir", "/tmp/audio",
             "--tensor-output", "/tmp/tensors",
@@ -215,7 +211,7 @@ class TestTrainFixedMainBehavior(unittest.TestCase):
         ]
 
         with patch.object(train_fixed, "run_fixed", side_effect=capture_run_fixed), \
-             patch("acestep.training_v2.cli.train_fixed.validate_paths", validate_mock), \
+             patch("acestep.training_v2.cli.validation.validate_paths", validate_mock), \
              patch.object(sys, "argv", test_argv):
             train_fixed.main()
 
@@ -236,7 +232,7 @@ class TestTrainFixedMainBehavior(unittest.TestCase):
         ]
 
         with patch.object(train_fixed, "run_fixed", run_fixed_mock), \
-             patch("acestep.training_v2.cli.train_fixed.validate_paths", validate_mock), \
+             patch("acestep.training_v2.cli.validation.validate_paths", validate_mock), \
              patch.object(sys, "argv", test_argv):
             result = train_fixed.main()
 

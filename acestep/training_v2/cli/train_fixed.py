@@ -215,6 +215,13 @@ def main() -> int:
     if args.preprocess:
         return _run_preprocess(args)
 
+    # --dataset-dir and --output-dir are optional at parse time (so
+    # --preprocess works without them), but required for training.
+    if not args.dataset_dir:
+        parser.error("--dataset-dir is required for training")
+    if not args.output_dir:
+        parser.error("--output-dir is required for training")
+
     if not validate_paths(args):
         return 1
 

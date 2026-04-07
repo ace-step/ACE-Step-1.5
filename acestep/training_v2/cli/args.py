@@ -60,7 +60,7 @@ def build_fixed_standalone_parser() -> argparse.ArgumentParser:
         help="Skip the confirmation prompt and start training immediately",
     )
 
-    _add_common_training_args(parser)
+    _add_common_training_args(parser, require_training_paths=False)
     _add_fixed_args(parser)
 
     return parser
@@ -218,7 +218,11 @@ def _add_device_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
+def _add_common_training_args(
+    parser: argparse.ArgumentParser,
+    *,
+    require_training_paths: bool = True,
+) -> None:
     """Add arguments shared by vanilla / fixed subcommands."""
     _add_model_args(parser)
     _add_device_args(parser)
@@ -228,7 +232,7 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
     g_data.add_argument(
         "--dataset-dir",
         type=str,
-        required=True,
+        required=require_training_paths,
         help="Directory containing preprocessed .pt files",
     )
     g_data.add_argument(
@@ -298,7 +302,7 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
 
     # -- Checkpointing -------------------------------------------------------
     g_ckpt = parser.add_argument_group("Checkpointing")
-    g_ckpt.add_argument("--output-dir", type=str, required=True, help="Output directory for LoRA weights")
+    g_ckpt.add_argument("--output-dir", type=str, required=require_training_paths, help="Output directory for LoRA weights")
     g_ckpt.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N epochs (default: 10)")
     g_ckpt.add_argument("--resume-from", type=str, default=None, help="Path to checkpoint dir to resume from")
 

@@ -182,7 +182,7 @@ def _download_from_huggingface_internal(
     snapshot_download(
         repo_id=repo_id,
         local_dir=str(local_dir),
-        local_dir_use_symlinks=False,
+        local_dir_use_symlinks="auto",
         token=token,
     )
 
@@ -331,9 +331,20 @@ def get_project_root() -> Path:
 
 
 def get_checkpoints_dir(custom_dir: Optional[str] = None) -> Path:
-    """Get the checkpoints directory path."""
+    """Get the checkpoints directory path.
+
+    Resolution order:
+    1. *custom_dir* argument (passed programmatically)
+    2. ``ACESTEP_CHECKPOINTS_DIR`` environment variable – allows users to
+       share a single model directory across multiple ACE-Step installations,
+       avoiding duplicate downloads that waste disk space.
+    3. ``<project_root>/checkpoints`` (original default)
+    """
     if custom_dir:
         return Path(custom_dir)
+    env_dir = os.environ.get("ACESTEP_CHECKPOINTS_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser().resolve()
     return get_project_root() / "checkpoints"
 
 
@@ -719,6 +730,10 @@ Network Detection:
   Automatically detects network environment and chooses the best download source:
   - Google accessible -> HuggingFace (fallback to ModelScope)
   - Google blocked -> ModelScope (fallback to HuggingFace)
+
+Shared checkpoints directory:
+  Set ACESTEP_CHECKPOINTS_DIR to share models across multiple installations:
+  export ACESTEP_CHECKPOINTS_DIR=~/ace-step-models
 
 Alternative using huggingface-cli:
   huggingface-cli download ACE-Step/Ace-Step1.5 --local-dir ./checkpoints

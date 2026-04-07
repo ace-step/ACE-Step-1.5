@@ -660,6 +660,17 @@ huggingface-cli download ACE-Step/acestep-v15-xl-sft --local-dir ./checkpoints/a
 huggingface-cli download ACE-Step/acestep-v15-xl-turbo --local-dir ./checkpoints/acestep-v15-xl-turbo
 ```
 
+### Shared Model Directory
+
+If you have multiple ACE-Step installations (e.g., trainers, different versions), you can share a single model directory to avoid duplicate downloads and save disk space:
+
+```bash
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export ACESTEP_CHECKPOINTS_DIR=~/ace-step-models
+```
+
+All installations will then use the same model files. You can also set this in your `.env` file.
+
 ### Available Models
 
 | Model | Description | HuggingFace |

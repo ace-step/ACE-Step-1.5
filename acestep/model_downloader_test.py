@@ -88,6 +88,37 @@ class TestGetCheckpointsDir(unittest.TestCase):
                 result = self.mod.get_checkpoints_dir()
             self.assertEqual(result, Path(tmp_dir).resolve() / "checkpoints")
 
+    def test_checkpoints_dir_env_var_overrides_default(self):
+        """ACESTEP_CHECKPOINTS_DIR points directly to a shared model directory."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env = {k: v for k, v in os.environ.items() if k not in ("ACESTEP_PROJECT_ROOT", "ACESTEP_CHECKPOINTS_DIR")}
+            env["ACESTEP_CHECKPOINTS_DIR"] = tmp_dir
+            with patch.dict(os.environ, env, clear=True):
+                result = self.mod.get_checkpoints_dir()
+            self.assertEqual(result, Path(tmp_dir).resolve())
+
+    def test_checkpoints_dir_env_var_overrides_project_root(self):
+        """ACESTEP_CHECKPOINTS_DIR takes precedence over ACESTEP_PROJECT_ROOT."""
+        with tempfile.TemporaryDirectory() as ckpt_dir, tempfile.TemporaryDirectory() as proj_dir:
+            with patch.dict(os.environ, {"ACESTEP_CHECKPOINTS_DIR": ckpt_dir, "ACESTEP_PROJECT_ROOT": proj_dir}):
+                result = self.mod.get_checkpoints_dir()
+            self.assertEqual(result, Path(ckpt_dir).resolve())
+
+    def test_checkpoints_dir_env_var_expands_tilde(self):
+        """ACESTEP_CHECKPOINTS_DIR expands ~ to the user's home directory."""
+        env = {k: v for k, v in os.environ.items() if k not in ("ACESTEP_PROJECT_ROOT", "ACESTEP_CHECKPOINTS_DIR")}
+        env["ACESTEP_CHECKPOINTS_DIR"] = "~/ace-step-models"
+        with patch.dict(os.environ, env, clear=True):
+            result = self.mod.get_checkpoints_dir()
+        self.assertEqual(result, Path.home() / "ace-step-models")
+
+    def test_custom_dir_overrides_checkpoints_dir_env_var(self):
+        """Programmatic custom_dir takes highest precedence over env vars."""
+        with tempfile.TemporaryDirectory() as custom, tempfile.TemporaryDirectory() as env_dir:
+            with patch.dict(os.environ, {"ACESTEP_CHECKPOINTS_DIR": env_dir}):
+                result = self.mod.get_checkpoints_dir(custom_dir=custom)
+            self.assertEqual(result, Path(custom))
+
 class TestCheckMainModelExists(unittest.TestCase):
     """Tests for model_downloader.check_main_model_exists()."""
 

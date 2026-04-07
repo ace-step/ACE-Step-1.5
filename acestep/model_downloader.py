@@ -344,7 +344,7 @@ def get_checkpoints_dir(custom_dir: Optional[str] = None) -> Path:
         return Path(custom_dir)
     env_dir = os.environ.get("ACESTEP_CHECKPOINTS_DIR")
     if env_dir:
-        return Path(env_dir).resolve()
+        return Path(env_dir).expanduser().resolve()
     return get_project_root() / "checkpoints"
 
 

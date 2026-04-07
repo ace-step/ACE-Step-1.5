@@ -104,6 +104,14 @@ class TestGetCheckpointsDir(unittest.TestCase):
                 result = self.mod.get_checkpoints_dir()
             self.assertEqual(result, Path(ckpt_dir).resolve())
 
+    def test_checkpoints_dir_env_var_expands_tilde(self):
+        """ACESTEP_CHECKPOINTS_DIR expands ~ to the user's home directory."""
+        env = {k: v for k, v in os.environ.items() if k not in ("ACESTEP_PROJECT_ROOT", "ACESTEP_CHECKPOINTS_DIR")}
+        env["ACESTEP_CHECKPOINTS_DIR"] = "~/ace-step-models"
+        with patch.dict(os.environ, env, clear=True):
+            result = self.mod.get_checkpoints_dir()
+        self.assertEqual(result, Path.home() / "ace-step-models")
+
     def test_custom_dir_overrides_checkpoints_dir_env_var(self):
         """Programmatic custom_dir takes highest precedence over env vars."""
         with tempfile.TemporaryDirectory() as custom, tempfile.TemporaryDirectory() as env_dir:

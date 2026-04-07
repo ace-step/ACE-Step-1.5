@@ -512,6 +512,17 @@ huggingface-cli download ACE-Step/acestep-5Hz-lm-0.6B --local-dir ./checkpoints/
 huggingface-cli download ACE-Step/acestep-5Hz-lm-4B --local-dir ./checkpoints/acestep-5Hz-lm-4B
 ```
 
+### 共有モデルディレクトリ
+
+複数の ACE-Step インストール（トレーナー、異なるバージョンなど）がある場合、モデルディレクトリを共有して重複ダウンロードを避け、ディスク容量を節約できます：
+
+```bash
+# シェルプロファイル（~/.bashrc、~/.zshrc など）に追加
+export ACESTEP_CHECKPOINTS_DIR=~/ace-step-models
+```
+
+すべてのインストールが同じモデルファイルを使用します。`.env` ファイルで設定することもできます。
+
 ### 利用可能なモデル
 
 | モデル | 説明 | HuggingFace |

@@ -130,9 +130,12 @@ def build_model_device_controls(
             info=t("service.model_path_info"),
             elem_classes=["has-info-container"],
         )
+        allowed_devices = ["auto", "cuda", "mps", "xpu", "cpu"]
         device_value = params.get("device", "auto") if service_pre_initialized else "auto"
+        if device_value not in allowed_devices:
+            device_value = "auto"
         device = gr.Dropdown(
-            choices=["auto", "cuda", "mps", "xpu", "cpu"],
+            choices=allowed_devices,
             value=device_value,
             label=t("service.device_label"),
             info=t("service.device_info"),

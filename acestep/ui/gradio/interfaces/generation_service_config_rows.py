@@ -77,10 +77,14 @@ def build_checkpoint_controls(dit_handler: Any, service_pre_initialized: bool, p
 
     with gr.Row(equal_height=True):
         with gr.Column(scale=4):
+            available_checkpoints = dit_handler.get_available_checkpoints()
+            checkpoint_value = params.get("checkpoint") if service_pre_initialized else None
+            if checkpoint_value is not None and checkpoint_value not in available_checkpoints:
+                checkpoint_value = None
             checkpoint_dropdown = gr.Dropdown(
                 label=t("service.checkpoint_label"),
-                choices=dit_handler.get_available_checkpoints(),
-                value=params.get("checkpoint") if service_pre_initialized else None,
+                choices=available_checkpoints,
+                value=checkpoint_value,
                 info=t("service.checkpoint_info"),
                 elem_classes=["has-info-container"],
             )

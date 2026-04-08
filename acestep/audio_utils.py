@@ -159,13 +159,9 @@ class AudioSaver:
             temp_wav_path = Path(temp_wav.name)
 
         try:
-            torchaudio.save(
-                str(temp_wav_path),
-                tensor_to_save,
-                int(target_sample_rate),
-                channels_first=True,
-                backend='soundfile',
-            )
+            import soundfile as sf
+            audio_np = tensor_to_save.transpose(0, 1).numpy()  # [channels, samples] -> [samples, channels]
+            sf.write(str(temp_wav_path), audio_np, int(target_sample_rate), subtype='PCM_16')
             cmd = [
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                 '-i', str(temp_wav_path),
@@ -269,14 +265,21 @@ class AudioSaver:
                 )
                 return str(output_path)
             elif format in ["opus", "aac"]:
-                # Opus and AAC use ffmpeg backend
-                torchaudio.save(
-                    str(output_path),
-                    audio_tensor,
-                    sample_rate,
-                    channels_first=True,
-                    backend='ffmpeg',
-                )
+                # Opus and AAC: encode via ffmpeg subprocess (torchaudio ffmpeg backend requires torchcodec)
+                import soundfile as sf
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as _tmp:
+                    _tmp_wav = Path(_tmp.name)
+                try:
+                    audio_np = audio_tensor.transpose(0, 1).numpy()
+                    sf.write(str(_tmp_wav), audio_np, sample_rate)
+                    _codec = "libopus" if format == "opus" else "aac"
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                         "-i", str(_tmp_wav), "-c:a", _codec, str(output_path)],
+                        check=True, capture_output=True, timeout=120,
+                    )
+                finally:
+                    _tmp_wav.unlink(missing_ok=True)
             elif format in ["flac", "wav", "wav32"]:
                 # FLAC and WAV use soundfile backend (fastest)
                 # handle 32-bit float wav
@@ -296,21 +299,15 @@ class AudioSaver:
                         format = "wav"
                         # Fallthrough to standard wav saving
 
-                torchaudio.save(
-                    str(output_path),
-                    audio_tensor,
-                    sample_rate,
-                    channels_first=True,
-                    backend='soundfile',
-                )
+                import soundfile as sf
+                audio_np = audio_tensor.transpose(0, 1).numpy()  # [channels, samples] -> [samples, channels]
+                sf_format = "FLAC" if format == "flac" else "WAV"
+                sf.write(str(output_path), audio_np, sample_rate, format=sf_format)
             else:
-                # Other formats use default backend
-                torchaudio.save(
-                    str(output_path),
-                    audio_tensor,
-                    sample_rate,
-                    channels_first=True,
-                )
+                # Other formats: use soundfile directly
+                import soundfile as sf
+                audio_np = audio_tensor.transpose(0, 1).numpy()
+                sf.write(str(output_path), audio_np, sample_rate)
             
             logger.debug(f"[AudioSaver] Saved audio to {output_path} ({format}, {sample_rate}Hz)")
             return str(output_path)
@@ -368,7 +365,12 @@ class AudioSaver:
             raise FileNotFoundError(f"Input file not found: {input_path}")
         
         # Load audio
-        audio_tensor, sample_rate = torchaudio.load(str(input_path))
+        import soundfile as sf
+        audio_np, sample_rate = sf.read(str(input_path), dtype="float32")
+        if audio_np.ndim == 1:
+            audio_tensor = torch.from_numpy(audio_np).unsqueeze(0)  # [1, samples]
+        else:
+            audio_tensor = torch.from_numpy(audio_np.T).contiguous()  # [channels, samples]
         
         # Save as new format
         output_path = self.save_audio(

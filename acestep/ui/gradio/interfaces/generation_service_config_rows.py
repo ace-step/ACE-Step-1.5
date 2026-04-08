@@ -116,10 +116,13 @@ def build_model_device_controls(
                 else (available_models[0] if available_models else None)
             )
         )
+        config_value = params.get("config_path", default_model) if service_pre_initialized else default_model
+        if config_value not in available_models:
+            config_value = default_model
         config_path = gr.Dropdown(
             label=t("service.model_path_label"),
             choices=available_models,
-            value=params.get("config_path", default_model) if service_pre_initialized else default_model,
+            value=config_value,
             info=t("service.model_path_info"),
             elem_classes=["has-info-container"],
         )
@@ -165,10 +168,13 @@ def build_lm_backend_controls(
     with gr.Row():
         all_lm_models = llm_handler.get_available_5hz_lm_models()
         default_lm_model = find_best_lm_model_on_disk(recommended_lm, all_lm_models)
+        lm_value = params.get("lm_model_path", default_lm_model) if service_pre_initialized else default_lm_model
+        if lm_value not in all_lm_models:
+            lm_value = default_lm_model
         lm_model_path = gr.Dropdown(
             label=t("service.lm_model_path_label"),
             choices=all_lm_models,
-            value=params.get("lm_model_path", default_lm_model) if service_pre_initialized else default_lm_model,
+            value=lm_value,
             info=t("service.lm_model_path_info")
             + (
                 f" (Recommended: {recommended_lm})"
@@ -177,9 +183,12 @@ def build_lm_backend_controls(
             ),
             elem_classes=["has-info-container"],
         )
+        backend_value = params.get("backend", recommended_backend) if service_pre_initialized else recommended_backend
+        if backend_value not in available_backends:
+            backend_value = recommended_backend
         backend_dropdown = gr.Dropdown(
             choices=available_backends,
-            value=params.get("backend", recommended_backend) if service_pre_initialized else recommended_backend,
+            value=backend_value,
             label=t("service.backend_label"),
             info=t("service.backend_info")
             + (

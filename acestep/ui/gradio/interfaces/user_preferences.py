@@ -186,7 +186,6 @@ def restore_preferences(
     ``syncMp3Row()``; this function only sets component *values*.
     """
     import gradio as gr
-    import json as _json
 
     noop = tuple(gr.update() for _ in range(_num_outputs))
 
@@ -194,7 +193,7 @@ def restore_preferences(
         return noop
 
     try:
-        data = _json.loads(values[0])
+        data = json.loads(values[0])
     except (TypeError, ValueError):
         return noop
 

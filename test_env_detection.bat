@@ -60,7 +60,7 @@ if exist "%~dp0python_embeded\python.exe" (
         echo [RESULT] Will use: uv package manager
         echo Command: uv run acestep
     ) else (
-        echo [ERROR] Neither python_embedded nor uv found!
+        echo [ERROR] Neither python_embeded nor uv found!
         echo Please install uv or extract the portable package.
     )
 )

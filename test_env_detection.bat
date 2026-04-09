@@ -8,16 +8,16 @@ echo ACE-Step Environment Detection Test
 echo ========================================
 echo.
 
-REM Test 1: Check if python_embedded exists
-echo [Test 1] Checking for python_embedded...
-if exist "%~dp0python_embedded\python.exe" (
-    echo [PASS] python_embedded detected
-    echo Location: %~dp0python_embedded\python.exe
+REM Test 1: Check if python_embeded exists
+echo [Test 1] Checking for python_embeded...
+if exist "%~dp0python_embeded\python.exe" (
+    echo [PASS] python_embeded detected
+    echo Location: %~dp0python_embeded\python.exe
 
     REM Get Python version
-    "%~dp0python_embedded\python.exe" --version
+    "%~dp0python_embeded\python.exe" --version
 ) else (
-    echo [INFO] python_embedded not found
+    echo [INFO] python_embeded not found
 )
 echo.
 
@@ -51,9 +51,9 @@ echo.
 
 REM Test 4: Determine which environment will be used
 echo [Test 4] Environment selection logic...
-if exist "%~dp0python_embedded\python.exe" (
-    echo [RESULT] Will use: Embedded Python ^(python_embedded^)
-    echo Command: python_embedded\python.exe acestep\acestep_v15_pipeline.py
+if exist "%~dp0python_embeded\python.exe" (
+    echo [RESULT] Will use: Embedded Python ^(python_embeded^)
+    echo Command: python_embeded\python.exe acestep\acestep_v15_pipeline.py
 ) else (
     where uv >nul 2>&1
     if !ERRORLEVEL! EQU 0 (

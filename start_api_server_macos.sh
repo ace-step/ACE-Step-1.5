@@ -159,7 +159,7 @@ if [[ -f "$SCRIPT_DIR/python_embeded/bin/python3.11" ]]; then
         SCRIPT_PATH="$SCRIPT_DIR/acestep/api_server.py"
 
         # On Apple Silicon, verify MLX packages work with this macOS version.
-        # python_embedded may ship wheels built for a different macOS; pip
+        # python_embeded may ship wheels built for a different macOS; pip
         # reinstall fetches the correct platform wheel automatically.
         if [[ "$ARCH" == "arm64" ]]; then
             _need_mlx_fix=0

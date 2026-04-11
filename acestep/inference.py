@@ -333,6 +333,7 @@ def _update_metadata_from_lm(
 
 
 def _unload_lm_before_dit(llm_handler):
+    """Unload a resident LM before the DiT phase to free accelerator memory."""
     if llm_handler is None:
         return
 
@@ -471,7 +472,14 @@ def generate_music(
             lm_status.append(reload_status)
 
             if not reload_ok:
-                logger.error(f"[generate_music] LM reload failed: {reload_status}")
+                logger.error("[generate_music] LM reload failed: {}", reload_status)
+                return GenerationResult(
+                    audios=[],
+                    status_message=f"❌ LM reload failed: {reload_status}",
+                    extra_outputs={},
+                    success=False,
+                    error=reload_status,
+                )
 
         use_lm = (params.thinking or need_lm_for_cot) and llm_handler is not None and llm_handler.llm_initialized and params.task_type not in skip_lm_tasks
         

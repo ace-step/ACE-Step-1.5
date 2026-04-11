@@ -64,6 +64,7 @@ class LLMHandler:
         self.dtype = torch.float32
         self.offload_to_cpu = False
         self.disable_tqdm = os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes") or not (hasattr(sys.stderr, 'isatty') and sys.stderr.isatty())
+        self._last_init_config = None
 
         # HuggingFace Space persistent storage support
         if persistent_storage_path is None and self.IS_HUGGINGFACE_SPACE:
@@ -119,22 +120,44 @@ class LLMHandler:
         try:
             if self.llm_backend == "vllm":
                 try:
-                    if hasattr(self.llm, "reset"):
-                        self.llm.reset()
-                except Exception:
-                    pass
-                self._cleanup_torch_distributed_state()
+                    if self.llm is not None:
+                        if hasattr(self.llm, "exit"):
+                            logger.info("[LLM vLLM] Calling nanovllm exit() for hard teardown")
+                            self.llm.exit()
+                        elif hasattr(self.llm, "reset"):
+                            logger.info("[LLM vLLM] exit() missing, falling back to reset()")
+                            self.llm.reset()
+                except Exception as exc:
+                    logger.warning(f"[LLM vLLM] Error during vLLM teardown: {exc}")
+
+                try:
+                    self._cleanup_torch_distributed_state()
+                except Exception as exc:
+                    logger.warning(f"[LLM vLLM] torch distributed cleanup failed: {exc}")
+
             self.llm = None
             self.llm_tokenizer = None
             self.constrained_processor = None
             self.llm_initialized = False
-            self.llm_backend = None
+            self._hf_model_for_scoring = None
             self._mlx_model = None
             self._mlx_model_path = None
+
             gc.collect()
+
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
+                try:
+                    torch.cuda.synchronize()
+                except Exception:
+                    pass
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                try:
+                    torch.cuda.ipc_collect()
+                except Exception:
+                    pass
             elif hasattr(torch, "mps") and torch.backends.mps.is_available():
                 if hasattr(torch.mps, "synchronize"):
                     torch.mps.synchronize()
@@ -143,8 +166,27 @@ class LLMHandler:
             elif hasattr(torch, "xpu") and torch.xpu.is_available():
                 torch.xpu.empty_cache()
                 torch.xpu.synchronize()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"[LLM] unload failed: {exc}")
+
+    def reload_last_configuration(self) -> Tuple[str, bool]:
+        """Recreate the LM from the last successful initialize() configuration."""
+        if not self._last_init_config:
+            return "❌ No previous LM initialization config available", False
+
+        cfg = dict(self._last_init_config)
+
+        logger.info("[LLM] Reloading last configuration: backend={} model={} device={}",
+            cfg.get("backend"), cfg.get("lm_model_path"), cfg.get("device"))
+
+        return self.initialize(
+            checkpoint_dir=cfg["checkpoint_dir"],
+            lm_model_path=cfg["lm_model_path"],
+            backend=cfg["backend"],
+            device=cfg["device"],
+            offload_to_cpu=cfg["offload_to_cpu"],
+            dtype=cfg["dtype"],
+        )
 
     def _cleanup_torch_distributed_state(self) -> None:
         """Destroy default torch distributed process group when already initialized."""
@@ -694,6 +736,15 @@ class LLMHandler:
                     backend = "pt"
 
             vllm_fallback_note = None
+
+            self._last_init_config = {
+                "checkpoint_dir": checkpoint_dir,
+                "lm_model_path": lm_model_path,
+                "backend": backend,
+                "device": device,
+                "offload_to_cpu": offload_to_cpu,
+                "dtype": dtype,
+            }
 
             # Initialize based on user-selected backend
             if backend == "vllm":

@@ -352,20 +352,19 @@ def _unload_lm_before_dit(llm_handler):
 
     gc.collect()
 
-    try:
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-            try:
-                torch.cuda.ipc_collect()
-            except Exception:
-                pass
+    if llm_handler is not None:
+        try:
+            llm_handler._clear_accelerator_cache("[LM handoff unload]")
+        except Exception as exc:
+            logger.warning("[LM handoff unload] accelerator cleanup failed: {}", exc)
 
+    if torch.cuda.is_available():
+        try:
             alloc = torch.cuda.memory_allocated() / (1024 ** 3)
             reserved = torch.cuda.memory_reserved() / (1024 ** 3)
             logger.info("After LM unload: allocated={:.2f} GB reserved={:.2f} GB", alloc, reserved)
-    except Exception:
-        pass
+        except Exception as exc:
+            logger.warning("[LM handoff unload] failed to query CUDA memory stats: {}", exc)
 
 
 @_get_spaces_gpu_decorator(duration=180)
@@ -665,7 +664,7 @@ def generate_music(
         safe_unload_backends = {"pt", "vllm"}
         current_backend = getattr(llm_handler, "llm_backend", None) if llm_handler is not None else None
 
-        if use_lm and unload_enabled:
+        if unload_enabled and llm_handler is not None and llm_handler.llm_initialized:
             if current_backend in safe_unload_backends:
                 _unload_lm_before_dit(llm_handler)
             else:

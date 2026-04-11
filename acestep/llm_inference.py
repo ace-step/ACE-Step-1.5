@@ -99,12 +99,12 @@ class LLMHandler:
             "dtype": dtype,
         }
 
-    def _clear_accelerator_cache(self) -> None:
+    def _clear_accelerator_cache(self, context: str = "[LLM]") -> None:
         """Release freed accelerator memory back to the driver.
 
         Synchronises the device *before* releasing cached blocks so that
         every in-flight async write has landed and the freed blocks are
-        actually reclaimable.  Supports CUDA, XPU (Intel), and MPS
+        actually reclaimable. Supports CUDA, XPU (Intel), and MPS
         (Apple Silicon) backends.
         """
         try:
@@ -122,16 +122,38 @@ class LLMHandler:
                 active_device = "mps"
 
         if active_device == "cuda" and torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+            try:
+                torch.cuda.synchronize()
+            except Exception as exc:
+                logger.warning("{} torch.cuda.synchronize() failed: {}", context, exc)
+            try:
+                torch.cuda.empty_cache()
+            except Exception as exc:
+                logger.warning("{} torch.cuda.empty_cache() failed: {}", context, exc)
+            try:
+                torch.cuda.ipc_collect()
+            except Exception as exc:
+                logger.warning("{} torch.cuda.ipc_collect() failed: {}", context, exc)
         elif active_device == "xpu" and hasattr(torch, "xpu") and torch.xpu.is_available():
-            torch.xpu.synchronize()
-            torch.xpu.empty_cache()
+            try:
+                torch.xpu.synchronize()
+            except Exception as exc:
+                logger.warning("{} torch.xpu.synchronize() failed: {}", context, exc)
+            try:
+                torch.xpu.empty_cache()
+            except Exception as exc:
+                logger.warning("{} torch.xpu.empty_cache() failed: {}", context, exc)
         elif active_device == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             if hasattr(torch.mps, "synchronize"):
-                torch.mps.synchronize()
+                try:
+                    torch.mps.synchronize()
+                except Exception as exc:
+                    logger.warning("{} torch.mps.synchronize() failed: {}", context, exc)
             if hasattr(torch.mps, "empty_cache"):
-                torch.mps.empty_cache()
+                try:
+                    torch.mps.empty_cache()
+                except Exception as exc:
+                    logger.warning("{} torch.mps.empty_cache() failed: {}", context, exc)
 
     def unload(self) -> None:
         """Release LM weights/tokenizer and clear caches to free memory."""
@@ -162,28 +184,7 @@ class LLMHandler:
             self._mlx_model_path = None
 
             gc.collect()
-
-            if torch.cuda.is_available():
-                try:
-                    torch.cuda.synchronize()
-                except Exception:
-                    pass
-                try:
-                    torch.cuda.empty_cache()
-                except Exception:
-                    pass
-                try:
-                    torch.cuda.ipc_collect()
-                except Exception:
-                    pass
-            elif hasattr(torch, "mps") and torch.backends.mps.is_available():
-                if hasattr(torch.mps, "synchronize"):
-                    torch.mps.synchronize()
-                if hasattr(torch.mps, "empty_cache"):
-                    torch.mps.empty_cache()
-            elif hasattr(torch, "xpu") and torch.xpu.is_available():
-                torch.xpu.empty_cache()
-                torch.xpu.synchronize()
+            self._clear_accelerator_cache("[LLM unload]")
         except Exception as exc:
             logger.warning(f"[LLM] unload failed: {exc}")
 

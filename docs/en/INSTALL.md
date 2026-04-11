@@ -126,7 +126,22 @@ chmod +x start_gradio_ui.sh start_api_server.sh
 
 # Launch REST API Server
 ./start_api_server.sh
-```
+
+> [!IMPORTANT]
+> **Cloud GPU Users (Lightning AI, Lambda, etc.):** 
+> To prevent audio export crashes (`libtorchcodec` or `libavutil` errors), you must install the following system dependencies before running the application:
+> ```bash
+> sudo apt-get update && sudo apt-get install -y ffmpeg libavdevice60 libavcodec-extra
+> ```
+
+In acestep/audio_utils.py:
+Added os.environ["LD_LIBRARY_PATH"] initialization at the module level.
+Modified save_audio() to prioritize flac or wav formats, ensuring the backend="soundfile" parameter is utilized during the torchaudio.save call for maximum compatibility.
+
+
+```bash
+
+
 
 > **Note:** Git must be installed via your system package manager (`sudo apt install git`, `sudo yum install git`, `sudo pacman -S git`).
 

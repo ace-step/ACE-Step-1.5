@@ -81,6 +81,24 @@ class LLMHandler:
         self._mlx_model = None
         self._mlx_model_path = None
 
+    def _save_last_init_config(
+        self,
+        checkpoint_dir: str,
+        lm_model_path: str,
+        device: str,
+        offload_to_cpu: bool,
+        dtype: Optional[torch.dtype],
+    ) -> None:
+        """Persist the last successfully initialized LM configuration."""
+        self._last_init_config = {
+            "checkpoint_dir": checkpoint_dir,
+            "lm_model_path": lm_model_path,
+            "backend": self.llm_backend,
+            "device": device,
+            "offload_to_cpu": offload_to_cpu,
+            "dtype": dtype,
+        }
+
     def _clear_accelerator_cache(self) -> None:
         """Release freed accelerator memory back to the driver.
 
@@ -701,6 +719,13 @@ class LLMHandler:
                     logger.info("Attempting MLX backend for Apple Silicon acceleration...")
                     mlx_success, mlx_status = self._load_mlx_model(full_lm_model_path)
                     if mlx_success:
+                        self._save_last_init_config(
+                            checkpoint_dir=checkpoint_dir,
+                            lm_model_path=lm_model_path,
+                            device=device,
+                            offload_to_cpu=offload_to_cpu,
+                            dtype=dtype,
+                        )
                         return mlx_status, True
                     else:
                         logger.warning(f"MLX backend failed: {mlx_status}")
@@ -711,6 +736,13 @@ class LLMHandler:
                             if not success:
                                 return status_msg, False
                             status_msg = f"✅ 5Hz LM initialized (PyTorch fallback from MLX)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                            self._save_last_init_config(
+                                checkpoint_dir=checkpoint_dir,
+                                lm_model_path=lm_model_path,
+                                device=device,
+                                offload_to_cpu=offload_to_cpu,
+                                dtype=dtype,
+                            )
                             return status_msg, True
                         # else: backend was "vllm" on MPS, continue to vllm attempt below
                 elif backend == "mlx":
@@ -720,6 +752,13 @@ class LLMHandler:
                     if not success:
                         return status_msg, False
                     status_msg = f"✅ 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                    self._save_last_init_config(
+                        checkpoint_dir=checkpoint_dir,
+                        lm_model_path=lm_model_path,
+                        device=device,
+                        offload_to_cpu=offload_to_cpu,
+                        dtype=dtype,
+                    )
                     return status_msg, True
 
             if backend == "vllm" and device != "cuda":
@@ -736,15 +775,6 @@ class LLMHandler:
                     backend = "pt"
 
             vllm_fallback_note = None
-
-            self._last_init_config = {
-                "checkpoint_dir": checkpoint_dir,
-                "lm_model_path": lm_model_path,
-                "backend": backend,
-                "device": device,
-                "offload_to_cpu": offload_to_cpu,
-                "dtype": dtype,
-            }
 
             # Initialize based on user-selected backend
             if backend == "vllm":
@@ -784,6 +814,13 @@ class LLMHandler:
                                 logger.warning("vllm failed on MPS, trying MLX backend...")
                                 mlx_success, mlx_status = self._load_mlx_model(full_lm_model_path)
                                 if mlx_success:
+                                    self._save_last_init_config(
+                                        checkpoint_dir=checkpoint_dir,
+                                        lm_model_path=lm_model_path,
+                                        device=device,
+                                        offload_to_cpu=offload_to_cpu,
+                                        dtype=dtype,
+                                    )
                                     return mlx_status, True
                                 logger.warning(f"MLX also failed: {mlx_status}, falling back to PyTorch")
                             logger.warning("Falling back to PyTorch backend")
@@ -800,6 +837,13 @@ class LLMHandler:
                 if vllm_preflight_warning is not None:
                     status_msg += f"\nNote: {vllm_preflight_warning}"
 
+            self._save_last_init_config(
+                checkpoint_dir=checkpoint_dir,
+                lm_model_path=lm_model_path,
+                device=device,
+                offload_to_cpu=offload_to_cpu,
+                dtype=dtype,
+            )
             return status_msg, True
 
         except Exception as e:

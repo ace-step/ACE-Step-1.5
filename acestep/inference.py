@@ -660,9 +660,16 @@ def generate_music(
         if params.task_type in ("cover", "repaint", "lego", "extract"):
             audio_duration = None
 
-        # Unload the LM now if option is enabled
-        if use_lm and os.environ.get("ACESTEP_UNLOAD_LM_BEFORE_DIT", "").lower() in ("1", "true", "yes"):
-            _unload_lm_before_dit(llm_handler)
+        # Unload the LM now if option is enabled and the backend supports reload cleanly
+        unload_enabled = os.environ.get("ACESTEP_UNLOAD_LM_BEFORE_DIT", "").lower() in ("1", "true", "yes")
+        safe_unload_backends = {"pt", "vllm"}
+        current_backend = getattr(llm_handler, "llm_backend", None) if llm_handler is not None else None
+
+        if use_lm and unload_enabled:
+            if current_backend in safe_unload_backends:
+                _unload_lm_before_dit(llm_handler)
+            else:
+                logger.info("[generate_music] Skipping LM unload before DiT for unsupported backend={}", current_backend)
 
         # Phase 2: DiT music generation
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation

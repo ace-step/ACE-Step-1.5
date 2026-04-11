@@ -466,7 +466,8 @@ def generate_music(
 
         request_needs_lm = (params.task_type not in skip_lm_tasks) and (params.thinking or need_lm_for_cot)
 
-        if request_needs_lm and llm_handler is not None and not llm_handler.llm_initialized:
+        if (request_needs_lm and llm_handler is not None and not llm_handler.llm_initialized and
+            getattr(llm_handler, "_last_init_config", None) is not None):
             logger.info("LM required but not initialized; attempting reload from saved config")
             reload_status, reload_ok = llm_handler.reload_last_configuration()
             lm_status.append(reload_status)

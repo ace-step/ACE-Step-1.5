@@ -135,5 +135,33 @@ class ReleaseTaskRequestBuilderTests(unittest.TestCase):
         self.assertAlmostEqual(0.6, request.cover_noise_strength)
 
 
+    def test_build_request_forwards_sampler_and_dit_latent_params(self):
+        """Builder should include sampler_mode and latent post-processing params."""
+
+        parser = _FakeParser(
+            {
+                "sampler_mode": "heun",
+                "velocity_norm_threshold": 2.0,
+                "velocity_ema_factor": 0.1,
+                "latent_shift": 0.05,
+                "latent_rescale": 1.2,
+            }
+        )
+        request = build_generate_music_request(
+            parser=parser,
+            request_model_cls=lambda **kwargs: SimpleNamespace(**kwargs),
+            default_dit_instruction="default-instruction",
+            lm_default_temperature=0.85,
+            lm_default_cfg_scale=2.5,
+            lm_default_top_p=0.9,
+        )
+
+        self.assertEqual("heun", request.sampler_mode)
+        self.assertAlmostEqual(2.0, request.velocity_norm_threshold)
+        self.assertAlmostEqual(0.1, request.velocity_ema_factor)
+        self.assertAlmostEqual(0.05, request.latent_shift)
+        self.assertAlmostEqual(1.2, request.latent_rescale)
+
+
 if __name__ == "__main__":
     unittest.main()

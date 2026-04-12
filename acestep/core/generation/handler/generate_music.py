@@ -5,6 +5,7 @@ This module provides the public ``generate_music`` entry point extracted from
 """
 
 import gc
+import os
 import traceback
 from typing import Any, Dict, List, Optional, Union
 
@@ -386,13 +387,24 @@ class GenerateMusicMixin:
                 repainting_end=repainting_end,
                 chunk_mask_mode=chunk_mask_mode,
             )
-            vram_error = self._vram_preflight_check(
-                actual_batch_size=actual_batch_size,
-                audio_duration=audio_duration,
-                guidance_scale=guidance_scale,
-            )
-            if vram_error is not None:
-                return vram_error
+            gc.collect()
+            torch.cuda.empty_cache()
+            skip_preflight = os.environ.get(
+                "ACESTEP_SKIP_VRAM_PREFLIGHT", "",
+            ).lower() in ("1", "true", "yes")
+            if skip_preflight:
+                logger.debug(
+                    "[generate_music] VRAM pre-flight skipped "
+                    "(ACESTEP_SKIP_VRAM_PREFLIGHT=true)"
+                )
+            else:
+                vram_error = self._vram_preflight_check(
+                    actual_batch_size=actual_batch_size,
+                    audio_duration=audio_duration,
+                    guidance_scale=guidance_scale,
+                )
+                if vram_error is not None:
+                    return vram_error
 
             injection_ratio, resolved_cf_frames, resolved_wav_cf = (
                 _resolve_repaint_config(repaint_mode, repaint_strength)

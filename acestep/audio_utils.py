@@ -11,9 +11,6 @@ Independent audio file operations outside of handler, supporting:
 import io
 import json
 import os
-# Force the system to look in the correct folder for FFmpeg libraries
-os.environ["LD_LIBRARY_PATH"] = "/usr/lib/x86_64-linux-gnu:" + os.environ.get("LD_LIBRARY_PATH", "")
-
 import subprocess
 import hashlib
 import tempfile
@@ -23,7 +20,6 @@ import torch
 import numpy as np
 import torchaudio
 from loguru import logger
-import sys
 
 
 def apply_fade(
@@ -219,7 +215,11 @@ class AudioSaver:
         Returns:
             Actual saved file path
         """
-        format = "flac" 
+        format = (format or self.default_format).lower()
+
+        force_flac = os.getenv("ACESTEP_FORCE_FLAC_EXPORT", "0") == "1"
+        if force_flac:
+            format = "flac" 
         if format not in ["flac", "wav", "mp3", "wav32", "opus", "aac"]:
             logger.warning(f"Unsupported format {format}, using {self.default_format}")
             format = self.default_format
@@ -314,7 +314,7 @@ class AudioSaver:
                     audio_tensor,
                     sample_rate,
                     channels_first=channels_first,
-                    backend="soundfile"  # <--- ADD THIS LINE
+                    #backend="soundfile"   #safe dependency
                 )
 
             

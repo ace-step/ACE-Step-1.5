@@ -132,14 +132,10 @@ chmod +x start_gradio_ui.sh start_api_server.sh
 > To prevent audio export crashes (`libtorchcodec` or `libavutil` errors), you must install the following system dependencies before running the application:
 > ```bash
 > sudo apt-get update && sudo apt-get install -y ffmpeg libavdevice60 libavcodec-extra
-> ```
+> If you encounter torchcodec / FFmpeg related errors during audio export:
+> export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+```
 
-In acestep/audio_utils.py:
-Added os.environ["LD_LIBRARY_PATH"] initialization at the module level.
-Modified save_audio() to prioritize flac or wav formats, ensuring the backend="soundfile" parameter is utilized during the torchaudio.save call for maximum compatibility.
-
-
-```bash
 
 
 

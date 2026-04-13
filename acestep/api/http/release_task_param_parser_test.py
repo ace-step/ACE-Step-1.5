@@ -69,11 +69,19 @@ class ReleaseTaskParamParserTests(unittest.TestCase):
         """Parser should resolve camelCase aliases for sampler/DiT params."""
 
         parser = RequestParser(
-            {"samplerMode": "heun", "velocityNormThreshold": "2.5", "latentShift": "0.1"}
+            {
+                "samplerMode": "heun",
+                "velocityNormThreshold": "2.5",
+                "latentShift": "0.1",
+                "velocityEmaFactor": "0.95",
+                "latentRescale": "1.2",
+            }
         )
         self.assertEqual("heun", parser.str("sampler_mode"))
         self.assertAlmostEqual(2.5, parser.float("velocity_norm_threshold"))
         self.assertAlmostEqual(0.1, parser.float("latent_shift"))
+        self.assertAlmostEqual(0.95, parser.float("velocity_ema_factor"))
+        self.assertAlmostEqual(1.2, parser.float("latent_rescale"))
 
 
 if __name__ == "__main__":

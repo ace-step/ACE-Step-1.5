@@ -79,8 +79,12 @@ def build_checkpoint_controls(dit_handler: Any, service_pre_initialized: bool, p
         with gr.Column(scale=4):
             checkpoint_dropdown = gr.Dropdown(
                 label=t("service.checkpoint_label"),
-                choices=dit_handler.get_available_checkpoints(),
-                value=params.get("checkpoint") if service_pre_initialized else None,
+                choices=(ckpt_choices := dit_handler.get_available_checkpoints()),
+                value=(
+                    params.get("checkpoint")
+                    if service_pre_initialized and params.get("checkpoint") in ckpt_choices
+                    else (ckpt_choices[0] if ckpt_choices else None)
+                ),
                 info=t("service.checkpoint_info"),
                 elem_classes=["has-info-container"],
             )
@@ -119,7 +123,11 @@ def build_model_device_controls(
         config_path = gr.Dropdown(
             label=t("service.model_path_label"),
             choices=available_models,
-            value=params.get("config_path", default_model) if service_pre_initialized else default_model,
+            value=(
+                params.get("config_path", default_model)
+                if service_pre_initialized and params.get("config_path", default_model) in available_models
+                else default_model
+            ),
             info=t("service.model_path_info"),
             elem_classes=["has-info-container"],
         )
@@ -168,7 +176,11 @@ def build_lm_backend_controls(
         lm_model_path = gr.Dropdown(
             label=t("service.lm_model_path_label"),
             choices=all_lm_models,
-            value=params.get("lm_model_path", default_lm_model) if service_pre_initialized else default_lm_model,
+            value=(
+                params.get("lm_model_path", default_lm_model)
+                if service_pre_initialized and params.get("lm_model_path", default_lm_model) in all_lm_models
+                else default_lm_model
+            ),
             info=t("service.lm_model_path_info")
             + (
                 f" (Recommended: {recommended_lm})"
@@ -179,7 +191,11 @@ def build_lm_backend_controls(
         )
         backend_dropdown = gr.Dropdown(
             choices=available_backends,
-            value=params.get("backend", recommended_backend) if service_pre_initialized else recommended_backend,
+            value=(
+                params.get("backend", recommended_backend)
+                if service_pre_initialized and params.get("backend", recommended_backend) in available_backends
+                else recommended_backend
+            ),
             label=t("service.backend_label"),
             info=t("service.backend_info")
             + (

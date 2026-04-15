@@ -144,8 +144,7 @@ class AudioSaverFormatTests(unittest.TestCase):
             self.assertIn('libmp3lame', cmd)
             self.assertIn('128k', cmd)
             self.assertIn('48000', cmd)
-            self.assertIn('-abr', cmd)
-            self.assertIn('0', cmd)
+            self.assertNotIn('-abr', cmd)
 
     def test__save_mp3_uses_custom_bitrate_and_sample_rate(self):
         """MP3 export should honor explicit bitrate/sample-rate overrides."""

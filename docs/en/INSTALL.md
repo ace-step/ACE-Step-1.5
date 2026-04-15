@@ -140,8 +140,6 @@ chmod +x start_gradio_ui.sh start_api_server.sh
 > ```bash
 > export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 > ```
-
-
 > **Note:** Git must be installed via your system package manager (`sudo apt install git`, `sudo yum install git`, `sudo pacman -S git`).
 
 ### macOS (Apple Silicon / MLX)

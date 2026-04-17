@@ -64,6 +64,7 @@ class LLMHandler:
         self.dtype = torch.float32
         self.offload_to_cpu = False
         self.disable_tqdm = os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes") or not (hasattr(sys.stderr, 'isatty') and sys.stderr.isatty())
+        self._last_init_config = None
 
         # HuggingFace Space persistent storage support
         if persistent_storage_path is None and self.IS_HUGGINGFACE_SPACE:
@@ -80,12 +81,30 @@ class LLMHandler:
         self._mlx_model = None
         self._mlx_model_path = None
 
-    def _clear_accelerator_cache(self) -> None:
+    def _save_last_init_config(
+        self,
+        checkpoint_dir: str,
+        lm_model_path: str,
+        device: str,
+        offload_to_cpu: bool,
+        dtype: Optional[torch.dtype],
+    ) -> None:
+        """Persist the last successfully initialized LM configuration."""
+        self._last_init_config = {
+            "checkpoint_dir": checkpoint_dir,
+            "lm_model_path": lm_model_path,
+            "backend": self.llm_backend,
+            "device": device,
+            "offload_to_cpu": offload_to_cpu,
+            "dtype": dtype,
+        }
+
+    def _clear_accelerator_cache(self, context: str = "[LLM]") -> None:
         """Release freed accelerator memory back to the driver.
 
         Synchronises the device *before* releasing cached blocks so that
         every in-flight async write has landed and the freed blocks are
-        actually reclaimable.  Supports CUDA, XPU (Intel), and MPS
+        actually reclaimable. Supports CUDA, XPU (Intel), and MPS
         (Apple Silicon) backends.
         """
         try:
@@ -103,48 +122,90 @@ class LLMHandler:
                 active_device = "mps"
 
         if active_device == "cuda" and torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+            try:
+                torch.cuda.synchronize()
+            except Exception as exc:
+                logger.warning("{} torch.cuda.synchronize() failed: {}", context, exc)
+            try:
+                torch.cuda.empty_cache()
+            except Exception as exc:
+                logger.warning("{} torch.cuda.empty_cache() failed: {}", context, exc)
+            try:
+                torch.cuda.ipc_collect()
+            except Exception as exc:
+                logger.warning("{} torch.cuda.ipc_collect() failed: {}", context, exc)
         elif active_device == "xpu" and hasattr(torch, "xpu") and torch.xpu.is_available():
-            torch.xpu.synchronize()
-            torch.xpu.empty_cache()
+            try:
+                torch.xpu.synchronize()
+            except Exception as exc:
+                logger.warning("{} torch.xpu.synchronize() failed: {}", context, exc)
+            try:
+                torch.xpu.empty_cache()
+            except Exception as exc:
+                logger.warning("{} torch.xpu.empty_cache() failed: {}", context, exc)
         elif active_device == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             if hasattr(torch.mps, "synchronize"):
-                torch.mps.synchronize()
+                try:
+                    torch.mps.synchronize()
+                except Exception as exc:
+                    logger.warning("{} torch.mps.synchronize() failed: {}", context, exc)
             if hasattr(torch.mps, "empty_cache"):
-                torch.mps.empty_cache()
+                try:
+                    torch.mps.empty_cache()
+                except Exception as exc:
+                    logger.warning("{} torch.mps.empty_cache() failed: {}", context, exc)
 
     def unload(self) -> None:
         """Release LM weights/tokenizer and clear caches to free memory."""
         try:
             if self.llm_backend == "vllm":
                 try:
-                    if hasattr(self.llm, "reset"):
-                        self.llm.reset()
-                except Exception:
-                    pass
-                self._cleanup_torch_distributed_state()
+                    if self.llm is not None:
+                        if hasattr(self.llm, "exit"):
+                            logger.info("[LLM vLLM] Calling nanovllm exit() for hard teardown")
+                            self.llm.exit()
+                        elif hasattr(self.llm, "reset"):
+                            logger.info("[LLM vLLM] exit() missing, falling back to reset()")
+                            self.llm.reset()
+                except Exception as exc:
+                    logger.warning(f"[LLM vLLM] Error during vLLM teardown: {exc}")
+
+                try:
+                    self._cleanup_torch_distributed_state()
+                except Exception as exc:
+                    logger.warning(f"[LLM vLLM] torch distributed cleanup failed: {exc}")
+
             self.llm = None
             self.llm_tokenizer = None
             self.constrained_processor = None
             self.llm_initialized = False
-            self.llm_backend = None
+            self._hf_model_for_scoring = None
             self._mlx_model = None
             self._mlx_model_path = None
+
             gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            elif hasattr(torch, "mps") and torch.backends.mps.is_available():
-                if hasattr(torch.mps, "synchronize"):
-                    torch.mps.synchronize()
-                if hasattr(torch.mps, "empty_cache"):
-                    torch.mps.empty_cache()
-            elif hasattr(torch, "xpu") and torch.xpu.is_available():
-                torch.xpu.empty_cache()
-                torch.xpu.synchronize()
-        except Exception:
-            pass
+            self._clear_accelerator_cache("[LLM unload]")
+        except Exception as exc:
+            logger.warning(f"[LLM] unload failed: {exc}")
+
+    def reload_last_configuration(self) -> Tuple[str, bool]:
+        """Recreate the LM from the last successful initialize() configuration."""
+        if not self._last_init_config:
+            return "❌ No previous LM initialization config available", False
+
+        cfg = dict(self._last_init_config)
+
+        logger.info("[LLM] Reloading last configuration: backend={} model={} device={}",
+            cfg.get("backend"), cfg.get("lm_model_path"), cfg.get("device"))
+
+        return self.initialize(
+            checkpoint_dir=cfg["checkpoint_dir"],
+            lm_model_path=cfg["lm_model_path"],
+            backend=cfg["backend"],
+            device=cfg["device"],
+            offload_to_cpu=cfg["offload_to_cpu"],
+            dtype=cfg["dtype"],
+        )
 
     def _cleanup_torch_distributed_state(self) -> None:
         """Destroy default torch distributed process group when already initialized."""
@@ -659,6 +720,13 @@ class LLMHandler:
                     logger.info("Attempting MLX backend for Apple Silicon acceleration...")
                     mlx_success, mlx_status = self._load_mlx_model(full_lm_model_path)
                     if mlx_success:
+                        self._save_last_init_config(
+                            checkpoint_dir=checkpoint_dir,
+                            lm_model_path=lm_model_path,
+                            device=device,
+                            offload_to_cpu=offload_to_cpu,
+                            dtype=dtype,
+                        )
                         return mlx_status, True
                     else:
                         logger.warning(f"MLX backend failed: {mlx_status}")
@@ -669,6 +737,13 @@ class LLMHandler:
                             if not success:
                                 return status_msg, False
                             status_msg = f"✅ 5Hz LM initialized (PyTorch fallback from MLX)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                            self._save_last_init_config(
+                                checkpoint_dir=checkpoint_dir,
+                                lm_model_path=lm_model_path,
+                                device=device,
+                                offload_to_cpu=offload_to_cpu,
+                                dtype=dtype,
+                            )
                             return status_msg, True
                         # else: backend was "vllm" on MPS, continue to vllm attempt below
                 elif backend == "mlx":
@@ -678,6 +753,13 @@ class LLMHandler:
                     if not success:
                         return status_msg, False
                     status_msg = f"✅ 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                    self._save_last_init_config(
+                        checkpoint_dir=checkpoint_dir,
+                        lm_model_path=lm_model_path,
+                        device=device,
+                        offload_to_cpu=offload_to_cpu,
+                        dtype=dtype,
+                    )
                     return status_msg, True
 
             if backend == "vllm" and device != "cuda":
@@ -733,6 +815,13 @@ class LLMHandler:
                                 logger.warning("vllm failed on MPS, trying MLX backend...")
                                 mlx_success, mlx_status = self._load_mlx_model(full_lm_model_path)
                                 if mlx_success:
+                                    self._save_last_init_config(
+                                        checkpoint_dir=checkpoint_dir,
+                                        lm_model_path=lm_model_path,
+                                        device=device,
+                                        offload_to_cpu=offload_to_cpu,
+                                        dtype=dtype,
+                                    )
                                     return mlx_status, True
                                 logger.warning(f"MLX also failed: {mlx_status}, falling back to PyTorch")
                             logger.warning("Falling back to PyTorch backend")
@@ -749,6 +838,13 @@ class LLMHandler:
                 if vllm_preflight_warning is not None:
                     status_msg += f"\nNote: {vllm_preflight_warning}"
 
+            self._save_last_init_config(
+                checkpoint_dir=checkpoint_dir,
+                lm_model_path=lm_model_path,
+                device=device,
+                offload_to_cpu=offload_to_cpu,
+                dtype=dtype,
+            )
             return status_msg, True
 
         except Exception as e:

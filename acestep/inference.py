@@ -14,6 +14,7 @@ from typing import Optional, Union, List, Dict, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from loguru import logger
 import torch
+import gc
 
 
 from acestep.audio_utils import AudioSaver, apply_fade, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
@@ -331,6 +332,42 @@ def _update_metadata_from_lm(
     return bpm, key_scale, time_signature, audio_duration, vocal_language, caption, lyrics
 
 
+def _unload_lm_before_dit(llm_handler):
+    """Unload a resident LM before the DiT phase to free accelerator memory."""
+    if llm_handler is None:
+        return
+
+    logger.info("Unloading LM before DiT. backend={}, initialized={}",
+        getattr(llm_handler, "llm_backend", None),
+        getattr(llm_handler, "llm_initialized", None))
+
+    if torch.cuda.is_available():
+        alloc = torch.cuda.memory_allocated() / (1024 ** 3)
+        reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+        logger.info("Before LM unload: allocated={:.2f} GB reserved={:.2f} GB", alloc, reserved)
+
+    try:
+        llm_handler.unload()
+    except Exception as exc:
+        logger.warning("llm_handler.unload() failed: {}", exc)
+
+    gc.collect()
+
+    if llm_handler is not None:
+        try:
+            llm_handler._clear_accelerator_cache("[LM handoff unload]")
+        except Exception as exc:
+            logger.warning("[LM handoff unload] accelerator cleanup failed: {}", exc)
+
+    if torch.cuda.is_available():
+        try:
+            alloc = torch.cuda.memory_allocated() / (1024 ** 3)
+            reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+            logger.info("After LM unload: allocated={:.2f} GB reserved={:.2f} GB", alloc, reserved)
+        except Exception as exc:
+            logger.warning("[LM handoff unload] failed to query CUDA memory stats: {}", exc)
+
+
 @_get_spaces_gpu_decorator(duration=180)
 def generate_music(
     dit_handler,
@@ -422,8 +459,30 @@ def generate_music(
         # 3. use_cot_language=True: detect vocal language via CoT
         # 4. use_cot_metas=True: fill missing metadata via CoT
         need_lm_for_cot = params.use_cot_caption or params.use_cot_language or params.use_cot_metas
-        use_lm = (params.thinking or need_lm_for_cot) and llm_handler is not None and llm_handler.llm_initialized and params.task_type not in skip_lm_tasks
+
+        # If this request needs the LM, but the LM was previously unloaded (for example
+        # after the LM->DiT handoff), try to reload it now.
         lm_status = []
+
+        request_needs_lm = (params.task_type not in skip_lm_tasks) and (params.thinking or need_lm_for_cot)
+
+        if (request_needs_lm and llm_handler is not None and not llm_handler.llm_initialized and
+            getattr(llm_handler, "_last_init_config", None) is not None):
+            logger.info("LM required but not initialized; attempting reload from saved config")
+            reload_status, reload_ok = llm_handler.reload_last_configuration()
+            lm_status.append(reload_status)
+
+            if not reload_ok:
+                logger.error("[generate_music] LM reload failed: {}", reload_status)
+                return GenerationResult(
+                    audios=[],
+                    status_message=f"❌ LM reload failed: {reload_status}",
+                    extra_outputs={},
+                    success=False,
+                    error=reload_status,
+                )
+
+        use_lm = (params.thinking or need_lm_for_cot) and llm_handler is not None and llm_handler.llm_initialized and params.task_type not in skip_lm_tasks
         
         if params.task_type in skip_lm_tasks:
             logger.info(f"Skipping LM for task_type='{params.task_type}' - using DiT directly")
@@ -608,6 +667,17 @@ def generate_music(
         # will set audio_duration from the loaded waveform.
         if params.task_type in ("cover", "repaint", "lego", "extract"):
             audio_duration = None
+
+        # Unload the LM now if option is enabled and the backend supports reload cleanly
+        unload_enabled = os.environ.get("ACESTEP_UNLOAD_LM_BEFORE_DIT", "").lower() in ("1", "true", "yes")
+        safe_unload_backends = {"pt", "vllm"}
+        current_backend = getattr(llm_handler, "llm_backend", None) if llm_handler is not None else None
+
+        if unload_enabled and llm_handler is not None and llm_handler.llm_initialized:
+            if current_backend in safe_unload_backends:
+                _unload_lm_before_dit(llm_handler)
+            else:
+                logger.info("[generate_music] Skipping LM unload before DiT for unsupported backend={}", current_backend)
 
         # Phase 2: DiT music generation
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation

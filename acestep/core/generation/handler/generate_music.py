@@ -393,9 +393,10 @@ class GenerateMusicMixin:
                 "ACESTEP_SKIP_VRAM_PREFLIGHT", "",
             ).lower() in ("1", "true", "yes")
             if skip_preflight:
-                logger.debug(
-                    "[generate_music] VRAM pre-flight skipped "
-                    "(ACESTEP_SKIP_VRAM_PREFLIGHT=true)"
+                logger.warning(
+                    "[generate_music] VRAM pre-flight check skipped via "
+                    "ACESTEP_SKIP_VRAM_PREFLIGHT=1. If generation OOMs, "
+                    "unset this variable to re-enable the safety check."
                 )
             else:
                 vram_error = self._vram_preflight_check(

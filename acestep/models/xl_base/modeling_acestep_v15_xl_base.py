@@ -1889,6 +1889,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
         dcw_wavelet: str = "haar",
+        eta: float = 0.0,
+        momentum: float = -0.75,
         **kwargs,
     ):
         # Backward-compat: accept the old misspelled key "diffusion_guidance_sale"
@@ -1978,7 +1980,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             noise = math.cos(v_rad) * noise + math.sin(v_rad) * retake_noise
         bsz, device, dtype = context_latents.shape[0], context_latents.device, context_latents.dtype
         past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
-        momentum_buffer = MomentumBuffer()
+        momentum_buffer = MomentumBuffer(momentum=momentum)
 
         # Cover noise initialization: blend noise with src_latents
         if cover_noise_strength > 0.0:
@@ -2075,6 +2077,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                                 pred_uncond=pred_null_cond,
                                 guidance_scale=diffusion_guidance_scale,
                                 momentum_buffer=momentum_buffer,
+                                eta=eta,
                                 dims=[1],
                             )
                         else:

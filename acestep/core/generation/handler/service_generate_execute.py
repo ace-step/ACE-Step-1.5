@@ -85,6 +85,8 @@ class ServiceGenerateExecuteMixin:
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
         dcw_wavelet: str = "haar",
+        eta: float = 0.0,
+        momentum: float = -0.75,
         retake_seed: Any = None,
         retake_variance: float = 0.0,
     ) -> Dict[str, Any]:
@@ -128,6 +130,8 @@ class ServiceGenerateExecuteMixin:
             "dcw_scaler": dcw_scaler,
             "dcw_high_scaler": dcw_high_scaler,
             "dcw_wavelet": dcw_wavelet,
+            "eta": eta,
+            "momentum": momentum,
             "retake_seed": retake_seed,
             "retake_variance": retake_variance,
         }

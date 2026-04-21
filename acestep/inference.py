@@ -63,6 +63,8 @@ class GenerationParams:
         normalization_db: Target loudness in dB for normalization (e.g., -1.0 for -1 dBFS peak).
         latent_shift: Additive shift applied to DiT latents before VAE decode (default 0, no shift).
         latent_rescale: Multiplicative rescale applied to DiT latents before VAE decode (default 1.0, no rescale).
+        eta: APG guidance eta (parallel-component scaling factor, default 0.0 = pure orthogonal guidance).
+        momentum: APG MomentumBuffer decay factor (default -0.75).
         
         # Generation Parameters
         inference_steps: Number of diffusion steps (e.g., 8 for turbo, 32–100 for base model).
@@ -154,6 +156,8 @@ class GenerationParams:
     dcw_scaler: float = 0.05        # low-band scaler (or single scaler for "high"/"pix")
     dcw_high_scaler: float = 0.02   # high-band scaler (used only in "double" mode)
     dcw_wavelet: str = "haar"       # PyWavelets basis, e.g. "haar", "db4", "sym8"
+    eta: float = 0.0  # APG eta: parallel-component scaling in adaptive projected guidance (default 0.0, pure orthogonal).
+    momentum: float = -0.75  # APG momentum: MomentumBuffer decay factor for accumulated guidance diff (default -0.75).
     # Custom timesteps (parsed from string like "0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0")
     # If provided, overrides inference_steps and shift
     timesteps: Optional[List[float]] = None
@@ -878,6 +882,8 @@ def generate_music(
             "dcw_scaler": params.dcw_scaler,
             "dcw_high_scaler": params.dcw_high_scaler,
             "dcw_wavelet": params.dcw_wavelet,
+            "eta": params.eta,
+            "momentum": params.momentum,
             "timesteps": params.timesteps,
             "latent_shift": params.latent_shift,
             "latent_rescale": params.latent_rescale,

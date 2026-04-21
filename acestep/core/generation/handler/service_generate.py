@@ -56,6 +56,8 @@ class ServiceGenerateMixin:
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
         dcw_wavelet: str = "haar",
+        eta: float = 0.0,
+        momentum: float = -0.75,
         task_type: str = "",
         retake_seed: Optional[Union[int, List[int]]] = None,
         retake_variance: float = 0.0,
@@ -72,8 +74,9 @@ class ServiceGenerateMixin:
         the contract on each input.  Notable groups:
         ``captions``/``lyrics``/``metas``/``vocal_languages`` are per-sample
         conditioning; ``cfg_interval_*`` / ``sampler_mode`` /
-        ``velocity_*`` / ``dcw_*`` are sampler tweaks; ``flow_edit_morph``
-        layers the V_delta overlay on top of cover/cover-nofsq dispatch.
+        ``velocity_*`` / ``dcw_*`` are sampler tweaks; ``eta`` / ``momentum``
+        configure adaptive projected guidance (APG); ``flow_edit_morph`` layers
+        the V_delta overlay on top of cover/cover-nofsq dispatch.
 
         Returns:
             Dict[str, Any]: Service output payload containing generated latents,
@@ -142,6 +145,8 @@ class ServiceGenerateMixin:
             dcw_scaler=dcw_scaler,
             dcw_high_scaler=dcw_high_scaler,
             dcw_wavelet=dcw_wavelet,
+            eta=eta,
+            momentum=momentum,
             retake_seed=retake_seed,
             retake_variance=retake_variance,
         )

@@ -330,6 +330,64 @@ class JobGenerationSetupTests(unittest.TestCase):
         self.assertAlmostEqual(0.0, setup.params.latent_shift)
         self.assertAlmostEqual(1.0, setup.params.latent_rescale)
 
+    def test_build_generation_setup_forwards_apg_eta_and_momentum(self) -> None:
+        """APG eta and momentum should be forwarded to GenerationParams."""
+
+        req = _base_req()
+        req.eta = 0.5
+        req.momentum = -0.5
+        setup = build_generation_setup(
+            req=req,
+            caption="cap",
+            lyrics="lyr",
+            bpm=None,
+            key_scale="",
+            time_signature="",
+            audio_duration=None,
+            thinking=False,
+            sample_mode=False,
+            format_has_duration=False,
+            use_cot_caption=False,
+            use_cot_language=False,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False,
+            default_dit_instruction="default instruction",
+            task_instructions={},
+        )
+
+        self.assertAlmostEqual(0.5, setup.params.eta)
+        self.assertAlmostEqual(-0.5, setup.params.momentum)
+
+    def test_build_generation_setup_defaults_apg_params_when_missing(self) -> None:
+        """When req lacks eta/momentum fields, the APG hardcoded defaults should apply."""
+
+        req = _base_req()
+        setup = build_generation_setup(
+            req=req,
+            caption="cap",
+            lyrics="lyr",
+            bpm=None,
+            key_scale="",
+            time_signature="",
+            audio_duration=None,
+            thinking=False,
+            sample_mode=False,
+            format_has_duration=False,
+            use_cot_caption=False,
+            use_cot_language=False,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False,
+            default_dit_instruction="default instruction",
+            task_instructions={},
+        )
+
+        self.assertAlmostEqual(0.0, setup.params.eta)
+        self.assertAlmostEqual(-0.75, setup.params.momentum)
+
 
 if __name__ == "__main__":
     unittest.main()

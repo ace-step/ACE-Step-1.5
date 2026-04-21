@@ -46,6 +46,8 @@ PARAM_ALIASES: Dict[str, list[str]] = {
     "sampler_mode": ["sampler_mode", "samplerMode"],
     "velocity_norm_threshold": ["velocity_norm_threshold", "velocityNormThreshold"],
     "velocity_ema_factor": ["velocity_ema_factor", "velocityEmaFactor"],
+    "eta": ["eta"],
+    "momentum": ["momentum"],
     "latent_shift": ["latent_shift", "latentShift"],
     "latent_rescale": ["latent_rescale", "latentRescale"],
 }

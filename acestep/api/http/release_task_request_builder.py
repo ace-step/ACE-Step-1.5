@@ -84,6 +84,8 @@ def build_generate_music_request(
         sampler_mode=parser.str("sampler_mode", "euler"),
         velocity_norm_threshold=parser.float("velocity_norm_threshold", 0.0),
         velocity_ema_factor=parser.float("velocity_ema_factor", 0.0),
+        eta=parser.float("eta", 0.0),
+        momentum=parser.float("momentum", -0.75),
         latent_shift=parser.float("latent_shift", 0.0),
         latent_rescale=parser.float("latent_rescale", 1.0),
         audio_format=parser.str("audio_format", "mp3"),

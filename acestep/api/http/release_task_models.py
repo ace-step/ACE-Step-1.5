@@ -109,6 +109,14 @@ class GenerateMusicRequest(BaseModel):
         default=0.0,
         description="Velocity EMA smoothing during diffusion (0 = disabled, try 0.1).",
     )
+    eta: float = Field(
+        default=0.0,
+        description="APG guidance eta: parallel-component scaling factor (0.0 = pure orthogonal guidance).",
+    )
+    momentum: float = Field(
+        default=-0.75,
+        description="APG MomentumBuffer decay factor for accumulated guidance diff (default -0.75).",
+    )
     latent_shift: float = Field(
         default=0.0,
         description="Additive shift applied to DiT latents before VAE decode (0 = no shift).",

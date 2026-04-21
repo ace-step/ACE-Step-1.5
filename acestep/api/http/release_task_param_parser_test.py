@@ -83,6 +83,20 @@ class ReleaseTaskParamParserTests(unittest.TestCase):
         self.assertAlmostEqual(0.95, parser.float("velocity_ema_factor"))
         self.assertAlmostEqual(1.2, parser.float("latent_rescale"))
 
+    def test_apg_eta_and_momentum_aliases_are_resolved(self):
+        """Parser should resolve eta/momentum APG params from snake_case keys."""
+
+        parser = RequestParser({"eta": "0.5", "momentum": "-0.5"})
+        self.assertAlmostEqual(0.5, parser.float("eta"))
+        self.assertAlmostEqual(-0.5, parser.float("momentum"))
+
+    def test_apg_eta_and_momentum_resolve_from_nested_param_obj(self):
+        """Parser should resolve eta/momentum from nested param_obj payload."""
+
+        parser = RequestParser({"param_obj": {"eta": 0.75, "momentum": -0.9}})
+        self.assertAlmostEqual(0.75, parser.float("eta"))
+        self.assertAlmostEqual(-0.9, parser.float("momentum"))
+
 
 if __name__ == "__main__":
     unittest.main()

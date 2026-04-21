@@ -177,6 +177,8 @@ def build_generation_setup(
         sampler_mode=getattr(req, "sampler_mode", "euler"),
         velocity_norm_threshold=getattr(req, "velocity_norm_threshold", 0.0),
         velocity_ema_factor=getattr(req, "velocity_ema_factor", 0.0),
+        eta=getattr(req, "eta", 0.0),
+        momentum=getattr(req, "momentum", -0.75),
         latent_shift=getattr(req, "latent_shift", 0.0),
         latent_rescale=getattr(req, "latent_rescale", 1.0),
         timesteps=parsed_timesteps,

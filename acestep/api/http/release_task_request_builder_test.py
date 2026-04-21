@@ -14,10 +14,10 @@ class _FakeParser:
 
         self._values = values
 
-    def get(self, key: str):
-        """Return raw value for ``key`` from parser payload."""
+    def get(self, key: str, default=None):
+        """Return raw value for ``key`` from parser payload with optional default."""
 
-        return self._values.get(key)
+        return self._values.get(key, default)
 
     def str(self, key: str, default: str = "") -> str:
         """Return string value for ``key`` with default fallback."""
@@ -161,6 +161,38 @@ class ReleaseTaskRequestBuilderTests(unittest.TestCase):
         self.assertAlmostEqual(0.1, request.velocity_ema_factor)
         self.assertAlmostEqual(0.05, request.latent_shift)
         self.assertAlmostEqual(1.2, request.latent_rescale)
+
+    def test_build_request_forwards_apg_eta_and_momentum(self):
+        """Builder should include APG eta/momentum params in the payload."""
+
+        parser = _FakeParser({"eta": 0.5, "momentum": -0.5})
+        request = build_generate_music_request(
+            parser=parser,
+            request_model_cls=lambda **kwargs: SimpleNamespace(**kwargs),
+            default_dit_instruction="default-instruction",
+            lm_default_temperature=0.85,
+            lm_default_cfg_scale=2.5,
+            lm_default_top_p=0.9,
+        )
+
+        self.assertAlmostEqual(0.5, request.eta)
+        self.assertAlmostEqual(-0.5, request.momentum)
+
+    def test_build_request_defaults_apg_eta_and_momentum_when_absent(self):
+        """Builder should fall back to APG hardcoded defaults when params are absent."""
+
+        parser = _FakeParser({})
+        request = build_generate_music_request(
+            parser=parser,
+            request_model_cls=lambda **kwargs: SimpleNamespace(**kwargs),
+            default_dit_instruction="default-instruction",
+            lm_default_temperature=0.85,
+            lm_default_cfg_scale=2.5,
+            lm_default_top_p=0.9,
+        )
+
+        self.assertAlmostEqual(0.0, request.eta)
+        self.assertAlmostEqual(-0.75, request.momentum)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,20 @@ class ReleaseTaskModelsTests(unittest.TestCase):
         self.assertEqual("<|audio_code_1|>", req.audio_code_string)
         self.assertAlmostEqual(0.75, req.cover_noise_strength)
 
+    def test_apg_eta_and_momentum_have_expected_defaults(self):
+        """APG eta/momentum defaults must match the hardcoded values in apg_guidance."""
+
+        req = GenerateMusicRequest()
+        self.assertAlmostEqual(0.0, req.eta)
+        self.assertAlmostEqual(-0.75, req.momentum)
+
+    def test_apg_eta_and_momentum_are_accepted(self):
+        """Model should accept user-supplied eta and momentum values."""
+
+        req = GenerateMusicRequest(eta=0.5, momentum=-0.5)
+        self.assertAlmostEqual(0.5, req.eta)
+        self.assertAlmostEqual(-0.5, req.momentum)
+
 
 if __name__ == "__main__":
     unittest.main()

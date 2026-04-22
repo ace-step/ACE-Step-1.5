@@ -135,5 +135,79 @@ class ReleaseTaskRequestBuilderTests(unittest.TestCase):
         self.assertAlmostEqual(0.6, request.cover_noise_strength)
 
 
+class _GuidanceAwareFakeParser(_FakeParser):
+    """Parser stub whose ``get`` accepts a default argument like RequestParser."""
+
+    def get(self, key: str, default=None):
+        """Return raw value for ``key`` or ``default`` when absent."""
+
+        return self._values.get(key, default)
+
+
+class ReleaseTaskRequestBuilderGuidanceTests(unittest.TestCase):
+    """Guidance-variant forwarding through the release-task builder."""
+
+    def test_guidance_variant_and_params_forwarded_to_request(self):
+        """Builder should forward guidance_variant and guidance_params dict."""
+
+        parser = _GuidanceAwareFakeParser(
+            {
+                "guidance_variant": "adg",
+                "guidance_params": {"angle_clip": 0.52},
+            },
+        )
+        request = build_generate_music_request(
+            parser=parser,
+            request_model_cls=lambda **kwargs: SimpleNamespace(**kwargs),
+            default_dit_instruction="default-instruction",
+            lm_default_temperature=0.85,
+            lm_default_cfg_scale=2.5,
+            lm_default_top_p=0.9,
+        )
+
+        self.assertEqual("adg", request.guidance_variant)
+        self.assertEqual({"angle_clip": 0.52}, request.guidance_params)
+
+    def test_guidance_params_json_string_is_parsed(self):
+        """String-encoded guidance_params JSON must be decoded into a dict."""
+
+        parser = _GuidanceAwareFakeParser(
+            {
+                "guidance_variant": "apg_classic",
+                "guidance_params": '{"eta": 0.1}',
+            },
+        )
+        request = build_generate_music_request(
+            parser=parser,
+            request_model_cls=lambda **kwargs: SimpleNamespace(**kwargs),
+            default_dit_instruction="default-instruction",
+            lm_default_temperature=0.85,
+            lm_default_cfg_scale=2.5,
+            lm_default_top_p=0.9,
+        )
+
+        self.assertEqual({"eta": 0.1}, request.guidance_params)
+
+    def test_guidance_params_invalid_json_becomes_none(self):
+        """Malformed guidance_params JSON must be dropped, not surfaced."""
+
+        parser = _GuidanceAwareFakeParser(
+            {
+                "guidance_variant": "apg_classic",
+                "guidance_params": "not-json",
+            },
+        )
+        request = build_generate_music_request(
+            parser=parser,
+            request_model_cls=lambda **kwargs: SimpleNamespace(**kwargs),
+            default_dit_instruction="default-instruction",
+            lm_default_temperature=0.85,
+            lm_default_cfg_scale=2.5,
+            lm_default_top_p=0.9,
+        )
+
+        self.assertIsNone(request.guidance_params)
+
+
 if __name__ == "__main__":
     unittest.main()

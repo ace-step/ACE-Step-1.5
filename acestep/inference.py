@@ -146,6 +146,10 @@ class GenerationParams:
     seed: int = -1
     guidance_scale: float = 7.0
     use_adg: bool = False
+    # Pluggable guidance (see acestep/models/common/guidance_registry.py).
+    # Default 'apg_classic' + empty params is byte-identical to pre-refactor.
+    guidance_variant: str = "apg_classic"
+    guidance_params: Optional[Dict[str, Any]] = None
     cfg_interval_start: float = 0.0
     cfg_interval_end: float = 1.0
     shift: float = 1.0
@@ -882,6 +886,8 @@ def generate_music(
             "cover_noise_strength": params.cover_noise_strength,
             "task_type": params.task_type,
             "use_adg": params.use_adg,
+            "guidance_variant": params.guidance_variant,
+            "guidance_params": params.guidance_params,
             "cfg_interval_start": params.cfg_interval_start,
             "cfg_interval_end": params.cfg_interval_end,
             "shift": params.shift,

@@ -95,6 +95,8 @@ class ServiceGenerateExecuteMixin:
         dcw_wavelet: str = "haar",
         retake_seed: Any = None,
         retake_variance: float = 0.0,
+        guidance_variant: str = "apg_classic",
+        guidance_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         repaint_mask = payload.get("repaint_mask")
@@ -121,6 +123,8 @@ class ServiceGenerateExecuteMixin:
             "infer_steps": infer_steps,
             "diffusion_guidance_scale": guidance_scale,
             "use_adg": use_adg,
+            "guidance_variant": guidance_variant,
+            "guidance_params": guidance_params,
             "cfg_interval_start": cfg_interval_start,
             "cfg_interval_end": cfg_interval_end,
             "shift": shift,

@@ -36,6 +36,17 @@ def build_generate_music_request(
     if track_classes is not None and isinstance(track_classes, str):
         track_classes = [track_classes]
 
+    guidance_params = parser.get("guidance_params")
+    if isinstance(guidance_params, str):
+        import json as _json
+        try:
+            parsed_guidance = _json.loads(guidance_params)
+            guidance_params = parsed_guidance if isinstance(parsed_guidance, dict) else None
+        except Exception:
+            guidance_params = None
+    elif guidance_params is not None and not isinstance(guidance_params, dict):
+        guidance_params = None
+
     payload = dict(
         prompt=parser.str("prompt"),
         global_caption=parser.str("global_caption"),
@@ -77,6 +88,8 @@ def build_generate_music_request(
         repaint_mode=parser.str("repaint_mode", "balanced"),
         repaint_strength=parser.float("repaint_strength", 0.5),
         use_adg=parser.bool("use_adg"),
+        guidance_variant=parser.str("guidance_variant", "apg_classic"),
+        guidance_params=guidance_params,
         cfg_interval_start=parser.float("cfg_interval_start", 0.0),
         cfg_interval_end=parser.float("cfg_interval_end", 1.0),
         infer_method=parser.str("infer_method", "ode"),

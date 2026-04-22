@@ -209,6 +209,8 @@ API 支持大多数参数的 **snake_case** 和 **camelCase** 命名。例如：
 | `infer_method` | string | `"ode"` | 扩散推理方法：`"ode"`（Euler，更快）或 `"sde"`（随机）|
 | `timesteps` | string | null | 自定义时间步，逗号分隔值（例如 `"0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0"`）。覆盖 `inference_steps` 和 `shift` |
 | `use_adg` | bool | `false` | 使用自适应双引导（仅 base 模型）|
+| `guidance_variant` | string | `"apg_classic"` | 已注册的引导变体名称。内置: `apg_classic`、`cfg`、`adg`、`adg_w_norm`、`adg_wo_clip` |
+| `guidance_params` | object | `null` | 变体特定的参数覆盖（例如 `apg_classic` 的 `{"eta": 1.0, "norm_threshold": 2.5, "momentum": -0.75}`）。默认值取决于变体 |
 | `cfg_interval_start` | float | `0.0` | CFG 应用起始比例（0.0-1.0）|
 | `cfg_interval_end` | float | `1.0` | CFG 应用结束比例（0.0-1.0）|
 

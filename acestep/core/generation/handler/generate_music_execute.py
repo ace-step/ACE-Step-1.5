@@ -53,7 +53,7 @@ class GenerateMusicExecuteMixin:
         flow_edit_n_min: float = 0.0,
         flow_edit_n_max: float = 1.0,
         flow_edit_n_avg: int = 1,
-        guidance_variant: str = "apg_classic",
+        guidance_variant: Optional[str] = None,
         guidance_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Invoke ``service_generate`` while maintaining background progress estimation.

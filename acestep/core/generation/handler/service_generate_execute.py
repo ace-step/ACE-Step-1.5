@@ -95,7 +95,7 @@ class ServiceGenerateExecuteMixin:
         dcw_wavelet: str = "haar",
         retake_seed: Any = None,
         retake_variance: float = 0.0,
-        guidance_variant: str = "apg_classic",
+        guidance_variant: Optional[str] = None,
         guidance_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""

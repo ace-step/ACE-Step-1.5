@@ -34,10 +34,10 @@ class ReleaseTaskModelsTests(unittest.TestCase):
         self.assertAlmostEqual(0.75, req.cover_noise_strength)
 
     def test_guidance_variant_and_params_defaults(self):
-        """New guidance fields should default to the backward-compatible values."""
+        """Omitted guidance fields surface as None so callers can distinguish omission from explicit 'apg_classic'."""
 
         req = GenerateMusicRequest()
-        self.assertEqual("apg_classic", req.guidance_variant)
+        self.assertIsNone(req.guidance_variant)
         self.assertIsNone(req.guidance_params)
 
     def test_guidance_variant_and_params_are_accepted(self):

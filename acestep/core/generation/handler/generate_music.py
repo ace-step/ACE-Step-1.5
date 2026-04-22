@@ -216,7 +216,7 @@ class GenerateMusicMixin:
         cover_noise_strength: float = 0.0,
         task_type: str = "text2music",
         use_adg: bool = False,
-        guidance_variant: str = "apg_classic",
+        guidance_variant: Optional[str] = None,
         guidance_params: Optional[Dict[str, Any]] = None,
         cfg_interval_start: float = 0.0,
         cfg_interval_end: float = 1.0,

@@ -209,8 +209,8 @@ APIはほとんどのパラメータで **snake_case** と **camelCase** の両�
 | `infer_method` | string | `"ode"` | 拡散推論方法：`"ode"`（Euler、より高速）または `"sde"`（確率的）|
 | `timesteps` | string | null | カンマ区切りのカスタムタイムステップ（例：`"0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0"`）。`inference_steps` と `shift` をオーバーライド |
 | `use_adg` | bool | `false` | 適応デュアルガイダンスを使用（baseモデルのみ）|
-| `guidance_variant` | string | `"apg_classic"` | 登録済みガイダンスバリアント名。ビルトイン: `apg_classic`、`cfg`、`adg`、`adg_w_norm`、`adg_wo_clip` |
-| `guidance_params` | object | `null` | バリアント固有のパラメータオーバーライド（例：`apg_classic` の `{"eta": 1.0, "norm_threshold": 2.5, "momentum": -0.75}`）。デフォルトはバリアントに依存 |
+| `guidance_variant` | string | `null` | 登録済みガイダンスバリアント名。ビルトイン: `apg_classic`、`cfg`、`adg`、`adg_w_norm`、`adg_wo_clip`。`null` または省略時、レガシー `use_adg=true` なら `adg`、それ以外は `apg_classic` が選択される。camelCase エイリアス `guidanceVariant` も受理 |
+| `guidance_params` | object | `null` | バリアント固有のパラメータオーバーライド（例：`apg_classic` の `{"eta": 0.1}`）。デフォルトはバリアントに依存。`multipart/form-data` リクエストでは JSON エンコード文字列として送信。camelCase エイリアス `guidanceParams` も受理 |
 | `cfg_interval_start` | float | `0.0` | CFG適用開始比率（0.0-1.0）|
 | `cfg_interval_end` | float | `1.0` | CFG適用終了比率（0.0-1.0）|
 

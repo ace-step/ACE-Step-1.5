@@ -197,8 +197,8 @@ API는 대부분의 파라미터에 대해 **snake_case**와 **camelCase** 명�
 | `infer_method` | string | `"ode"` | 확산 추론 방법: `"ode"` (Euler, 더 빠름) 또는 `"sde"` (확률적). |
 | `timesteps` | string | null | 쉼표로 구분된 커스텀 타임스텝 (예: `"0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0"`). `inference_steps`와 `shift`를 재정의합니다. |
 | `use_adg` | bool | `false` | ADG (Adaptive Dual Guidance) 사용 (Base 모델 전용) |
-| `guidance_variant` | string | `"apg_classic"` | 등록된 guidance variant 이름. 기본 제공: `apg_classic`, `cfg`, `adg`, `adg_w_norm`, `adg_wo_clip` |
-| `guidance_params` | object | `null` | variant별 파라미터 오버라이드 (예: `apg_classic`의 `{"eta": 1.0, "norm_threshold": 2.5, "momentum": -0.75}`). 기본값은 variant에 따라 다름 |
+| `guidance_variant` | string | `null` | 등록된 guidance variant 이름. 기본 제공: `apg_classic`, `cfg`, `adg`, `adg_w_norm`, `adg_wo_clip`. `null` 또는 생략 시 레거시 `use_adg=true`면 `adg`, 그 외에는 `apg_classic`이 선택됩니다. camelCase 별칭 `guidanceVariant`도 허용 |
+| `guidance_params` | object | `null` | variant별 파라미터 오버라이드 (예: `apg_classic`의 `{"eta": 0.1}`). 기본값은 variant에 따라 다름. `multipart/form-data` 요청에서는 JSON 인코딩 문자열로 전송. camelCase 별칭 `guidanceParams`도 허용 |
 | `cfg_interval_start` | float | `0.0` | CFG 적용 시작 비율 (0.0-1.0) |
 | `cfg_interval_end` | float | `1.0` | CFG 적용 종료 비율 (0.0-1.0) |
 

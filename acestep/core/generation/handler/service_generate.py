@@ -38,7 +38,7 @@ class ServiceGenerateMixin:
         audio_cover_strength: float = 1.0,
         cover_noise_strength: float = 0.0,
         use_adg: bool = False,
-        guidance_variant: str = "apg_classic",
+        guidance_variant: Optional[str] = None,
         guidance_params: Optional[Dict[str, Any]] = None,
         cfg_interval_start: float = 0.0,
         cfg_interval_end: float = 1.0,

@@ -74,7 +74,7 @@ class ApgClassicSamplerParityTests(unittest.TestCase):
             state["step_role"] = "main"
             reg_outputs.append(fn(pred_cond, pred_uncond, scale, state))
 
-        for ref, got in zip(reference_outputs, reg_outputs):
+        for ref, got in zip(reference_outputs, reg_outputs, strict=True):
             self.assertTrue(torch.allclose(ref, got))
 
     def test_heun_sequence_matches_hand_written_loop(self) -> None:
@@ -109,7 +109,7 @@ class ApgClassicSamplerParityTests(unittest.TestCase):
             corr = fn(pred_cond, pred_uncond, scale, state)
             reg_outputs.append((main, corr))
 
-        for (ref_main, ref_corr), (got_main, got_corr) in zip(reference_outputs, reg_outputs):
+        for (ref_main, ref_corr), (got_main, got_corr) in zip(reference_outputs, reg_outputs, strict=True):
             self.assertTrue(torch.allclose(ref_main, got_main))
             self.assertTrue(torch.allclose(ref_corr, got_corr))
 
@@ -129,7 +129,7 @@ class AdgSamplerParityTests(unittest.TestCase):
 
         reference_outputs = []
         for (pred_cond, pred_uncond, latents), sigma_m, sigma_c in zip(
-            sequence, sigmas_main, sigmas_corr,
+            sequence, sigmas_main, sigmas_corr, strict=True,
         ):
             main = adg_forward(
                 latents=latents,
@@ -154,7 +154,7 @@ class AdgSamplerParityTests(unittest.TestCase):
         state: dict = {}
         reg_outputs = []
         for (pred_cond, pred_uncond, latents), sigma_m, sigma_c in zip(
-            sequence, sigmas_main, sigmas_corr,
+            sequence, sigmas_main, sigmas_corr, strict=True,
         ):
             state["latents"] = latents
             state["sigma"] = sigma_m
@@ -165,7 +165,7 @@ class AdgSamplerParityTests(unittest.TestCase):
             corr = fn(pred_cond, pred_uncond, scale, state)
             reg_outputs.append((main, corr))
 
-        for (ref_main, ref_corr), (got_main, got_corr) in zip(reference_outputs, reg_outputs):
+        for (ref_main, ref_corr), (got_main, got_corr) in zip(reference_outputs, reg_outputs, strict=True):
             self.assertTrue(torch.allclose(ref_main, got_main))
             self.assertTrue(torch.allclose(ref_corr, got_corr))
 

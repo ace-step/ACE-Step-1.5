@@ -86,12 +86,13 @@ class GenerateMusicRequest(BaseModel):
     extract_codes_only: bool = False
 
     use_adg: bool = False
-    guidance_variant: str = Field(
-        default="apg_classic",
+    guidance_variant: Optional[str] = Field(
+        default=None,
         description=(
             "Guidance variant name registered in acestep.models.common.guidance_registry. "
-            "Defaults to 'apg_classic' which reproduces pre-refactor behaviour. "
-            "Built-in variants: apg_classic, cfg, adg, adg_w_norm, adg_wo_clip."
+            "When omitted or null, legacy `use_adg=true` selects 'adg'; otherwise 'apg_classic' "
+            "is used, reproducing pre-refactor behaviour. An explicit value always takes "
+            "precedence over `use_adg`. Built-in variants: apg_classic, cfg, adg, adg_w_norm, adg_wo_clip."
         ),
     )
     guidance_params: Optional[Dict[str, Any]] = Field(

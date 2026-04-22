@@ -262,8 +262,8 @@ class JobGenerationSetupTests(unittest.TestCase):
         self.assertEqual("adg", setup.params.guidance_variant)
         self.assertEqual({"angle_clip": 0.52}, setup.params.guidance_params)
 
-    def test_guidance_variant_defaults_to_apg_classic_when_missing(self) -> None:
-        """Requests lacking guidance fields should default to backward-compat values."""
+    def test_guidance_variant_defaults_to_none_when_missing(self) -> None:
+        """Requests lacking guidance fields surface as None so legacy use_adg resolution still works."""
 
         req = _base_req()
         # Deliberately do NOT set req.guidance_variant / req.guidance_params.
@@ -287,7 +287,7 @@ class JobGenerationSetupTests(unittest.TestCase):
             default_dit_instruction="default instruction",
             task_instructions={},
         )
-        self.assertEqual("apg_classic", setup.params.guidance_variant)
+        self.assertIsNone(setup.params.guidance_variant)
         self.assertIsNone(setup.params.guidance_params)
 
     def test_use_cot_metas_enabled_when_format_has_duration(self) -> None:

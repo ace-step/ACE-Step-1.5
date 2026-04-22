@@ -1889,7 +1889,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
         dcw_wavelet: str = "haar",
-        guidance_variant: str = "apg_classic",
+        guidance_variant: Optional[str] = None,
         guidance_params: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
@@ -1981,12 +1981,17 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         bsz, device, dtype = context_latents.shape[0], context_latents.device, context_latents.dtype
         past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
         # Pluggable guidance: resolve the selected variant once per generation
-        # and carry a single mutable state dict across sampler steps.  The
-        # legacy ``use_adg`` flag maps to the ``adg`` variant for backward
-        # compatibility; an explicit ``guidance_variant`` always takes
-        # precedence.  Corrector steps set ``state["step_role"]`` to
+        # and carry a single mutable state dict across sampler steps.  When
+        # ``guidance_variant`` is ``None`` the caller did not request a
+        # specific variant, so the legacy ``use_adg`` flag picks between
+        # ``apg_classic`` and ``adg`` for backward compatibility.  An
+        # explicit non-``None`` ``guidance_variant`` always wins over
+        # ``use_adg``.  Corrector steps set ``state["step_role"]`` to
         # ``"corrector"`` before each call to preserve Heun parity.
-        _resolved_variant = guidance_variant if guidance_variant != "apg_classic" or not use_adg else "adg"
+        if guidance_variant is None:
+            _resolved_variant = "adg" if use_adg else "apg_classic"
+        else:
+            _resolved_variant = guidance_variant
         guidance_fn = get_guidance_fn(_resolved_variant)
         guidance_state: Dict[str, Any] = {}
         guidance_kwargs: Dict[str, Any] = dict(guidance_params) if guidance_params else {}

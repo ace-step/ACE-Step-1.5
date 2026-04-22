@@ -147,8 +147,10 @@ class GenerationParams:
     guidance_scale: float = 7.0
     use_adg: bool = False
     # Pluggable guidance (see acestep/models/common/guidance_registry.py).
-    # Default 'apg_classic' + empty params is byte-identical to pre-refactor.
-    guidance_variant: str = "apg_classic"
+    # None means "omitted": legacy use_adg=True resolves to 'adg', otherwise
+    # 'apg_classic' is used, reproducing pre-refactor behaviour.  An explicit
+    # string value always takes precedence over use_adg.
+    guidance_variant: Optional[str] = None
     guidance_params: Optional[Dict[str, Any]] = None
     cfg_interval_start: float = 0.0
     cfg_interval_end: float = 1.0

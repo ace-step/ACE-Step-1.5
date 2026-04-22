@@ -170,7 +170,7 @@ def build_generation_setup(
         seed=req.seed,
         guidance_scale=req.guidance_scale,
         use_adg=req.use_adg,
-        guidance_variant=getattr(req, "guidance_variant", "apg_classic"),
+        guidance_variant=getattr(req, "guidance_variant", None),
         guidance_params=getattr(req, "guidance_params", None),
         cfg_interval_start=req.cfg_interval_start,
         cfg_interval_end=req.cfg_interval_end,

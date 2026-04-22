@@ -1881,6 +1881,18 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         guidance_params: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
+        """Run diffusion sampling to synthesize audio latents.
+
+        Guidance variants (pluggable via ``acestep.models.common.guidance_registry``):
+            guidance_variant: Name of a registered variant, or ``None``.  ``None``
+                falls back to legacy ``use_adg`` (``"adg"`` when set, else
+                ``"apg_classic"``).  An explicit non-``None`` value always wins
+                over ``use_adg``.  Unknown names raise ``ValueError`` from
+                ``get_guidance_fn`` at the first sampling step.
+            guidance_params: Optional dict of variant-specific parameter
+                overrides (e.g. ``{"eta": 0.1}`` for ``"apg_classic"``).  Keys
+                and defaults depend on the variant.
+        """
         # Backward-compat: accept the old misspelled key "diffusion_guidance_sale"
         # so that callers that have not yet updated their code still work correctly.
         # Note: if both keys are passed simultaneously, the old key wins because Python

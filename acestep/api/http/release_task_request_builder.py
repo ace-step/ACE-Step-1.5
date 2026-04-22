@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 
@@ -38,12 +39,12 @@ def build_generate_music_request(
 
     guidance_params = parser.get("guidance_params")
     if isinstance(guidance_params, str):
-        import json as _json
         try:
-            parsed_guidance = _json.loads(guidance_params)
-            guidance_params = parsed_guidance if isinstance(parsed_guidance, dict) else None
-        except Exception:
+            parsed_guidance = json.loads(guidance_params)
+        except json.JSONDecodeError:
             guidance_params = None
+        else:
+            guidance_params = parsed_guidance if isinstance(parsed_guidance, dict) else None
     elif guidance_params is not None and not isinstance(guidance_params, dict):
         guidance_params = None
 

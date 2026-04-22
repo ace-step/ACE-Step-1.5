@@ -14,7 +14,7 @@
 import copy
 import math
 import time
-from typing import Callable, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 import torch.nn.functional as F
@@ -45,10 +45,10 @@ from vector_quantize_pytorch import ResidualFSQ
 # Local config import with fallback
 try:
     from .configuration_acestep_v15 import AceStepConfig
-    from .apg_guidance import adg_forward, apg_forward, cfg_forward, MomentumBuffer
 except ImportError:
     from configuration_acestep_v15 import AceStepConfig
-    from apg_guidance import adg_forward, apg_forward, cfg_forward, MomentumBuffer
+
+from acestep.models.common.guidance_registry import get_guidance_fn
 
 # DCW (Differential Correction in Wavelet domain) — CVPR 2026.
 # Opt-in sampler-side correction for SNR-t bias; see the `dcw_*` kwargs on
@@ -1877,6 +1877,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
         dcw_wavelet: str = "haar",
+        guidance_variant: str = "apg_classic",
+        guidance_params: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
         # Backward-compat: accept the old misspelled key "diffusion_guidance_sale"
@@ -1964,7 +1966,16 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             noise = math.cos(v_rad) * noise + math.sin(v_rad) * retake_noise
         bsz, device, dtype = context_latents.shape[0], context_latents.device, context_latents.dtype
         past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
-        momentum_buffer = MomentumBuffer()
+        # Pluggable guidance: resolve the selected variant once per generation
+        # and carry a single mutable state dict across sampler steps.  The
+        # legacy ``use_adg`` flag maps to the ``adg`` variant for backward
+        # compatibility; an explicit ``guidance_variant`` always takes
+        # precedence.  Corrector steps set ``state["step_role"]`` to
+        # ``"corrector"`` before each call to preserve Heun parity.
+        _resolved_variant = guidance_variant if guidance_variant != "apg_classic" or not use_adg else "adg"
+        guidance_fn = get_guidance_fn(_resolved_variant)
+        guidance_state: Dict[str, Any] = {}
+        guidance_kwargs: Dict[str, Any] = dict(guidance_params) if guidance_params else {}
 
         # Cover noise initialization: blend noise with src_latents
         if cover_noise_strength > 0.0:
@@ -2055,22 +2066,16 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 if do_cfg_guidance:
                     pred_cond, pred_null_cond = vt.chunk(2)
                     if apply_cfg_guidance:
-                        if not use_adg:
-                            vt = apg_forward(
-                                pred_cond=pred_cond,
-                                pred_uncond=pred_null_cond,
-                                guidance_scale=diffusion_guidance_scale,
-                                momentum_buffer=momentum_buffer,
-                                dims=[1],
-                            )
-                        else:
-                            vt = adg_forward(
-                                latents=xt,
-                                noise_pred_cond=pred_cond,
-                                noise_pred_uncond=pred_null_cond,
-                                sigma=t_curr,
-                                guidance_scale=diffusion_guidance_scale,
-                            )
+                        guidance_state["latents"] = xt
+                        guidance_state["sigma"] = t_curr
+                        guidance_state["step_role"] = "main"
+                        vt = guidance_fn(
+                            pred_cond,
+                            pred_null_cond,
+                            diffusion_guidance_scale,
+                            guidance_state,
+                            **guidance_kwargs,
+                        )
                     else:
                         vt = pred_cond
                 # Velocity norm clamping — prevents outlier predictions
@@ -2130,20 +2135,16 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                         # Recompute CFG interval for corrector timestep (t_prev, not t_curr)
                         apply_cfg_corrector = t_prev >= cfg_interval_start and t_prev <= cfg_interval_end
                         if apply_cfg_corrector:
-                            if not use_adg:
-                                # Use basic CFG for corrector to avoid mutating APG momentum twice per step
-                                vt2 = cfg_forward(pred_cond2, pred_null_cond2, diffusion_guidance_scale)
-                            elif t_prev > 0:
-                                # Guard against sigma=0 which causes NaN in ADG division
-                                vt2 = adg_forward(
-                                    latents=xt_predicted,
-                                    noise_pred_cond=pred_cond2,
-                                    noise_pred_uncond=pred_null_cond2,
-                                    sigma=t_prev,
-                                    guidance_scale=diffusion_guidance_scale,
-                                )
-                            else:
-                                vt2 = cfg_forward(pred_cond2, pred_null_cond2, diffusion_guidance_scale)
+                            guidance_state["latents"] = xt_predicted
+                            guidance_state["sigma"] = t_prev
+                            guidance_state["step_role"] = "corrector"
+                            vt2 = guidance_fn(
+                                pred_cond2,
+                                pred_null_cond2,
+                                diffusion_guidance_scale,
+                                guidance_state,
+                                **guidance_kwargs,
+                            )
                         else:
                             vt2 = pred_cond2
                     if use_norm_clamp:

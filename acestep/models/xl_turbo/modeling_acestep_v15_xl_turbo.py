@@ -47,6 +47,11 @@ try:
 except ImportError:
     from configuration_acestep_v15 import AceStepConfig
 
+# DCW (Differential Correction in Wavelet domain) — CVPR 2026.
+# Opt-in sampler-side correction for SNR-t bias; see the `dcw_*` kwargs
+# on `generate_audio` and docs/en/DCW.md for details.
+from acestep.models.common.dcw_correction import DCWCorrector
+
 
 logger = logging.get_logger(__name__)
 
@@ -1849,6 +1854,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         attention_mask: torch.Tensor = None,
         seed: int = None,
         fix_nfe: int = 8,
+        infer_steps: Optional[int] = None,
         infer_method: str = "ode",
         use_cache: bool = True,
         audio_cover_strength: float = 1.0,
@@ -1866,8 +1872,33 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
+        dcw_wavelet: str = "haar",
+        # --- CFG-related params accepted for API parity but unused on turbo.
+        # Turbo models bake classifier-free guidance into the distillation
+        # weights and do NOT run a twin unconditional forward pass.  Handlers
+        # upstream already force guidance_scale=1.0 before it reaches us (see
+        # `AceStepHandler.generate_music`), and the other CFG knobs have
+        # no corresponding code path in this sampler.  We declare them
+        # explicitly so they don't disappear into `**kwargs` silently, and
+        # log an info when a caller sets a non-default value so it's visible
+        # that the knob is intentionally a no-op here.
+        diffusion_guidance_scale: float = 1.0,
+        use_adg: bool = False,
+        cfg_interval_start: float = 0.0,
+        cfg_interval_end: float = 1.0,
         **kwargs,
     ):
+        if diffusion_guidance_scale != 1.0 or use_adg or cfg_interval_start != 0.0 or cfg_interval_end != 1.0:
+            logger.info(
+                "XL-Turbo DiT ignores CFG params (guidance_scale=%.2f, use_adg=%s, "
+                "cfg_interval=[%.2f, %.2f]); turbo is CFG-distilled.",
+                diffusion_guidance_scale, use_adg, cfg_interval_start, cfg_interval_end,
+            )
+
         # Valid shifts: only discrete values 1, 2, 3 are supported
         VALID_SHIFTS = [1.0, 2.0, 3.0]
         
@@ -1919,7 +1950,22 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     logger.warning(f"timesteps mapped to nearest valid values: {original_timesteps} -> {mapped_timesteps}")
                 
                 t_schedule_list = mapped_timesteps
-        
+
+        # Variable-step schedule: respect `infer_steps` (UI exposes 1–20).
+        # Mirrors the base model's `torch.linspace` + shift transform so users
+        # can trade quality for speed on turbo models too.  Only fires when
+        # the caller did NOT pass an explicit `timesteps` list.
+        if t_schedule_list is None and infer_steps is not None and infer_steps > 0:
+            n = min(int(infer_steps), 20)
+            if n != int(infer_steps):
+                logger.warning(
+                    "infer_steps=%d exceeds maximum 20, clamping to 20.", infer_steps
+                )
+            raw = [1.0 - i / n for i in range(n)]
+            if shift != 1.0:
+                raw = [shift * t / (1.0 + (shift - 1.0) * t) for t in raw]
+            t_schedule_list = raw
+
         if t_schedule_list is None:
             # Use shift-based schedule: round to nearest valid shift
             original_shift = shift
@@ -2014,6 +2060,16 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             logger.warning("Heun sampler is not compatible with SDE; falling back to Euler.")
             use_heun = False
 
+        # DCW — opt-in per-band wavelet-domain correction (CVPR 2026).
+        # No-op unless `dcw_enabled=True` and a non-zero scaler is configured.
+        dcw_corrector = DCWCorrector(
+            enabled=dcw_enabled,
+            mode=dcw_mode,
+            scaler=dcw_scaler,
+            high_scaler=dcw_high_scaler,
+            wavelet=dcw_wavelet,
+        )
+
         cover_steps = int(num_steps * audio_cover_strength)
         _switched_to_non_cover = False
         for step_idx in range(num_steps):
@@ -2054,9 +2110,21 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             if use_ema and prev_vt is not None:
                 vt = (1.0 - velocity_ema_factor) * vt + velocity_ema_factor * prev_vt
 
+            # Cache pre-step latent so DCW can reconstruct the predicted
+            # clean sample `denoised = x - v * t` after the sampler update.
+            # Also stash the raw velocity (pre-Heun-averaging) so the x0
+            # reconstruction uses the single-evaluation v(t_curr), matching
+            # the reference FLUX scheduler's `x0 = sample - sigma * v`.
+            xt_before_step = xt
+            vt_for_denoise = vt
+
             # On final step, directly compute x0 from noise
             if step_idx == num_steps - 1:
                 xt = self.get_x0_from_noise(xt, vt, t_curr_tensor)
+                if dcw_corrector.is_active:
+                    t_unsq = current_timestep * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                    denoised = xt_before_step - vt_for_denoise * t_unsq
+                    xt = dcw_corrector.apply(xt, denoised, current_timestep)
                 prev_vt = vt
                 break
 
@@ -2108,6 +2176,13 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 dt_tensor = dt * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
                 xt = xt - vt * dt_tensor
                 t_after_step = next_timestep
+
+            # DCW correction — push x_next's frequency band(s) away from
+            # the predicted clean sample.  Scaler decays with t_curr.
+            if dcw_corrector.is_active:
+                t_unsq = current_timestep * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                denoised = xt_before_step - vt_for_denoise * t_unsq
+                xt = dcw_corrector.apply(xt, denoised, current_timestep)
 
             prev_vt = vt
 

@@ -36,8 +36,14 @@ class GenerateMusicExecuteMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
+        dcw_wavelet: str = "haar",
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        task_type: str = "",
     ) -> Dict[str, Any]:
         """Invoke ``service_generate`` while maintaining background progress estimation.
 
@@ -85,12 +91,18 @@ class GenerateMusicExecuteMixin:
                     sampler_mode=sampler_mode,
                     velocity_norm_threshold=velocity_norm_threshold,
                     velocity_ema_factor=velocity_ema_factor,
+                    dcw_enabled=dcw_enabled,
+                    dcw_mode=dcw_mode,
+                    dcw_scaler=dcw_scaler,
+                    dcw_high_scaler=dcw_high_scaler,
+                    dcw_wavelet=dcw_wavelet,
                     audio_code_hints=service_inputs["audio_code_hints_batch"],
                     return_intermediate=service_inputs["should_return_intermediate"],
                     timesteps=timesteps,
                     chunk_mask_modes=service_inputs.get("chunk_mask_modes_batch"),
                     repaint_crossfade_frames=repaint_crossfade_frames,
                     repaint_injection_ratio=repaint_injection_ratio,
+                    task_type=task_type,
                 )
             except Exception as exc:
                 _error["exc"] = exc

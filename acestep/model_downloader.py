@@ -314,6 +314,17 @@ MAIN_MODEL_COMPONENTS = [
 # Default LM model (included in main model)
 DEFAULT_LM_MODEL = "acestep-5Hz-lm-1.7B"
 
+# Optional community-finetuned VAE checkpoints. Each entry maps a short
+# variant id (also used as the on-disk subdirectory under
+# <checkpoints>/) to its HuggingFace repo id. The bundled official VAE
+# stays at <checkpoints>/vae/ and is referenced as variant id "official".
+VAE_REGISTRY: Dict[str, str] = {
+    "scragvae": "scragnog/Ace-Step-1.5-ScragVAE",
+}
+
+# Variant id used for the bundled VAE that ships with the main model repo.
+DEFAULT_VAE_VARIANT = "official"
+
 
 def get_project_root() -> Path:
     """Get the project root directory.
@@ -691,6 +702,136 @@ def ensure_dit_model(
     return False, f"Unknown DiT model: {model_name}"
 
 
+def list_available_vae_variants() -> List[str]:
+    """Return all selectable VAE variant ids (official first)."""
+    return [DEFAULT_VAE_VARIANT, *VAE_REGISTRY.keys()]
+
+
+def resolve_vae_path(checkpoint_dir: "str | Path", vae_variant: Optional[str]) -> Path:
+    """Resolve a VAE variant id (or absolute path) to its on-disk directory.
+
+    Args:
+        checkpoint_dir: Root checkpoints directory.
+        vae_variant: Variant id (``"official"`` or a key in ``VAE_REGISTRY``)
+            or an absolute filesystem path. ``None`` / ``""`` is treated as
+            ``"official"``.
+
+    Returns:
+        Absolute path of the VAE checkpoint directory.
+
+    Raises:
+        ValueError: If ``vae_variant`` is not recognized.
+    """
+    if isinstance(checkpoint_dir, str):
+        checkpoint_dir = Path(checkpoint_dir)
+    if not vae_variant:
+        return checkpoint_dir / "vae"
+    if os.path.isabs(vae_variant):
+        return Path(vae_variant)
+    if vae_variant == DEFAULT_VAE_VARIANT:
+        return checkpoint_dir / "vae"
+    if vae_variant in VAE_REGISTRY:
+        return checkpoint_dir / vae_variant
+    raise ValueError(
+        f"Unknown VAE variant '{vae_variant}'. Available: "
+        f"{', '.join(list_available_vae_variants())}"
+    )
+
+
+def check_vae_exists(vae_variant: str, checkpoints_dir: Optional[Path] = None) -> bool:
+    """Return whether the requested VAE variant has weights on disk."""
+    if checkpoints_dir is None:
+        checkpoints_dir = get_checkpoints_dir()
+    elif isinstance(checkpoints_dir, str):
+        checkpoints_dir = Path(checkpoints_dir)
+    try:
+        path = resolve_vae_path(checkpoints_dir, vae_variant)
+    except ValueError:
+        return False
+    return _contains_model_weights(path)
+
+
+def download_vae(
+    vae_variant: str,
+    checkpoints_dir: Optional[Path] = None,
+    force: bool = False,
+    token: Optional[str] = None,
+    prefer_source: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """Download a community VAE variant into ``<checkpoints>/<variant>/``.
+
+    The bundled ``"official"`` VAE is *not* downloaded here — it ships
+    with the main model and is fetched by ``download_main_model``.
+    """
+    if vae_variant == DEFAULT_VAE_VARIANT:
+        return False, (
+            f"VAE variant '{DEFAULT_VAE_VARIANT}' ships with the main model; "
+            "use download_main_model() instead."
+        )
+    if vae_variant not in VAE_REGISTRY:
+        available = ", ".join(VAE_REGISTRY.keys()) or "(none)"
+        return False, f"Unknown VAE variant '{vae_variant}'. Available: {available}"
+
+    if checkpoints_dir is None:
+        checkpoints_dir = get_checkpoints_dir()
+    elif isinstance(checkpoints_dir, str):
+        checkpoints_dir = Path(checkpoints_dir)
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+    target_path = checkpoints_dir / vae_variant
+    if not force and _contains_model_weights(target_path):
+        return True, f"VAE variant '{vae_variant}' already exists at {target_path}"
+
+    repo_id = VAE_REGISTRY[vae_variant]
+    print(f"Downloading VAE '{vae_variant}' from {repo_id}...")
+    print(f"Destination: {target_path}")
+
+    return _smart_download(repo_id, target_path, token, prefer_source)
+
+
+def ensure_vae_model(
+    vae_variant: Optional[str] = None,
+    checkpoints_dir: Optional[Path] = None,
+    token: Optional[str] = None,
+    prefer_source: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """Ensure the requested VAE variant is on disk, downloading if needed.
+
+    For ``"official"`` (or ``None``) this defers to ``ensure_main_model``
+    since the bundled VAE travels with the main model. For registered
+    community variants this calls ``download_vae`` when the directory
+    is missing.
+    """
+    if not vae_variant or vae_variant == DEFAULT_VAE_VARIANT:
+        return ensure_main_model(checkpoints_dir, token, prefer_source)
+
+    if checkpoints_dir is None:
+        checkpoints_dir = get_checkpoints_dir()
+    elif isinstance(checkpoints_dir, str):
+        checkpoints_dir = Path(checkpoints_dir)
+
+    if check_vae_exists(vae_variant, checkpoints_dir):
+        return True, f"VAE variant '{vae_variant}' is available"
+
+    # Absolute paths are user-supplied and cannot be downloaded. Fail with a
+    # clear, path-specific diagnostic instead of routing through download_vae,
+    # which would surface a misleading "Unknown VAE variant" error.
+    if os.path.isabs(vae_variant):
+        path = Path(vae_variant)
+        if not path.exists():
+            return False, f"VAE path '{vae_variant}' does not exist."
+        return False, (
+            f"VAE path '{vae_variant}' does not contain VAE weights "
+            "(expected diffusion_pytorch_model.safetensors)."
+        )
+
+    print("\n" + "=" * 60)
+    print(f"VAE variant '{vae_variant}' not found. Starting automatic download...")
+    print("=" * 60 + "\n")
+
+    return download_vae(vae_variant, checkpoints_dir, token=token, prefer_source=prefer_source)
+
+
 def print_model_list():
     """Print formatted list of available models."""
     print("\nAvailable Models for Download:")
@@ -709,6 +850,12 @@ def print_model_list():
     print("\n[Optional DiT Models]")
     for name, repo in SUBMODEL_REGISTRY.items():
         if "lm" not in name.lower():
+            print(f"  {name} -> {repo}")
+
+    if VAE_REGISTRY:
+        print("\n[Optional VAEs]")
+        print(f"  official -> bundled in {MAIN_MODEL_REPO}")
+        for name, repo in VAE_REGISTRY.items():
             print(f"  {name} -> {repo}")
 
     print("\n" + "=" * 60)

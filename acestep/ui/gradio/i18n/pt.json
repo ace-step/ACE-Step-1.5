@@ -196,6 +196,8 @@
     "cot_language_info": "Quando ativado, o LM detecta automaticamente o idioma vocal durante o raciocínio em cadeia de pensamento. Útil quando o idioma é ambíguo ou definido como 'unknown'. Desative se você definiu explicitamente o idioma vocal.",
     "constrained_debug_label": "Depuração de Decodificação Restrita",
     "constrained_debug_info": "Exibe registros detalhados de como os tokens de saída do LM estão sendo filtrados/restringidos. Útil apenas para desenvolvedores depurando problemas de geração de tokens. Deixe desativado para uso normal.",
+    "lm_use_legacy_cfg_prompt_label": "LM CFG: Prompt Incondicional Legado",
+    "lm_use_legacy_cfg_prompt_info": "Alternância A/B de depuração. DESLIGADO (padrão): user do CFG incondicional é 'NO USER INPUT' puro (alinhado ao treino, verdadeiramente incondicional). LIGADO: incondicional mantém caption+lyrics (design pré-correção — incondicional ainda carrega condicionamento, então CFG amplia principalmente a direção dos metadados do CoT). A estrutura em nível de byte (turn do assistant aberto, quebras de linha separadoras, renderização de reasoning vazio) é idêntica em ambos os estados, então a alternância isola apenas esta variável de design. Afeta apenas CFG da fase de codes.",
     "auto_score_label": "Pontuação Automática",
     "auto_score_info": "Calcula automaticamente uma pontuação de qualidade (0–1) para cada áudio gerado usando perplexidade. Maior = melhor. Útil para comparar resultados em um lote e encontrar o melhor. Adiciona alguns segundos por amostra.",
     "auto_lrc_label": "LRC Automático",

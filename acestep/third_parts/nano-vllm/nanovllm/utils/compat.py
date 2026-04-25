@@ -56,7 +56,16 @@ def maybe_compile(fn: Optional[F] = None, **compile_kwargs: Any) -> Any:
         """Inner decorator that performs the actual compile-or-skip logic."""
         if _HAS_TRITON:
             import torch
-            return torch.compile(func, **compile_kwargs)
+            try:
+                return torch.compile(func, **compile_kwargs)
+            except Exception as exc:
+                logger.warning(
+                    "torch.compile unavailable for {} ({}: {}) - using eager PyTorch kernels",
+                    func.__qualname__,
+                    type(exc).__name__,
+                    exc,
+                )
+                return func
         logger.info(
             "Triton not available — skipping torch.compile for {} "
             "(inference will use native PyTorch kernels)",

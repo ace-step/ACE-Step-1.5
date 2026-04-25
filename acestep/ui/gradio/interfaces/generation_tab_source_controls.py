@@ -97,6 +97,7 @@ def build_lm_code_hint_controls() -> dict[str, Any]:
                 info=t("generation.lm_codes_info"),
                 elem_classes=["has-info-container"],
                 scale=6,
+                interactive=True,
             )
         with gr.Row():
             convert_src_to_codes_btn = gr.Button(

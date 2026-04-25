@@ -1,6 +1,7 @@
 """VAE and text component loading helpers for service initialization."""
 
 import os
+from typing import Optional
 
 import torch
 
@@ -15,29 +16,37 @@ class InitServiceLoaderComponentsMixin:
         ``self.text_tokenizer`` as side effects.
     """
 
-    def _load_vae_model(self, *, checkpoint_dir: str, device: str, compile_model: bool) -> str:
+    def _load_vae_model(
+        self,
+        *,
+        checkpoint_dir: str,
+        device: str,
+        compile_model: bool,
+        vae_variant: Optional[str] = None,
+    ) -> str:
         """Load the VAE checkpoint and return its resolved path.
 
         Args:
-            checkpoint_dir: Root checkpoint directory containing the ``vae`` subdirectory.
+            checkpoint_dir: Root checkpoint directory.
             device: Target runtime device when CPU offload is disabled.
             compile_model: Whether to compile the loaded VAE after device placement.
+            vae_variant: Optional VAE variant id (e.g. ``"official"`` or
+                ``"scragvae"``) or an absolute path to a VAE directory.
+                Defaults to ``"official"`` (= ``<checkpoint_dir>/vae``).
 
         Returns:
             The resolved VAE checkpoint path as a string.
 
         Raises:
-            FileNotFoundError: If ``checkpoint_dir`` does not contain a valid ``vae`` checkpoint.
-            Exception: Propagates loader, device transfer, or compile errors from dependencies.
-
-        Side Effects:
-            Assigns ``self.vae``, selects a device-appropriate dtype via
-            ``_get_vae_dtype()``, may offload the module to CPU, switches the module
-            to eval mode, and may compile it after calling ``_ensure_len_for_compile``.
+            FileNotFoundError: If the resolved VAE directory does not exist.
+            ValueError: If ``vae_variant`` is not a known registry id, the
+                default, or an absolute path.
+            Exception: Propagates loader, device transfer, or compile errors.
         """
         from diffusers.models import AutoencoderOobleck
+        from acestep.model_downloader import resolve_vae_path
 
-        vae_checkpoint_path = os.path.join(checkpoint_dir, "vae")
+        vae_checkpoint_path = str(resolve_vae_path(checkpoint_dir, vae_variant))
         if not os.path.exists(vae_checkpoint_path):
             raise FileNotFoundError(f"VAE checkpoint not found at {vae_checkpoint_path}")
 

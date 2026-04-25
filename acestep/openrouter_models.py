@@ -94,7 +94,7 @@ class ChatCompletionRequest(BaseModel):
     use_cot_language: bool = Field(default=True, description="Use CoT for language detection")
 
     # Task type
-    task_type: str = Field(default="text2music", description="Task type: text2music, cover, repaint, extract, lego, complete")
+    task_type: str = Field(default="text2music", description="Task type: text2music, cover, cover-nofsq, repaint, extract, lego, complete")
 
     # Audio editing parameters
     repainting_start: float = Field(default=0.0, description="Repainting region start (seconds)")

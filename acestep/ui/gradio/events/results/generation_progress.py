@@ -26,6 +26,7 @@ from acestep.ui.gradio.events.results.generation_info import (
     DEFAULT_RESULTS_DIR,
     _build_generation_info,
 )
+from acestep.ui.gradio.events.results.generation_task_type import resolve_no_fsq_task_type
 from acestep.ui.gradio.events.results.audio_playback_updates import (
     build_audio_slot_update,
 )
@@ -40,8 +41,9 @@ def generate_with_progress(
     reference_audio, audio_duration, batch_size_input, src_audio,
     text2music_audio_code_string, repainting_start, repainting_end,
     instruction_display_gen, audio_cover_strength, cover_noise_strength, task_type,
-    use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
+    no_fsq, use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
     sampler_mode, velocity_norm_threshold, velocity_ema_factor,
+    dcw_enabled, dcw_mode, dcw_scaler, dcw_high_scaler, dcw_wavelet,
     custom_timesteps, audio_format, mp3_bitrate, mp3_sample_rate, lm_temperature,
     think_checkbox, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
     use_cot_metas, use_cot_caption, use_cot_language, is_format_caption,
@@ -104,6 +106,8 @@ def generate_with_progress(
     parsed_timesteps, _has_ts_warn, _ = parse_and_validate_timesteps(custom_timesteps, inference_steps)
     actual_inference_steps = len(parsed_timesteps) - 1 if parsed_timesteps is not None else inference_steps
 
+    task_type = resolve_no_fsq_task_type(task_type, bool(no_fsq))
+
     if task_type == "text2music":
         src_audio = None
 
@@ -137,6 +141,11 @@ def generate_with_progress(
         sampler_mode=sampler_mode,
         velocity_norm_threshold=velocity_norm_threshold,
         velocity_ema_factor=velocity_ema_factor,
+        dcw_enabled=dcw_enabled,
+        dcw_mode=dcw_mode,
+        dcw_scaler=dcw_scaler,
+        dcw_high_scaler=dcw_high_scaler,
+        dcw_wavelet=dcw_wavelet,
         timesteps=parsed_timesteps,
         repainting_start=repainting_start,
         repainting_end=repainting_end,

@@ -471,12 +471,100 @@ class InitServiceMixinTests(unittest.TestCase):
             "quantization",
             "use_mlx_dit",
             "prefer_source",
+            "vae_checkpoint",
         }
         self.assertEqual(set(host.last_init_params.keys()), expected_keys)
         self.assertEqual(host.last_init_params["config_path"], "acestep-v15-turbo")
         self.assertEqual(host.last_init_params["device"], "cpu")
+        self.assertEqual(host.last_init_params["vae_checkpoint"], "official")
         ensure_models.assert_called_once()
         sync_code.assert_called_once()
+
+    def test_initialize_service_honors_env_var_when_param_omitted(self):
+        """ACESTEP_VAE_CHECKPOINT seeds the variant when no explicit kwarg is given."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+
+        def _fake_load_main_model(**_kwargs):
+            host.config = types.SimpleNamespace(_attn_implementation="sdpa")
+            host.model = object()
+
+        captured: dict[str, str | None] = {}
+
+        def _fake_load_vae(**kwargs):
+            captured["vae_variant"] = kwargs.get("vae_variant")
+            return "K:/fake_root/checkpoints/scragvae"
+
+        env_with_var = {**os.environ, "ACESTEP_VAE_CHECKPOINT": "scragvae"}
+        with patch.dict(os.environ, env_with_var, clear=True):
+            with patch.object(host, "_ensure_models_present", return_value=None) as ensure_models:
+                with patch.object(host, "_sync_model_code_if_needed"):
+                    with patch.object(host, "_load_main_model_from_checkpoint", side_effect=_fake_load_main_model):
+                        with patch.object(host, "_load_vae_model", side_effect=_fake_load_vae):
+                            with patch.object(
+                                host,
+                                "_load_text_encoder_and_tokenizer",
+                                return_value="K:/fake_root/checkpoints/Qwen3-Embedding-0.6B",
+                            ):
+                                with patch.object(
+                                    host,
+                                    "_initialize_mlx_backends",
+                                    return_value=("Disabled", "Disabled"),
+                                ):
+                                    status, ok = host.initialize_service(
+                                        project_root="K:/fake_root",
+                                        config_path="acestep-v15-turbo",
+                                        device="cpu",
+                                        # No explicit vae_checkpoint.
+                                    )
+        self.assertTrue(ok)
+        self.assertEqual(captured["vae_variant"], "scragvae")
+        self.assertEqual(host.last_init_params["vae_checkpoint"], "scragvae")
+        # _ensure_models_present must also see the resolved variant so it
+        # can pre-fetch the community VAE before _load_vae_model runs.
+        ensure_models.assert_called_once()
+        self.assertEqual(
+            ensure_models.call_args.kwargs.get("vae_variant"), "scragvae"
+        )
+
+    def test_initialize_service_param_wins_over_env(self):
+        """Explicit vae_checkpoint kwarg overrides the env var."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+
+        def _fake_load_main_model(**_kwargs):
+            host.config = types.SimpleNamespace(_attn_implementation="sdpa")
+            host.model = object()
+
+        captured: dict[str, str | None] = {}
+
+        def _fake_load_vae(**kwargs):
+            captured["vae_variant"] = kwargs.get("vae_variant")
+            return "K:/fake_root/checkpoints/vae"
+
+        env_with_var = {**os.environ, "ACESTEP_VAE_CHECKPOINT": "scragvae"}
+        with patch.dict(os.environ, env_with_var, clear=True):
+            with patch.object(host, "_ensure_models_present", return_value=None):
+                with patch.object(host, "_sync_model_code_if_needed"):
+                    with patch.object(host, "_load_main_model_from_checkpoint", side_effect=_fake_load_main_model):
+                        with patch.object(host, "_load_vae_model", side_effect=_fake_load_vae):
+                            with patch.object(
+                                host,
+                                "_load_text_encoder_and_tokenizer",
+                                return_value="K:/fake_root/checkpoints/Qwen3-Embedding-0.6B",
+                            ):
+                                with patch.object(
+                                    host,
+                                    "_initialize_mlx_backends",
+                                    return_value=("Disabled", "Disabled"),
+                                ):
+                                    status, ok = host.initialize_service(
+                                        project_root="K:/fake_root",
+                                        config_path="acestep-v15-turbo",
+                                        device="cpu",
+                                        vae_checkpoint="official",
+                                    )
+        self.assertTrue(ok)
+        self.assertEqual(captured["vae_variant"], "official")
+        self.assertEqual(host.last_init_params["vae_checkpoint"], "official")
 
     def test_initialize_service_returns_error_payload_when_loader_raises(self):
         """It catches init errors and returns a formatted failure message."""

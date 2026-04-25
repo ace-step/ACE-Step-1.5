@@ -50,6 +50,12 @@ class ServiceGenerateMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
+        dcw_wavelet: str = "haar",
+        task_type: str = "",
     ) -> Dict[str, Any]:
         """Generate music latents and metadata from text/audio conditioning inputs.
 
@@ -82,6 +88,20 @@ class ServiceGenerateMixin:
             sampler_mode: Sampler algorithm — ``"euler"`` or ``"heun"``.
             velocity_norm_threshold: Velocity norm clamping threshold (0 = disabled).
             velocity_ema_factor: Velocity EMA smoothing factor (0 = disabled).
+            dcw_enabled: Enable Differential Correction in Wavelet domain
+                (CVPR 2026, arXiv:2604.16044).  Opt-in sampler-side correction
+                for SNR-t bias.  Default ``False``.
+            dcw_mode: DCW correction mode — ``"low"``, ``"high"``, ``"double"``
+                or ``"pix"``.  Default ``"low"``.
+            dcw_scaler: DCW correction strength for the low band (or the
+                single band in ``"high"``/``"pix"`` modes).  Modulated by
+                ``t_curr`` inside the sampler.
+            dcw_high_scaler: DCW correction strength for the high band in
+                ``"double"`` mode.
+            dcw_wavelet: PyWavelets basis — e.g. ``"haar"``, ``"db4"``,
+                ``"sym8"``.
+            task_type: Generation task selector used when preparing
+                conditioning masks.
 
         Returns:
             Dict[str, Any]: Service output payload containing generated latents,
@@ -121,6 +141,7 @@ class ServiceGenerateMixin:
             audio_cover_strength=audio_cover_strength,
             cover_noise_strength=cover_noise_strength,
             chunk_mask_modes=chunk_mask_modes,
+            task_type=task_type,
         )
         payload = self._unpack_service_processed_data(self.preprocess_batch(batch))
         seed_param = self._resolve_service_seed_param(normalized["seed_list"])
@@ -143,6 +164,11 @@ class ServiceGenerateMixin:
             sampler_mode=sampler_mode,
             velocity_norm_threshold=velocity_norm_threshold,
             velocity_ema_factor=velocity_ema_factor,
+            dcw_enabled=dcw_enabled,
+            dcw_mode=dcw_mode,
+            dcw_scaler=dcw_scaler,
+            dcw_high_scaler=dcw_high_scaler,
+            dcw_wavelet=dcw_wavelet,
         )
         outputs, encoder_hidden_states, encoder_attention_mask, context_latents = (
             self._execute_service_generate_diffusion(

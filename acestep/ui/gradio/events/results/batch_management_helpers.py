@@ -6,6 +6,8 @@ background generation paths.
 
 from loguru import logger
 
+from acestep.ui.gradio.events.dcw_defaults import get_dcw_defaults_for_think
+
 
 def _extract_ui_core_outputs(result_tuple):
     """Return the fixed 46 core UI outputs from a generation result tuple.
@@ -23,8 +25,9 @@ def _build_saved_params(
     reference_audio, audio_duration, batch_size_input, src_audio,
     text2music_audio_code_string, repainting_start, repainting_end,
     instruction_display_gen, audio_cover_strength, cover_noise_strength, task_type,
-    use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
+    no_fsq, use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
     sampler_mode, velocity_norm_threshold, velocity_ema_factor,
+    dcw_enabled, dcw_mode, dcw_scaler, dcw_high_scaler, dcw_wavelet,
     audio_format, mp3_bitrate, mp3_sample_rate, lm_temperature,
     think_checkbox, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
     use_cot_metas, use_cot_caption, use_cot_language,
@@ -49,13 +52,18 @@ def _build_saved_params(
         "instruction_display_gen": instruction_display_gen,
         "audio_cover_strength": audio_cover_strength,
         "cover_noise_strength": cover_noise_strength,
-        "task_type": task_type, "use_adg": use_adg,
+        "task_type": task_type, "no_fsq": no_fsq, "use_adg": use_adg,
         "cfg_interval_start": cfg_interval_start,
         "cfg_interval_end": cfg_interval_end,
         "shift": shift, "infer_method": infer_method,
         "sampler_mode": sampler_mode,
         "velocity_norm_threshold": velocity_norm_threshold,
         "velocity_ema_factor": velocity_ema_factor,
+        "dcw_enabled": dcw_enabled,
+        "dcw_mode": dcw_mode,
+        "dcw_scaler": dcw_scaler,
+        "dcw_high_scaler": dcw_high_scaler,
+        "dcw_wavelet": dcw_wavelet,
         "audio_format": audio_format,
         "mp3_bitrate": mp3_bitrate,
         "mp3_sample_rate": mp3_sample_rate,
@@ -89,6 +97,7 @@ def _log_background_params(params, next_batch_idx):
     logger.info(f"  - batch_size_input: {params.get('batch_size_input')}")
     logger.info(f"  - allow_lm_batch: {params.get('allow_lm_batch')}")
     logger.info(f"  - think_checkbox: {params.get('think_checkbox')}")
+    logger.info(f"  - no_fsq: {params.get('no_fsq')}")
     logger.info(f"  - lm_temperature: {params.get('lm_temperature')}")
     logger.info(f"  - track_name: {params.get('track_name')}")
     codes_val = params.get("text2music_audio_code_string")
@@ -98,6 +107,7 @@ def _log_background_params(params, next_batch_idx):
 
 def _apply_param_defaults(params):
     """Fill missing generation keys in ``params`` with safe defaults."""
+    dcw_defaults = get_dcw_defaults_for_think(bool(params.get("think_checkbox", True)))
     defaults = {
         "captions": "", "lyrics": "", "bpm": None, "key_scale": "",
         "time_signature": "", "vocal_language": "unknown",
@@ -109,11 +119,17 @@ def _apply_param_defaults(params):
         "repainting_start": 0.0, "repainting_end": -1,
         "instruction_display_gen": "",
         "audio_cover_strength": 1.0, "cover_noise_strength": 0.0,
-        "task_type": "text2music", "use_adg": False,
+        "task_type": "text2music", "no_fsq": False, "use_adg": False,
         "cfg_interval_start": 0.0, "cfg_interval_end": 1.0,
         "shift": 1.0, "infer_method": "ode",
         "sampler_mode": "euler", "velocity_norm_threshold": 0.0,
-        "velocity_ema_factor": 0.0, "custom_timesteps": "",
+        "velocity_ema_factor": 0.0,
+        "dcw_enabled": True,
+        "dcw_mode": dcw_defaults["mode"],
+        "dcw_scaler": dcw_defaults["scaler"],
+        "dcw_high_scaler": dcw_defaults["high_scaler"],
+        "dcw_wavelet": "haar",
+        "custom_timesteps": "",
         "audio_format": "flac",
         "mp3_bitrate": "128k",
         "mp3_sample_rate": 48000,

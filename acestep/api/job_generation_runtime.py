@@ -42,7 +42,7 @@ def run_generation_with_optional_sequential_cover_mode(
     """
 
     sequential_runs = 1
-    if req.task_type == "cover" and handler_device == "mps":
+    if req.task_type in ("cover", "cover-nofsq") and handler_device == "mps":
         if config.batch_size is not None and config.batch_size > 1:
             sequential_runs = int(config.batch_size)
             config.batch_size = 1

@@ -25,6 +25,37 @@ except ImportError:  # pragma: no cover - supports direct file execution
     )
 
 
+def _is_generation_mode_change_call(node: ast.AST) -> bool:
+    """Return whether ``node`` is the generation-mode component change call."""
+
+    if not isinstance(node, ast.Call):
+        return False
+    if not isinstance(node.func, ast.Attribute) or node.func.attr != "change":
+        return False
+    subscript = node.func.value
+    return (
+        isinstance(subscript, ast.Subscript)
+        and isinstance(subscript.value, ast.Name)
+        and subscript.value.id == "generation_section"
+        and isinstance(subscript.slice, ast.Constant)
+        and subscript.slice.value == "generation_mode"
+    )
+
+
+def _call_uses_keyword_function(node: ast.Call, function_name: str) -> bool:
+    """Return whether a call passes ``function_name`` as its ``fn=`` keyword."""
+
+    return any(k.arg == "fn" and call_name(k.value) == function_name for k in node.keywords)
+
+
+def _event_chain_root(node: ast.AST) -> ast.AST:
+    """Return the originating event for chained ``.then()`` calls."""
+
+    while isinstance(node, ast.Call) and call_name(node.func) == "then":
+        node = node.func.value
+    return node
+
+
 class DecompositionContractGenerationTests(unittest.TestCase):
     """Verify generation-side delegation contracts for event wiring extraction."""
 
@@ -83,6 +114,36 @@ class DecompositionContractGenerationTests(unittest.TestCase):
                 break
 
         self.assertTrue(found_mode_change_output_binding)
+
+    def test_generation_mode_change_does_not_reset_dcw_defaults(self):
+        """Mode switches should not overwrite manually tuned DCW controls."""
+
+        wiring_node = load_generation_mode_wiring_node()
+        mode_change_event_names = set()
+
+        for node in ast.walk(wiring_node):
+            if not isinstance(node, ast.Assign):
+                continue
+            event_root = _event_chain_root(node.value)
+            if _is_generation_mode_change_call(event_root) or (
+                isinstance(event_root, ast.Name) and event_root.id in mode_change_event_names
+            ):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        mode_change_event_names.add(target.id)
+
+        for node in ast.walk(wiring_node):
+            if not isinstance(node, ast.Call):
+                continue
+            if call_name(node.func) != "then":
+                continue
+            if not _call_uses_keyword_function(node, "update_dcw_defaults_for_think"):
+                continue
+            event_source = _event_chain_root(node.func.value)
+            if _is_generation_mode_change_call(event_source):
+                self.fail("generation_mode.change must not chain DCW default updates")
+            if isinstance(event_source, ast.Name) and event_source.id in mode_change_event_names:
+                self.fail("generation_mode.change must not chain DCW default updates")
 
     def test_generation_run_wiring_calls_expected_results_handlers(self):
         """Run wiring should call clear, generate stream, and background pre-generation helpers."""

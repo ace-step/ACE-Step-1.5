@@ -193,6 +193,8 @@
     "cot_language_info": "CoTで言語を生成(思考の連鎖)。",
     "constrained_debug_label": "制約付きデコーディングデバッグ",
     "constrained_debug_info": "制約付きデコーディングのデバッグログを有効化(チェックすると詳細ログを表示)。",
+    "lm_use_legacy_cfg_prompt_label": "LM CFG: 旧無条件プロンプトを使用",
+    "lm_use_legacy_cfg_prompt_info": "デバッグ用A/Bトグル。オフ(既定): CFG無条件のuserは裸の'NO USER INPUT'(学習と整合した、真の無条件)。オン: 無条件でcaption+lyricsを保持(修正前の設計——無条件でも条件を含むため、CFGは主にCoTメタデータ方向のみ増幅)。バイトレベルの構造(assistantターン未クローズ、区切り改行、空reasoningのレンダリング)は両状態で同一なので、トグルはこの1つの設計変数のみを分離します。codes段階のCFGにのみ影響。",
     "auto_score_label": "自動スコアリング",
     "auto_score_info": "生成されたすべてのオーディオの品質スコアを自動計算。",
     "auto_lrc_label": "自動 LRC",

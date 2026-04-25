@@ -209,6 +209,11 @@ class GenerateMusicMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
+        dcw_wavelet: str = "haar",
         use_tiled_decode: bool = True,
         timesteps: Optional[List[float]] = None,
         latent_shift: float = 0.0,
@@ -231,6 +236,16 @@ class GenerateMusicMixin:
             guidance_scale: CFG guidance value.
             seed: Optional explicit seed from caller/UI.
             infer_method: Diffusion method name.
+            dcw_enabled: Enable Differential Correction in Wavelet domain
+                (CVPR 2026, arXiv:2604.16044) at each sampler step.  Off by default.
+            dcw_mode: DCW mode — ``"low"`` / ``"high"`` / ``"double"`` / ``"pix"``.
+            dcw_scaler: Low-band (or single-band) correction strength; modulated
+                by ``t_curr`` inside the sampler, so the effective strength decays
+                from ``dcw_scaler`` at ``t=1`` to 0 at ``t=0``.
+            dcw_high_scaler: High-band strength — only used in ``"double"`` mode.
+            dcw_wavelet: PyWavelets basis, e.g. ``"haar"`` / ``"db4"`` / ``"sym8"``.
+                On the MLX path only ``"haar"`` is implemented natively; other
+                bases warn once and fall back to Haar.
             timesteps: Optional custom timestep schedule.
             use_tiled_decode: Whether tiled VAE decode is used.
             latent_shift: Additive latent post-processing value.
@@ -306,7 +321,7 @@ class GenerateMusicMixin:
 
             # Cover/repaint/lego/extract: lock duration to source audio.
             if processed_src_audio is not None and task_type in (
-                "cover", "repaint", "lego", "extract",
+                "cover", "cover-nofsq", "repaint", "lego", "extract",
             ):
                 audio_duration = processed_src_audio.shape[-1] / self.sample_rate
 
@@ -360,8 +375,14 @@ class GenerateMusicMixin:
                 sampler_mode=sampler_mode,
                 velocity_norm_threshold=velocity_norm_threshold,
                 velocity_ema_factor=velocity_ema_factor,
+                dcw_enabled=dcw_enabled,
+                dcw_mode=dcw_mode,
+                dcw_scaler=dcw_scaler,
+                dcw_high_scaler=dcw_high_scaler,
+                dcw_wavelet=dcw_wavelet,
                 repaint_crossfade_frames=resolved_cf_frames,
                 repaint_injection_ratio=injection_ratio,
+                task_type=task_type,
             )
             outputs = service_run["outputs"]
             infer_steps_for_progress = service_run["infer_steps_for_progress"]

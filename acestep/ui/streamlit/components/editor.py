@@ -51,7 +51,7 @@ def show_editor() -> None:
 
     if task == "repaint":
         repaint_ui(audio_path, duration_sec)
-    elif task == "cover":
+    elif task in ("cover", "cover-nofsq"):
         cover_ui(audio_path, duration_sec)
     elif task == "complete":
         complete_ui(audio_path, duration_sec)

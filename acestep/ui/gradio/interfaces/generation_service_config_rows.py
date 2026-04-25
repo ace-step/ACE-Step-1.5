@@ -1,5 +1,6 @@
 """Row builders for generation service configuration section."""
 
+import os
 from typing import Any
 
 import gradio as gr
@@ -8,6 +9,10 @@ from acestep.gpu_config import (
     GPU_TIER_LABELS,
     find_best_lm_model_on_disk,
     get_gpu_device_name,
+)
+from acestep.model_downloader import (
+    DEFAULT_VAE_VARIANT,
+    list_available_vae_variants,
 )
 from acestep.ui.gradio.i18n import t, available_languages_info
 
@@ -106,7 +111,8 @@ def build_model_device_controls(
         params: Startup state dictionary containing optional model/device values.
 
     Returns:
-        A component map containing ``config_path``, ``device``, and ``device_value``.
+        A component map containing ``config_path``, ``device``, ``vae_checkpoint``,
+        and ``device_value``.
     """
 
     with gr.Row():
@@ -139,9 +145,30 @@ def build_model_device_controls(
             info=t("service.device_info"),
             elem_classes=["has-info-container"],
         )
+    with gr.Row():
+        vae_choices = list_available_vae_variants()
+        # When ACESTEP_VAE_CHECKPOINT names a known variant, seed the UI with
+        # it on first launch so the env var actually takes effect from
+        # Gradio. Once initialized, prefer the previously chosen value.
+        env_vae = os.environ.get("ACESTEP_VAE_CHECKPOINT") or ""
+        env_seed = env_vae if env_vae in vae_choices else DEFAULT_VAE_VARIANT
+        vae_default = (
+            params.get("vae_checkpoint", env_seed)
+            if service_pre_initialized
+            and params.get("vae_checkpoint", env_seed) in vae_choices
+            else env_seed
+        )
+        vae_checkpoint = gr.Dropdown(
+            label=t("service.vae_label"),
+            choices=vae_choices,
+            value=vae_default,
+            info=t("service.vae_info"),
+            elem_classes=["has-info-container"],
+        )
     return {
         "config_path": config_path,
         "device": device,
+        "vae_checkpoint": vae_checkpoint,
         "device_value": device_value,
     }
 

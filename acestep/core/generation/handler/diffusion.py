@@ -38,6 +38,11 @@ class DiffusionMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
+        dcw_wavelet: str = "haar",
     ) -> Dict[str, Any]:
         """Run the MLX diffusion loop and return generated latents.
 
@@ -63,6 +68,15 @@ class DiffusionMixin:
             sampler_mode: Sampler algorithm — ``"euler"`` or ``"heun"``.
             velocity_norm_threshold: Velocity norm clamping threshold (0 = disabled).
             velocity_ema_factor: Velocity EMA smoothing factor (0 = disabled).
+            dcw_enabled: Enable Differential Correction in Wavelet domain
+                (CVPR 2026, arXiv:2604.16044) on the MLX path.  Off by default.
+            dcw_mode: ``"low"`` / ``"high"`` / ``"double"`` / ``"pix"``.
+            dcw_scaler: Low-band (or single-band) correction strength.
+            dcw_high_scaler: High-band strength — only used when
+                ``dcw_mode == "double"``.
+            dcw_wavelet: Wavelet basis. MLX path currently only implements
+                ``"haar"`` natively; other values warn once and fall back
+                to Haar.
 
         Returns:
             Dict[str, Any]: ``{"target_latents": torch.Tensor, "time_costs": dict}``.
@@ -145,6 +159,11 @@ class DiffusionMixin:
             sampler_mode=sampler_mode,
             velocity_norm_threshold=velocity_norm_threshold,
             velocity_ema_factor=velocity_ema_factor,
+            dcw_enabled=dcw_enabled,
+            dcw_mode=dcw_mode,
+            dcw_scaler=dcw_scaler,
+            dcw_high_scaler=dcw_high_scaler,
+            dcw_wavelet=dcw_wavelet,
         )
 
         target_np = result["target_latents"]

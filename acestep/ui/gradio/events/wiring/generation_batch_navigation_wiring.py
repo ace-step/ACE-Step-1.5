@@ -132,6 +132,7 @@ def _build_capture_current_params_inputs(generation_section: dict[str, Any]) -> 
         generation_section["audio_cover_strength"],
         generation_section["cover_noise_strength"],
         generation_section["task_type"],
+        generation_section["no_fsq"],
         generation_section["use_adg"],
         generation_section["cfg_interval_start"],
         generation_section["cfg_interval_end"],

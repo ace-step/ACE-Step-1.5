@@ -138,6 +138,18 @@ class GenerationParams:
     sampler_mode: str = "euler"  # "euler" (first-order) or "heun" (second-order predictor-corrector)
     velocity_norm_threshold: float = 0.0  # Clamp velocity prediction norms (0 = disabled, try 2.0)
     velocity_ema_factor: float = 0.0  # Velocity EMA smoothing (0 = disabled, try 0.1)
+    # DCW — Differential Correction in Wavelet domain (CVPR 2026, arXiv:2604.16044).
+    # On by default to mitigate SNR-t bias via per-band wavelet-domain correction
+    # at each sampler step.  Uses `pytorch_wavelets` + `PyWavelets` (managed deps).
+    dcw_enabled: bool = True
+    # Defaults tuned by grid search on the pure-DiT path; "double" with
+    # low_scaler=0.05 and high_scaler=0.02 was the top configuration.  In
+    # LLM-think mode DCW's gain is small and these defaults still sit near
+    # the think-mode optimum band, so we keep a single global default.
+    dcw_mode: str = "double"        # "low" | "high" | "double" | "pix"
+    dcw_scaler: float = 0.05        # low-band scaler (or single scaler for "high"/"pix")
+    dcw_high_scaler: float = 0.02   # high-band scaler (used only in "double" mode)
+    dcw_wavelet: str = "haar"       # PyWavelets basis, e.g. "haar", "db4", "sym8"
     # Custom timesteps (parsed from string like "0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0")
     # If provided, overrides inference_steps and shift
     timesteps: Optional[List[float]] = None
@@ -413,7 +425,7 @@ def generate_music(
         # and don't need LM to generate audio codes or metadata.
         # For extract tasks, LLM-generated captions can conflict with the extract instruction
         # and cause the DiT model to reconstruct input audio instead of extracting stems.
-        skip_lm_tasks = {"cover", "repaint", "extract"}
+        skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract"}
         
         # Determine if we should use LLM
         # LLM is needed for:
@@ -597,7 +609,7 @@ def generate_music(
                 dit_input_vocal_language = lm_generated_metadata.get("vocal_language", dit_input_vocal_language)
 
         # Repaint/cover/extract: no LM run, so conditioning must come from params (caption + lyrics from GUI).
-        if params.task_type in ("repaint", "cover", "extract"):
+        if params.task_type in ("repaint", "cover", "cover-nofsq", "extract"):
             dit_input_caption = params.caption or dit_input_caption
             dit_input_lyrics = params.lyrics if params.lyrics is not None else dit_input_lyrics
             logger.info(f"[generate_music] {params.task_type} task: using params.caption='{params.caption}', params.lyrics='{params.lyrics}'")
@@ -606,7 +618,7 @@ def generate_music(
         # Cover/repaint/lego/extract: duration is locked to the source audio
         # length.  Silently ignore whatever the caller passed — the handler
         # will set audio_duration from the loaded waveform.
-        if params.task_type in ("cover", "repaint", "lego", "extract"):
+        if params.task_type in ("cover", "cover-nofsq", "repaint", "lego", "extract"):
             audio_duration = None
 
         # Phase 2: DiT music generation
@@ -649,6 +661,11 @@ def generate_music(
             "sampler_mode": params.sampler_mode,
             "velocity_norm_threshold": params.velocity_norm_threshold,
             "velocity_ema_factor": params.velocity_ema_factor,
+            "dcw_enabled": params.dcw_enabled,
+            "dcw_mode": params.dcw_mode,
+            "dcw_scaler": params.dcw_scaler,
+            "dcw_high_scaler": params.dcw_high_scaler,
+            "dcw_wavelet": params.dcw_wavelet,
             "timesteps": params.timesteps,
             "latent_shift": params.latent_shift,
             "latent_rescale": params.latent_rescale,

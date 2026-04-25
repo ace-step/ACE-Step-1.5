@@ -102,7 +102,7 @@ def capture_current_params(
     reference_audio, audio_duration, batch_size_input, src_audio,
     text2music_audio_code_string, repainting_start, repainting_end,
     instruction_display_gen, audio_cover_strength, cover_noise_strength, task_type,
-    use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
+    no_fsq, use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
     custom_timesteps, audio_format, mp3_bitrate, mp3_sample_rate, lm_temperature,
     think_checkbox, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
     use_cot_metas, use_cot_caption, use_cot_language,
@@ -140,6 +140,7 @@ def capture_current_params(
         "audio_cover_strength": audio_cover_strength,
         "cover_noise_strength": cover_noise_strength,
         "task_type": task_type,
+        "no_fsq": no_fsq,
         "use_adg": use_adg,
         "cfg_interval_start": cfg_interval_start,
         "cfg_interval_end": cfg_interval_end,
@@ -189,7 +190,7 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     """
     if current_batch_index not in batch_queue:
         gr.Warning(t("messages.no_batch_data"))
-        return [gr.update()] * 30
+        return [gr.update()] * 31
 
     batch_data = batch_queue[current_batch_index]
     params = batch_data.get("generation_params", {})
@@ -222,6 +223,7 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     fade_out_duration = params.get("fade_out_duration", 0.0)
     latent_shift = params.get("latent_shift", 0.0)
     latent_rescale = params.get("latent_rescale", 1.0)
+    no_fsq = params.get("no_fsq", False)
 
     stored_codes = batch_data.get("codes", "")
     is_mp3 = audio_format == "mp3"
@@ -243,5 +245,5 @@ def restore_batch_parameters(current_batch_index, batch_queue):
         track_name, complete_track_classes,
         enable_normalization, normalization_db,
         fade_in_duration, fade_out_duration,
-        latent_shift, latent_rescale,
+        latent_shift, latent_rescale, no_fsq,
     )

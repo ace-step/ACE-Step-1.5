@@ -15,6 +15,9 @@ from acestep.gpu_config import (
     get_gpu_config_for_tier, set_global_gpu_config, GPU_TIER_LABELS, GPU_TIER_CONFIGS,
     resolve_lm_backend,
 )
+from acestep.ui.gradio.interfaces.generation_service_config_rows import (
+    build_component_gpu_hint_text,
+)
 from .model_config import is_pure_base_model, is_sft_model, is_xl_model, get_model_type_ui_settings
 
 
@@ -268,6 +271,7 @@ def on_tier_change(selected_tier, llm_handler=None):
     gpu_info_text = (
         f"🖥️ **{_gpu_device_name}** — {new_config.gpu_memory_gb:.1f} GB VRAM "
         f"— {t('service.gpu_auto_tier')}: **{tier_label}**"
+        f"  \n{build_component_gpu_hint_text()}"
     )
 
     return (

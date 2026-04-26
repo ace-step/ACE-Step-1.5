@@ -5,6 +5,7 @@ from typing import Any
 
 import gradio as gr
 
+from acestep.core.generation.device_mapping import resolve_component_device_map
 from acestep.gpu_config import (
     GPU_TIER_LABELS,
     find_best_lm_model_on_disk,
@@ -15,6 +16,17 @@ from acestep.model_downloader import (
     list_available_vae_variants,
 )
 from acestep.ui.gradio.i18n import t, available_languages_info
+
+
+def build_component_gpu_hint_text(default_device: str = "auto") -> str:
+    """Build a compact UI hint for component-level GPU placement."""
+    component_device_map = resolve_component_device_map()
+    return (
+        "Component GPU hint: "
+        f"DiT={component_device_map.dit or default_device}, "
+        f"VAE={component_device_map.vae or default_device}, "
+        f"LM={component_device_map.lm or default_device}"
+    )
 
 
 def build_language_selector(current_language: str) -> dict[str, Any]:
@@ -53,6 +65,7 @@ def build_gpu_info_and_tier(gpu_config: Any) -> dict[str, Any]:
     gpu_text = (
         f"\U0001f5a5\ufe0f **{get_gpu_device_name()}** \u2014 {gpu_config.gpu_memory_gb:.1f} GB VRAM "
         f"\u2014 {t('service.gpu_auto_tier')}: **{GPU_TIER_LABELS.get(gpu_config.tier, gpu_config.tier)}**"
+        f"  \n{build_component_gpu_hint_text()}"
     )
     with gr.Row():
         gpu_info_display = gr.Markdown(value=gpu_text)

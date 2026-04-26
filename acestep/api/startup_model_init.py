@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Optional
 
+from loguru import logger  # type: ignore[reportMissingImports]
+
 from acestep.core.generation.device_mapping import (
+    ComponentDeviceMap,
     resolve_component_device_map,
     validate_component_device_map,
 )
@@ -53,12 +56,19 @@ def do_model_initialization(
     config_path = os.getenv("ACESTEP_CONFIG_PATH", "acestep-v15-turbo")
     device = os.getenv("ACESTEP_DEVICE", "auto")
     component_device_map = resolve_component_device_map()
-    validate_component_device_map(component_device_map)
+    try:
+        validate_component_device_map(component_device_map)
+    except ValueError as exc:
+        logger.warning(
+            "[API Server] Component GPU mapping validation failed ({}); falling back to defaults.",
+            exc,
+        )
+        component_device_map = ComponentDeviceMap()
     service_device = component_device_map.dit or device
     print(
-        "[API Server] Resolved component GPU map: "
-        f"DiT={component_device_map.dit or service_device}, "
-        f"VAE={component_device_map.vae or service_device}, "
+        "[API Server] Initial component GPU hint: "
+        f"DiT={component_device_map.dit or device}, "
+        f"VAE={component_device_map.vae or device}, "
         f"LM={component_device_map.lm or device}"
     )
     use_flash_attention = env_bool("ACESTEP_USE_FLASH_ATTENTION", True)
@@ -94,6 +104,7 @@ def do_model_initialization(
         project_root=project_root,
         config_path=config_path,
         device=service_device,
+        component_device_map=component_device_map,
         use_flash_attention=use_flash_attention,
         compile_model=compile_model,
         offload_to_cpu=offload_to_cpu,
@@ -119,6 +130,7 @@ def do_model_initialization(
                 project_root=project_root,
                 config_path=config_path2,
                 device=service_device,
+                component_device_map=component_device_map,
                 use_flash_attention=use_flash_attention,
                 compile_model=compile_model,
                 offload_to_cpu=offload_to_cpu,
@@ -146,6 +158,7 @@ def do_model_initialization(
                 project_root=project_root,
                 config_path=config_path3,
                 device=service_device,
+                component_device_map=component_device_map,
                 use_flash_attention=use_flash_attention,
                 compile_model=compile_model,
                 offload_to_cpu=offload_to_cpu,

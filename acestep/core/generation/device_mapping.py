@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from loguru import logger  # type: ignore[reportMissingImports]
+
 try:
     import torch  # type: ignore[reportMissingImports]
 except Exception:  # pragma: no cover - fallback for minimal environments
@@ -31,11 +33,21 @@ def _rank_cuda_devices_by_free_vram() -> list[int]:
         free_bytes = 0
         try:
             free_bytes = int(torch.cuda.mem_get_info(idx)[0])
-        except Exception:
+        except RuntimeError as exc:
+            logger.debug(
+                "[device_mapping] mem_get_info({}) failed ({}); retrying with device context.",
+                idx,
+                exc,
+            )
             try:
                 with torch.cuda.device(idx):
                     free_bytes = int(torch.cuda.mem_get_info()[0])
-            except Exception:
+            except RuntimeError as exc2:
+                logger.warning(
+                    "[device_mapping] Unable to query free VRAM for cuda:{} ({}); ranking it last.",
+                    idx,
+                    exc2,
+                )
                 free_bytes = 0
         free_by_device.append((idx, free_bytes))
     free_by_device.sort(key=lambda pair: pair[1], reverse=True)
@@ -62,7 +74,15 @@ def resolve_component_device_map() -> ComponentDeviceMap:
 
 
 def validate_component_device_map(mapping: ComponentDeviceMap) -> None:
-    """Validate that mapped CUDA indices exist on the current host."""
+    """Validate that mapped CUDA indices exist on the current host.
+
+    Args:
+        mapping: Component-to-device mapping to validate.
+
+    Raises:
+        ValueError: If any ``cuda:<idx>`` entry references an index out of range
+            for visible CUDA devices.
+    """
     cuda_count = torch.cuda.device_count() if torch is not None and torch.cuda.is_available() else 0
     for component, device in (
         ("dit", mapping.dit),

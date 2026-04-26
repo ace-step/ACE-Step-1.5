@@ -10,6 +10,7 @@ from loguru import logger
 
 from acestep import gpu_config
 from acestep.core.generation.device_mapping import (
+    ComponentDeviceMap,
     resolve_component_device_map,
     validate_component_device_map,
 )
@@ -54,6 +55,7 @@ class InitServiceOrchestratorMixin:
         project_root: str,
         config_path: str,
         device: str = "auto",
+        component_device_map: Optional[ComponentDeviceMap] = None,
         use_flash_attention: bool = False,
         compile_model: bool = False,
         offload_to_cpu: bool = False,
@@ -76,7 +78,8 @@ class InitServiceOrchestratorMixin:
                 )
 
             resolved_device = self._resolve_initialize_device(device)
-            component_device_map = resolve_component_device_map()
+            if component_device_map is None:
+                component_device_map = resolve_component_device_map()
             validate_component_device_map(component_device_map)
             dit_device = component_device_map.dit or resolved_device
             vae_device = component_device_map.vae or resolved_device

@@ -32,12 +32,29 @@ class DeviceMappingTests(unittest.TestCase):
 
     @patch("torch.cuda.is_available", return_value=True)
     @patch("torch.cuda.device_count", return_value=1)
+    @patch("torch.cuda.mem_get_info", return_value=(8 * 1024**3, 8 * 1024**3))
     def test_resolve_component_device_map_single_gpu_collapses_to_cuda_zero(self, *_mocks) -> None:
         """Single visible GPU should resolve all components onto cuda:0."""
         mapping = resolve_component_device_map()
         self.assertEqual("cuda:0", mapping.dit)
         self.assertEqual("cuda:0", mapping.vae)
         self.assertEqual("cuda:0", mapping.lm)
+
+    @patch("torch.cuda.is_available", return_value=True)
+    @patch("torch.cuda.device_count", return_value=2)
+    @patch("torch.cuda.mem_get_info")
+    def test_resolve_component_device_map_two_gpu_shares_second_for_vae_and_lm(
+        self, mock_mem_get_info, *_mocks
+    ) -> None:
+        """Two GPUs should assign DiT to top VRAM and share second GPU for VAE/LM."""
+        mock_mem_get_info.side_effect = [
+            (6 * 1024**3, 8 * 1024**3),  # cuda:0
+            (4 * 1024**3, 8 * 1024**3),  # cuda:1
+        ]
+        mapping = resolve_component_device_map()
+        self.assertEqual("cuda:0", mapping.dit)
+        self.assertEqual("cuda:1", mapping.vae)
+        self.assertEqual("cuda:1", mapping.lm)
 
     @patch("torch.cuda.is_available", return_value=False)
     def test_resolve_component_device_map_no_cuda_returns_empty(self, *_mocks) -> None:

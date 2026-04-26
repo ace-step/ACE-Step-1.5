@@ -166,6 +166,8 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
         dataset_dir=args.dataset_dir,
         device=gpu_info.device,
         precision=gpu_info.precision,
+        num_devices=getattr(args, "num_devices", 1),
+        strategy=getattr(args, "strategy", "auto"),
         resume_from=args.resume_from,
         log_dir=args.log_dir,
         log_every=args.log_every,

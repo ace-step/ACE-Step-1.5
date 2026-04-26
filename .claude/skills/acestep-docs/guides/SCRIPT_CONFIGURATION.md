@@ -475,7 +475,7 @@ The `start_gradio_ui_rocm.bat` and `start_api_server_rocm.bat` scripts include a
 
 ```batch
 REM ==================== ROCm Configuration ====================
-REM Force PyTorch LM backend (bypasses vllm engine flash_attn dependency)
+REM Force PyTorch LM backend (bypasses nano-vllm flash_attn dependency)
 set ACESTEP_LM_BACKEND=pt
 
 REM RDNA3 GPU architecture override

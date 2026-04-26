@@ -27,6 +27,7 @@ This service provides an HTTP-based asynchronous music generation API.
 - [Download Audio Files](#10-download-audio-files)
 - [Health Check](#11-health-check)
 - [Environment Variables](#12-environment-variables)
+- [Training API](#training-api)
 
 ---
 
@@ -140,7 +141,7 @@ Suitable for passing only text parameters, or referencing audio file paths that 
 | `lyrics` | string | `""` | Lyrics content |
 | `thinking` | bool | `false` | Whether to use 5Hz LM to generate audio codes (lm-dit behavior) |
 | `vocal_language` | string | `"en"` | Lyrics language (en, zh, ja, etc.) |
-| `audio_format` | string | `"mp3"` | Output format (mp3, wav, flac) |
+| `audio_format` | string | `"mp3"` | Output format: `flac`, `mp3`, `opus`, `aac`, `wav`, `wav32` |
 
 **Sample/Description Mode Parameters**:
 
@@ -164,6 +165,8 @@ Suitable for passing only text parameters, or referencing audio file paths that 
 - `thinking=true`:
   - The server will use 5Hz LM to generate `audio_code_string` (lm-dit behavior).
   - DiT runs with LM-generated codes for enhanced music quality.
+
+> **Note:** The LM is **automatically skipped** for `cover`, `repaint`, and `extract` task types, even if `thinking=true` is set. These tasks work directly with source audio and do not benefit from LM planning. Setting `thinking=true` has no effect for these tasks. The LM is only used when the task type is `text2music`, `lego`, or `complete`.
 
 **Metadata Auto-Completion (Conditional)**:
 
@@ -562,16 +565,80 @@ curl http://localhost:8001/v1/models
 
 ---
 
-## 9. Server Statistics
+## 9. Initialize or Switch Models
 
 ### 9.1 API Definition
+
+- **URL**: `/v1/init`
+- **Method**: `POST`
+
+Initialize or switch DiT and LM models on demand without restarting the server.
+
+### 9.2 Request Parameters
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `model` | string | null | DiT model name to load (e.g., `"acestep-v15-base"`). If omitted, re-initializes the current model for the target slot. |
+| `slot` | int (1-3) | 1 | Handler slot to initialize. Slots 2 and 3 require `ACESTEP_CONFIG_PATH2` / `ACESTEP_CONFIG_PATH3` to have been set at startup. |
+| `init_llm` | bool | false | Whether to also initialize the LM in this request. |
+| `lm_model_path` | string | null | LM model path override (e.g., `"acestep-5Hz-lm-1.7B"`). |
+
+### 9.3 Response Example
+
+```json
+{
+  "data": {
+    "message": "Model initialization completed",
+    "slot": 2,
+    "loaded_model": "acestep-v15-base",
+    "loaded_lm_model": null,
+    "models": [
+      {"name": "acestep-v15-base", "is_default": false, "is_loaded": true},
+      {"name": "acestep-v15-turbo", "is_default": true, "is_loaded": true}
+    ],
+    "lm_models": [],
+    "llm_initialized": false
+  },
+  "code": 200,
+  "error": null,
+  "timestamp": 1700000000000,
+  "extra": null
+}
+```
+
+### 9.4 Usage Examples
+
+```bash
+# Initialize default slot (slot 1)
+curl -X POST http://localhost:8001/v1/init \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "acestep-v15-base"}'
+
+# Load a different model into slot 2
+curl -X POST http://localhost:8001/v1/init \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "acestep-v15-base", "slot": 2}'
+
+# Initialize slot 1 with LM
+curl -X POST http://localhost:8001/v1/init \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "acestep-v15-turbo", "init_llm": true, "lm_model_path": "acestep-5Hz-lm-1.7B"}'
+```
+
+> **Note**: Slots 2 and 3 are only available when `ACESTEP_CONFIG_PATH2` / `ACESTEP_CONFIG_PATH3` environment variables were set before starting the server. Attempting to initialize an unavailable slot returns a `400` error.
+
+---
+
+## 10. Server Statistics
+
+### 10.1 API Definition
 
 - **URL**: `/v1/stats`
 - **Method**: `GET`
 
 Returns server runtime statistics.
 
-### 9.2 Response Example
+### 10.2 Response Example
 
 ```json
 {
@@ -594,7 +661,7 @@ Returns server runtime statistics.
 }
 ```
 
-### 9.3 Usage Example
+### 10.3 Usage Example
 
 ```bash
 curl http://localhost:8001/v1/stats
@@ -602,22 +669,22 @@ curl http://localhost:8001/v1/stats
 
 ---
 
-## 10. Download Audio Files
+## 11. Download Audio Files
 
-### 10.1 API Definition
+### 11.1 API Definition
 
 - **URL**: `/v1/audio`
 - **Method**: `GET`
 
 Download generated audio files by path.
 
-### 10.2 Request Parameters
+### 11.2 Request Parameters
 
 | Parameter Name | Type | Description |
 | :--- | :--- | :--- |
 | `path` | string | URL-encoded path to the audio file |
 
-### 10.3 Usage Example
+### 11.3 Usage Example
 
 ```bash
 # Download using the URL from task result
@@ -626,16 +693,16 @@ curl "http://localhost:8001/v1/audio?path=%2Ftmp%2Fapi_audio%2Fabc123.mp3" -o ou
 
 ---
 
-## 11. Health Check
+## 12. Health Check
 
-### 11.1 API Definition
+### 12.1 API Definition
 
 - **URL**: `/health`
 - **Method**: `GET`
 
 Returns service health status.
 
-### 11.2 Response Example
+### 12.2 Response Example
 
 ```json
 {
@@ -653,7 +720,7 @@ Returns service health status.
 
 ---
 
-## 12. Environment Variables
+## 13. Environment Variables
 
 The API server can be configured using environment variables:
 
@@ -704,6 +771,63 @@ The API server can be configured using environment variables:
 | `ACESTEP_TMPDIR` | `.cache/acestep/tmp` | Temporary file directory |
 | `TRITON_CACHE_DIR` | `.cache/acestep/triton` | Triton cache directory |
 | `TORCHINDUCTOR_CACHE_DIR` | `.cache/acestep/torchinductor` | TorchInductor cache directory |
+
+---
+
+## Training API
+
+The API server exposes endpoints for fine-tuning adapters from preprocessed tensor datasets. Training runs asynchronously in the background; use the status and stop endpoints to monitor and control training.
+
+### LoRA Training
+
+- **URL**: `/v1/training/start`
+- **Method**: `POST`
+
+Starts a LoRA training run. See the [LoRA Training Tutorial](LoRA_Training_Tutorial.md) for parameter details.
+
+### LoKr Training
+
+- **URL**: `/v1/training/start_lokr`
+- **Method**: `POST`
+
+Starts a LoKr (Kronecker) training run. LoKr is a faster alternative to LoRA that uses Kronecker decomposition.
+
+**LoKr-specific parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `tensor_dir` | string | (required) | Directory with preprocessed tensors |
+| `output_dir` | string | `"./lokr_output"` | Output directory for checkpoints |
+| `lokr_linear_dim` | int | `64` | Linear dimension (1-256) |
+| `lokr_linear_alpha` | int | `128` | Linear alpha (1-512) |
+| `lokr_factor` | int | `-1` | Kronecker factor (-1 = auto, otherwise 1-8) |
+| `lokr_decompose_both` | bool | `false` | Decompose both matrices |
+| `lokr_use_tucker` | bool | `false` | Use Tucker decomposition |
+| `lokr_use_scalar` | bool | `false` | Use scalar calibration |
+| `lokr_weight_decompose` | bool | `true` | Enable DoRA mode |
+| `learning_rate` | float | `0.03` | Learning rate |
+| `train_epochs` | int | `500` | Training epochs |
+| `train_batch_size` | int | `1` | Batch size |
+| `gradient_accumulation` | int | `4` | Gradient accumulation steps |
+| `save_every_n_epochs` | int | `5` | Checkpoint save frequency |
+| `training_shift` | float | `3.0` | Timestep shift |
+| `training_seed` | int | `42` | Random seed |
+| `gradient_checkpointing` | bool | `false` | Trade speed for lower VRAM |
+
+**Usage example:**
+
+```bash
+curl -X POST http://localhost:8001/v1/training/start_lokr \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "tensor_dir": "/path/to/tensors",
+    "output_dir": "./lokr_output",
+    "lokr_linear_dim": 64,
+    "lokr_linear_alpha": 128,
+    "learning_rate": 0.03,
+    "train_epochs": 500
+  }'
+```
 
 ---
 

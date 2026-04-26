@@ -54,6 +54,17 @@ def store_batch_in_queue(
                 # Offload to CPU to free VRAM; data is preserved for potential re-scoring.
                 old_extra[k] = v.cpu()
 
+    # Delete large tensors from batches 2+ generations behind to prevent
+    # unbounded RAM accumulation (each generation's tensors are ~4-8 GB).
+    # Non-tensor metadata (e.g. lm_metadata, time_costs) is preserved so
+    # that batch navigation and display still work for older batches.
+    for old_idx in list(batch_queue.keys()):
+        if old_idx < batch_index - 1:
+            old_extra = batch_queue[old_idx].get("extra_outputs", {})
+            for k in list(old_extra.keys()):
+                if isinstance(old_extra[k], torch.Tensor):
+                    del old_extra[k]
+
     batch_queue[batch_index] = {
         "status": status,
         "audio_paths": audio_paths,
@@ -91,8 +102,8 @@ def capture_current_params(
     reference_audio, audio_duration, batch_size_input, src_audio,
     text2music_audio_code_string, repainting_start, repainting_end,
     instruction_display_gen, audio_cover_strength, cover_noise_strength, task_type,
-    use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
-    custom_timesteps, audio_format, lm_temperature,
+    no_fsq, use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
+    custom_timesteps, audio_format, mp3_bitrate, mp3_sample_rate, lm_temperature,
     think_checkbox, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
     use_cot_metas, use_cot_caption, use_cot_language,
     constrained_decoding_debug, allow_lm_batch, auto_score, auto_lrc,
@@ -101,6 +112,7 @@ def capture_current_params(
     enable_normalization, normalization_db,
     fade_in_duration, fade_out_duration,
     latent_shift, latent_rescale,
+    repaint_mode, repaint_strength,
 ):
     """Capture current UI parameters for next-batch generation.
 
@@ -128,6 +140,7 @@ def capture_current_params(
         "audio_cover_strength": audio_cover_strength,
         "cover_noise_strength": cover_noise_strength,
         "task_type": task_type,
+        "no_fsq": no_fsq,
         "use_adg": use_adg,
         "cfg_interval_start": cfg_interval_start,
         "cfg_interval_end": cfg_interval_end,
@@ -135,6 +148,8 @@ def capture_current_params(
         "infer_method": infer_method,
         "custom_timesteps": custom_timesteps,
         "audio_format": audio_format,
+        "mp3_bitrate": mp3_bitrate,
+        "mp3_sample_rate": mp3_sample_rate,
         "lm_temperature": lm_temperature,
         "think_checkbox": think_checkbox,
         "lm_cfg_scale": lm_cfg_scale,
@@ -158,6 +173,8 @@ def capture_current_params(
         "fade_out_duration": fade_out_duration,
         "latent_shift": latent_shift,
         "latent_rescale": latent_rescale,
+        "repaint_mode": repaint_mode,
+        "repaint_strength": repaint_strength,
     }
 
 
@@ -173,7 +190,7 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     """
     if current_batch_index not in batch_queue:
         gr.Warning(t("messages.no_batch_data"))
-        return [gr.update()] * 26
+        return [gr.update()] * 31
 
     batch_data = batch_queue[current_batch_index]
     params = batch_data.get("generation_params", {})
@@ -187,6 +204,9 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     audio_duration = params.get("audio_duration", -1)
     batch_size_input = params.get("batch_size_input", 2)
     inference_steps = params.get("inference_steps", 8)
+    audio_format = params.get("audio_format", "flac")
+    mp3_bitrate = params.get("mp3_bitrate", "128k")
+    mp3_sample_rate = params.get("mp3_sample_rate", 48000)
     lm_temperature = params.get("lm_temperature", 0.85)
     lm_cfg_scale = params.get("lm_cfg_scale", 2.0)
     lm_top_k = params.get("lm_top_k", 0)
@@ -203,8 +223,10 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     fade_out_duration = params.get("fade_out_duration", 0.0)
     latent_shift = params.get("latent_shift", 0.0)
     latent_rescale = params.get("latent_rescale", 1.0)
+    no_fsq = params.get("no_fsq", False)
 
     stored_codes = batch_data.get("codes", "")
+    is_mp3 = audio_format == "mp3"
     if stored_codes:
         codes_main = stored_codes[0] if isinstance(stored_codes, list) and stored_codes else stored_codes
     else:
@@ -215,10 +237,13 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     return (
         codes_main, captions, lyrics, bpm, key_scale, time_signature,
         vocal_language, audio_duration, batch_size_input, inference_steps,
+        audio_format, gr.update(visible=is_mp3),
+        gr.update(choices=[("128 kbps", "128k"), ("192 kbps", "192k"), ("256 kbps", "256k"), ("320 kbps", "320k")], value=mp3_bitrate, visible=is_mp3),
+        gr.update(choices=[("48 kHz", 48000), ("44.1 kHz", 44100)], value=mp3_sample_rate, visible=is_mp3),
         lm_temperature, lm_cfg_scale, lm_top_k, lm_top_p, think_checkbox,
         use_cot_caption, use_cot_language, allow_lm_batch,
         track_name, complete_track_classes,
         enable_normalization, normalization_db,
         fade_in_duration, fade_out_duration,
-        latent_shift, latent_rescale,
+        latent_shift, latent_rescale, no_fsq,
     )

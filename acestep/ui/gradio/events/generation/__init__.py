@@ -25,6 +25,7 @@ from .service_init import (
 )
 from .model_config import (
     is_pure_base_model,
+    is_sft_model,
     update_model_type_settings,
     get_ui_control_config,
     get_model_type_ui_settings,
@@ -45,6 +46,10 @@ from .llm_actions import (
     analyze_src_audio,
 )
 from .ui_helpers import (
+    NON_THINK_DCW_DEFAULTS,
+    THINK_DCW_DEFAULTS,
+    get_dcw_defaults_for_think,
+    update_dcw_defaults_for_think,
     update_negative_prompt_visibility,
     on_auto_checkbox_change,
     reset_all_auto,

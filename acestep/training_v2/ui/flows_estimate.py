@@ -51,7 +51,7 @@ def _step_model(a: dict) -> None:
     )
     a["model_variant"] = ask(
         "Model variant", default=a.get("model_variant", "base"),
-        choices=["turbo", "base", "sft"], allow_back=True,
+        choices=["turbo", "base", "sft", "xl_turbo", "xl_base", "xl_sft"], allow_back=True,
     )
     a["dataset_dir"] = ask_path(
         "Dataset directory (preprocessed .pt files)",

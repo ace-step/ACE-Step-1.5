@@ -68,13 +68,51 @@ class StartupModelInitTests(unittest.TestCase):
     @patch("acestep.api.startup_model_init.initialize_llm_at_startup")
     @patch("acestep.api.startup_model_init.set_global_gpu_config")
     @patch("acestep.api.startup_model_init.get_gpu_config")
+    def test_initialize_models_default_lazy_mode_skips_loading(
+        self,
+        mock_get_gpu_config: MagicMock,
+        _mock_set_global_gpu_config: MagicMock,
+        mock_initialize_llm_at_startup: MagicMock,
+    ) -> None:
+        """Default behavior should skip model loading (lazy-load on first request)."""
+
+        app = SimpleNamespace(state=SimpleNamespace())
+        handler = MagicMock()
+        llm_handler = MagicMock()
+        mock_get_gpu_config.return_value = _gpu_config()
+
+        # Use default env_bool — ACESTEP_NO_INIT defaults to True (lazy mode)
+        initialize_models_at_startup(
+            app=app,
+            handler=handler,
+            llm_handler=llm_handler,
+            handler2=None,
+            handler3=None,
+            config_path2="",
+            config_path3="",
+            get_project_root=MagicMock(return_value="k:/repo"),
+            get_model_name=MagicMock(return_value="acestep-v15-turbo"),
+            ensure_model_downloaded=MagicMock(),
+            env_bool=lambda _name, default: default,
+        )
+
+        handler.initialize_service.assert_not_called()
+        mock_initialize_llm_at_startup.assert_not_called()
+        self.assertIsNotNone(getattr(app.state, "gpu_config", None))
+        # Init kwargs should be stored for lazy use
+        self.assertIsNotNone(getattr(app.state, "_model_init_kwargs", None))
+
+    @patch("acestep.api.startup_model_init.initialize_llm_at_startup")
+    @patch("acestep.api.startup_model_init.set_global_gpu_config")
+    @patch("acestep.api.startup_model_init.get_gpu_config")
     def test_initialize_models_at_startup_initializes_primary_and_calls_llm(
         self,
         mock_get_gpu_config: MagicMock,
         _mock_set_global_gpu_config: MagicMock,
         mock_initialize_llm_at_startup: MagicMock,
     ) -> None:
-        """Helper should initialize primary DiT and then call LLM startup helper."""
+        """Helper should initialize primary DiT and then call LLM startup helper
+        when ACESTEP_NO_INIT is explicitly set to False."""
 
         app = SimpleNamespace(
             state=SimpleNamespace(
@@ -93,6 +131,10 @@ class StartupModelInitTests(unittest.TestCase):
         ensure_model_downloaded = MagicMock()
         mock_get_gpu_config.return_value = _gpu_config()
 
+        def _env_bool(name: str, default: bool) -> bool:
+            # Force ACESTEP_NO_INIT=False to trigger eager loading
+            return False if name == "ACESTEP_NO_INIT" else default
+
         with patch.dict(os.environ, {}, clear=True):
             initialize_models_at_startup(
                 app=app,
@@ -105,7 +147,7 @@ class StartupModelInitTests(unittest.TestCase):
                 get_project_root=MagicMock(return_value="k:/repo"),
                 get_model_name=MagicMock(return_value="acestep-v15-turbo"),
                 ensure_model_downloaded=ensure_model_downloaded,
-                env_bool=lambda _name, default: default,
+                env_bool=_env_bool,
             )
 
         handler.initialize_service.assert_called_once()
@@ -138,6 +180,10 @@ class StartupModelInitTests(unittest.TestCase):
         handler.initialize_service.return_value = ("boom", False)
         mock_get_gpu_config.return_value = _gpu_config()
 
+        def _env_bool(name: str, default: bool) -> bool:
+            # Force ACESTEP_NO_INIT=False to trigger eager loading
+            return False if name == "ACESTEP_NO_INIT" else default
+
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "boom"):
                 initialize_models_at_startup(
@@ -151,7 +197,7 @@ class StartupModelInitTests(unittest.TestCase):
                     get_project_root=MagicMock(return_value="k:/repo"),
                     get_model_name=MagicMock(return_value="acestep-v15-turbo"),
                     ensure_model_downloaded=MagicMock(),
-                    env_bool=lambda _name, default: default,
+                    env_bool=_env_bool,
                 )
 
         mock_initialize_llm_at_startup.assert_not_called()

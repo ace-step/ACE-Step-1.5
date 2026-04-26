@@ -7,7 +7,6 @@ import torch
 
 from acestep.core.generation.handler.conditioning_masks import (
     ConditioningMaskMixin,
-    _LEGO_INSTRUCTION_MARKER,
 )
 
 
@@ -33,6 +32,7 @@ def _build(
     target_latents: Optional[torch.Tensor] = None,
     repainting_start: Optional[List[float]] = None,
     repainting_end: Optional[List[float]] = None,
+    task_type: str = "",
 ):
     """Call _build_chunk_masks_and_src_latents with sensible defaults."""
     if instructions is None:
@@ -55,6 +55,7 @@ def _build(
         repainting_start=repainting_start,
         repainting_end=repainting_end,
         silence_latent_tiled=silence_latent_tiled,
+        task_type=task_type,
     )
 
 
@@ -82,6 +83,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
             target_latents=target_latents,
             repainting_start=[0.0],
             repainting_end=[4.0],  # 4 s at sample_rate=48000, stride=1920 → latents 0..100
+            task_type="lego",
         )
         self.assertTrue(
             torch.allclose(src_latents, target_latents),
@@ -100,6 +102,7 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
             target_latents=target_latents,
             repainting_start=[0.0],
             repainting_end=[4.0],
+            task_type="lego",
         )
         self.assertTrue(
             torch.allclose(src_latents, target_latents),
@@ -156,36 +159,21 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
                 msg="src_latents outside repaint mask should preserve original audio",
             )
 
-    def test_lego_instruction_marker_constant(self):
-        """The _LEGO_INSTRUCTION_MARKER constant matches the actual lego instruction templates."""
-        lego_instructions = [
-            "Generate the GUITAR track based on the audio context:",
-            "Generate the track based on the audio context:",
-            "Generate the DRUMS track based on the audio context:",
-        ]
-        for instr in lego_instructions:
-            self.assertIn(
-                _LEGO_INSTRUCTION_MARKER,
-                instr.lower(),
-                f"Marker must match lego instruction: {instr!r}",
-            )
-
-    def test_lego_detection_is_case_insensitive(self):
-        """Lego detection must be case-insensitive via .lower()."""
+    def test_explicit_lego_task_type_preserves_source_latents(self):
+        """Lego behavior is selected by task_type rather than instruction text."""
         host = _make_host()
         target_latents = torch.ones(1, 100, 16) * 2.5
-        # Use mixed-case version of the instruction
-        mixed_case_instruction = "Generate the GUITAR Track BASED ON THE AUDIO CONTEXT:"
         chunk_masks, spans, is_covers, src_latents, _rm = _build(
             host,
-            instructions=[mixed_case_instruction],
+            instructions=["Any non-matching instruction"],
             target_latents=target_latents,
             repainting_start=[0.0],
             repainting_end=[4.0],
+            task_type="lego",
         )
         self.assertTrue(
             torch.allclose(src_latents, target_latents),
-            "lego detection must be case-insensitive; src_latents should be preserved",
+            "lego task_type should preserve src_latents regardless of instruction text",
         )
 
     def test_lego_with_empty_instructions_does_not_raise(self):
@@ -221,6 +209,34 @@ class ConditioningMaskLegoBehaviorTests(unittest.TestCase):
             src_latents[0, start_l:end_l].abs().sum().item() < 1e-6,
             "non-lego instruction must still silence the repaint region",
         )
+
+    def test_cover_marks_is_cover_for_fsq_roundtrip(self):
+        """Standard cover mode should trigger cover-token roundtrip conditioning."""
+        host = _make_host()
+        _chunk_masks, _spans, is_covers, _src_latents, _rm = _build(
+            host,
+            task_type="cover",
+        )
+        self.assertTrue(is_covers[0].item())
+
+    def test_cover_nofsq_does_not_mark_is_cover(self):
+        """Raw cover mode should keep VAE latents instead of FSQ roundtrip latents."""
+        host = _make_host()
+        _chunk_masks, _spans, is_covers, _src_latents, _rm = _build(
+            host,
+            task_type="cover-nofsq",
+        )
+        self.assertFalse(is_covers[0].item())
+
+    def test_audio_code_hints_still_mark_cover(self):
+        """Precomputed audio-code hints should retain cover conditioning behavior."""
+        host = _make_host()
+        _chunk_masks, _spans, is_covers, _src_latents, _rm = _build(
+            host,
+            audio_code_hints=["codes"],
+            task_type="cover-nofsq",
+        )
+        self.assertTrue(is_covers[0].item())
 
     def test_no_source_audio_produces_silence_latents(self):
         """Without source audio, src_latents should be silence (text2music behavior)."""

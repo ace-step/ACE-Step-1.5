@@ -22,3 +22,7 @@ modelscope
 peft>=0.18.0
 lightning>=2.0.0
 tensorboard>=2.0.0
+xxhash
+
+# Local package - install with: pip install -e acestep/third_parts/nano-vllm
+# nano-vllm

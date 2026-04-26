@@ -55,6 +55,7 @@ def configure_api_routes(
     runtime_temporary_llm_model: Callable[..., Any],
     runtime_atomic_write_json: Callable[..., Any],
     runtime_append_jsonl: Callable[..., Any],
+    create_sample: Callable[..., Any] = None,
 ) -> None:
     """Configure middleware, compatibility router, and all API route modules."""
 
@@ -95,6 +96,7 @@ def configure_api_routes(
         env_bool=env_bool,
         to_int=to_int,
         to_float=to_float,
+        create_sample_fn=create_sample,
     )
 
     register_lora_routes(app=app, verify_api_key=verify_api_key, wrap_response=wrap_response)

@@ -273,7 +273,7 @@ This is where I belong
 | **Guidance Scale** | 7.0 | CFG strength (base model only). Higher = follows prompt more |
 | **Seed** | -1 | Random seed. Use comma-separated values for batches |
 | **Random Seed** | ✓ | When checked, generates random seeds |
-| **Audio Format** | mp3 | Output format: mp3, flac |
+| **Audio Format** | mp3 | Output format: flac, mp3, opus, aac, wav, wav32 |
 | **Shift** | 3.0 | Timestep shift factor (1.0-5.0). Recommended 3.0 for turbo |
 | **Inference Method** | ode | ode (Euler, faster) or sde (stochastic) |
 | **Custom Timesteps** | - | Override timesteps (e.g., "0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0") |
@@ -317,7 +317,7 @@ This is where I belong
 
 | Control | Description |
 |---------|-------------|
-| **Think** | Enable 5Hz LM for code generation and metadata |
+| **Think** | Enable 5Hz LM for code generation and metadata. **Note:** Automatically ignored for Cover, Repaint, and Extract tasks — these tasks use source audio directly and skip the LM regardless of this setting. |
 | **ParallelThinking** | Enable parallel LM batch processing |
 | **CaptionRewrite** | Let LM enhance the input caption |
 | **AutoGen** | Automatically start next batch after completion |

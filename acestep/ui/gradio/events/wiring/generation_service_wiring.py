@@ -9,7 +9,7 @@ from typing import Any
 import gradio as gr
 
 from .. import generation_handlers as gen_h
-from ...i18n import get_i18n
+from ...i18n import get_i18n, reset_language_context, set_language_context
 from .context import (
     GenerationWiringContext,
     build_auto_checkbox_inputs,
@@ -48,6 +48,15 @@ def register_generation_service_handlers(
         outputs=[generation_section["language_dropdown"]],
     )
 
+    def _set_legacy_cfg_prompt(enabled):
+        llm_handler.use_legacy_cfg_prompt = bool(enabled)
+
+    generation_section["lm_use_legacy_cfg_prompt"].change(
+        fn=_set_legacy_cfg_prompt,
+        inputs=[generation_section["lm_use_legacy_cfg_prompt"]],
+        outputs=[],
+    )
+
     generation_section["config_path"].change(
         fn=gen_h.update_model_type_settings,
         inputs=[generation_section["config_path"], generation_section["generation_mode"]],
@@ -82,7 +91,7 @@ def register_generation_service_handlers(
         ],
     )
 
-    generation_section["init_btn"].click(
+    init_event = generation_section["init_btn"].click(
         fn=lambda *args: gen_h.init_service_wrapper(dit_handler, llm_handler, *args),
         inputs=[
             generation_section["checkpoint_dropdown"],
@@ -99,6 +108,7 @@ def register_generation_service_handlers(
             generation_section["mlx_dit_checkbox"],
             generation_section["generation_mode"],
             generation_section["batch_size_input"],
+            generation_section["vae_checkpoint"],
         ],
         outputs=[
             generation_section["init_status"],
@@ -116,6 +126,15 @@ def register_generation_service_handlers(
             generation_section["audio_duration"],
             generation_section["batch_size_input"],
             generation_section["think_checkbox"],
+        ],
+    )
+    init_event.then(
+        fn=gen_h.update_dcw_defaults_for_think,
+        inputs=[generation_section["think_checkbox"]],
+        outputs=[
+            generation_section["dcw_mode"],
+            generation_section["dcw_scaler"],
+            generation_section["dcw_high_scaler"],
         ],
     )
 
@@ -147,6 +166,12 @@ def register_generation_service_handlers(
         fn=dit_handler.set_lora_scale,
         inputs=[generation_section["lora_scale_slider"]],
         outputs=[generation_section["lora_status"]],
+    )
+
+    # ========== MLX VAE Chunk Size ==========
+    generation_section["mlx_vae_chunk_size"].change(
+        fn=lambda val: setattr(dit_handler, "mlx_vae_chunk_size", int(val)),
+        inputs=[generation_section["mlx_vae_chunk_size"]],
     )
 
     # ========== Auto Checkbox Handlers ==========
@@ -199,7 +224,13 @@ def register_generation_service_handlers(
 
 
 def _apply_runtime_language(language: str) -> dict[str, Any]:
-    """Update global i18n language for runtime-generated messages.
+    """Update i18n language at the Gradio request boundary.
+
+    Sets a per-request ``ContextVar`` so any ``t()`` calls within this
+    handler use *language*, then updates the shared instance default so
+    future requests without an explicit context inherit it.  The
+    ``ContextVar`` is reset on exit to avoid poisoning reused
+    thread-pool workers with a stale language value.
 
     Args:
         language: Selected UI language code from the language dropdown.
@@ -207,6 +238,12 @@ def _apply_runtime_language(language: str) -> dict[str, Any]:
     Returns:
         A ``gr.update`` payload preserving the selected dropdown value.
     """
-
-    get_i18n(language)
-    return gr.update(value=language)
+    # Set ContextVar for this handler's scope.  No t() calls happen here
+    # today, but the pattern establishes the request-boundary convention
+    # for future handlers that adopt per-request language isolation.
+    token = set_language_context(language)
+    try:
+        get_i18n(language)
+        return gr.update(value=language)
+    finally:
+        reset_language_context(token)

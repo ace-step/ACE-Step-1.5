@@ -60,6 +60,108 @@ class _Host(LyricTimestampMixin, LyricScoreMixin):
         return contextlib.nullcontext()
 
 
+class SyncAlignmentConfigTests(unittest.TestCase):
+    """Test _sync_alignment_config picks up model config values."""
+
+    _DEFAULT = {2: [6], 3: [10, 11], 4: [3], 5: [8, 9], 6: [8]}
+
+    def _make_host(self):
+        """Build a _Host with a None decoder for config-only tests."""
+        return _Host(decoder=_Decoder(cross_attns=None))
+
+    def test_sync_from_model_config_with_string_keys(self):
+        """Model config with string keys (JSON-serialized) should be converted to int keys."""
+        host = self._make_host()
+        host.config = types.SimpleNamespace(
+            lyric_alignment_layers_config={"3": [18, 27], "4": [22], "5": [5, 6, 7]}
+        )
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, {3: [18, 27], 4: [22], 5: [5, 6, 7]})
+
+    def test_sync_from_model_config_with_int_keys(self):
+        """Model config with int keys should work directly."""
+        host = self._make_host()
+        host.config = types.SimpleNamespace(
+            lyric_alignment_layers_config={3: [18, 27], 7: [20, 21]}
+        )
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, {3: [18, 27], 7: [20, 21]})
+
+    def test_sync_restores_default_when_config_missing(self):
+        """When model config has no lyric_alignment_layers_config, default is restored."""
+        host = self._make_host()
+        host.config = types.SimpleNamespace()
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, self._DEFAULT)
+
+    def test_sync_restores_default_when_config_is_none(self):
+        """When lyric_alignment_layers_config is explicitly None, default is restored."""
+        host = self._make_host()
+        host.config = types.SimpleNamespace(lyric_alignment_layers_config=None)
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, self._DEFAULT)
+
+    def test_sync_restores_default_when_no_config_object(self):
+        """When self.config is None (model not loaded), default is restored."""
+        host = self._make_host()
+        host.config = None
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, self._DEFAULT)
+
+    # --- Re-initialization (stale config) ---
+
+    def test_sync_resets_to_default_on_reinit_without_config(self):
+        """Switching from 4B (with config) to 2B (without) must restore the 2B default."""
+        host = self._make_host()
+        # First load: 4B model with explicit alignment config
+        host.config = types.SimpleNamespace(
+            lyric_alignment_layers_config={"3": [18, 27], "7": [20, 21]}
+        )
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, {3: [18, 27], 7: [20, 21]})
+
+        # Second load: 2B model without the field
+        host.config = types.SimpleNamespace()
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, self._DEFAULT)
+
+    # --- Empty dict ---
+
+    def test_sync_restores_default_on_empty_dict(self):
+        """An empty dict {} must not wipe custom_layers_config; restore default instead."""
+        host = self._make_host()
+        host.config = types.SimpleNamespace(lyric_alignment_layers_config={})
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, self._DEFAULT)
+
+    # --- Malformed input validation ---
+
+    def test_sync_ignores_non_dict_config(self):
+        """A non-dict value (e.g. a list) should be ignored and default restored."""
+        host = self._make_host()
+        host.config = types.SimpleNamespace(lyric_alignment_layers_config=[1, 2, 3])
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, self._DEFAULT)
+
+    def test_sync_ignores_non_integer_keys(self):
+        """Dict with non-integer-castable keys should be ignored and default restored."""
+        host = self._make_host()
+        host.config = types.SimpleNamespace(
+            lyric_alignment_layers_config={"layer_a": [1], "layer_b": [2]}
+        )
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, self._DEFAULT)
+
+    def test_sync_ignores_non_integer_head_values(self):
+        """Dict with non-integer head values should be ignored and default restored."""
+        host = self._make_host()
+        host.config = types.SimpleNamespace(
+            lyric_alignment_layers_config={"3": ["a", "b"]}
+        )
+        host._sync_alignment_config()
+        self.assertEqual(host.custom_layers_config, self._DEFAULT)
+
+
 class LyricAlignmentMixinTests(unittest.TestCase):
     """Cover success and no-attention regression behaviors."""
 

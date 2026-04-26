@@ -168,6 +168,51 @@ class MlxVaeNativeMixinTests(unittest.TestCase):
         self.assertIsInstance(out, torch.Tensor)
         self.assertEqual(tuple(out.shape), (2, 1, 600))
 
+    def test_mlx_decode_single_respects_custom_chunk_size(self):
+        """It uses self.mlx_vae_chunk_size when set on the host instance."""
+        host = _Host()
+        # Set a small chunk size so tiling is triggered on a moderately long sequence
+        host.mlx_vae_chunk_size = 256
+        fake_mx_core = _fake_mx_core_module()
+        fake_mlx_pkg = types.ModuleType("mlx")
+        fake_mlx_pkg.__path__ = []
+        # 512 frames > 256 chunk size, so tiling should activate
+        z_nlc = np.ones((1, 512, 1), dtype=np.float32)
+        decode_calls = []
+
+        def tracking_decode_fn(chunk):
+            """Track chunk sizes passed to decode and expand by factor two."""
+            decode_calls.append(chunk.shape[1])
+            return np.repeat(chunk, 2, axis=1)
+
+        with patch.dict(sys.modules, {"mlx": fake_mlx_pkg, "mlx.core": fake_mx_core}):
+            out = host._mlx_decode_single(z_nlc, decode_fn=tracking_decode_fn)
+        # Tiling was used: multiple decode calls were made
+        self.assertGreater(len(decode_calls), 1)
+        # Output length should match input * upsample factor
+        self.assertEqual(tuple(out.shape), (1, 1024, 1))
+
+    def test_mlx_decode_single_no_tiling_with_large_chunk_size(self):
+        """It skips tiling when mlx_vae_chunk_size exceeds the latent length."""
+        host = _Host()
+        host.mlx_vae_chunk_size = 2048
+        fake_mx_core = _fake_mx_core_module()
+        fake_mlx_pkg = types.ModuleType("mlx")
+        fake_mlx_pkg.__path__ = []
+        z_nlc = np.ones((1, 256, 1), dtype=np.float32)
+        decode_calls = []
+
+        def tracking_decode_fn(chunk):
+            """Track decode calls and expand latent time axis by factor two."""
+            decode_calls.append(chunk.shape[1])
+            return np.repeat(chunk, 2, axis=1)
+
+        with patch.dict(sys.modules, {"mlx": fake_mlx_pkg, "mlx.core": fake_mx_core}):
+            out = host._mlx_decode_single(z_nlc, decode_fn=tracking_decode_fn)
+        # No tiling: single decode call
+        self.assertEqual(len(decode_calls), 1)
+        self.assertEqual(tuple(out.shape), (1, 512, 1))
+
     def test_mlx_decode_single_raises_when_mlx_vae_missing(self):
         """It raises a clear runtime error when decode is requested without MLX VAE."""
         host = _Host()
@@ -193,6 +238,25 @@ class MlxVaeNativeMixinTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 host._mlx_encode_single(np.ones((1, 1000, 1), dtype=np.float32))
         self.assertIn("mlx_vae is not initialized", str(ctx.exception))
+
+
+    def test_mlx_decode_single_default_chunk_tiles_at_512(self):
+        """Default chunk=512 tiles sequences that previously decoded in one shot."""
+        host = _Host()
+        fake_mx_core = _fake_mx_core_module()
+        fake_mlx_pkg = types.ModuleType("mlx")
+        fake_mlx_pkg.__path__ = []
+        z_nlc = np.ones((1, 1500, 1), dtype=np.float32)
+        call_sizes = []
+        def tracking_decode(chunk):
+            call_sizes.append(chunk.shape[1])
+            return np.repeat(chunk, 2, axis=1)
+        with patch.dict(sys.modules, {"mlx": fake_mlx_pkg, "mlx.core": fake_mx_core}):
+            out = host._mlx_decode_single(z_nlc, decode_fn=tracking_decode)
+        self.assertEqual(tuple(out.shape), (1, 3000, 1))
+        self.assertGreater(len(call_sizes), 1)
+        for size in call_sizes:
+            self.assertLessEqual(size, 512)
 
 
 if __name__ == "__main__":

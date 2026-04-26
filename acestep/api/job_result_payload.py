@@ -6,7 +6,11 @@ from typing import Any, Callable, Optional
 
 
 def normalize_metas(meta: dict[str, Any]) -> dict[str, Any]:
-    """Normalize LM metadata and ensure expected response keys exist."""
+    """Normalize LM metadata and ensure expected response keys exist.
+
+    Also scrubs negative sentinel values (e.g. ``-1`` for auto-detect)
+    from numeric fields so they never leak into API responses.
+    """
 
     meta = meta or {}
     out: dict[str, Any] = dict(meta)
@@ -15,6 +19,12 @@ def normalize_metas(meta: dict[str, Any]) -> dict[str, Any]:
         out["keyscale"] = out.get("key_scale")
     if "timesignature" not in out and "time_signature" in out:
         out["timesignature"] = out.get("time_signature")
+
+    # Scrub negative sentinel values from numeric metadata fields.
+    for numeric_key in ("bpm", "duration"):
+        val = out.get(numeric_key)
+        if isinstance(val, (int, float)) and val <= 0:
+            out[numeric_key] = "N/A"
 
     for key in ["bpm", "duration", "genres", "keyscale", "timesignature"]:
         if out.get(key) in (None, ""):
@@ -67,14 +77,14 @@ def build_generation_success_response(
     lm_metadata = result.extra_outputs.get("lm_metadata", {})
     metas_out = normalize_metas(lm_metadata)
 
-    if params.cot_bpm:
+    if params.cot_bpm and (not isinstance(params.cot_bpm, (int, float)) or params.cot_bpm > 0):
         metas_out["bpm"] = params.cot_bpm
-    elif bpm:
+    elif bpm and (not isinstance(bpm, (int, float)) or bpm > 0):
         metas_out["bpm"] = bpm
 
-    if params.cot_duration:
+    if params.cot_duration and (not isinstance(params.cot_duration, (int, float)) or params.cot_duration > 0):
         metas_out["duration"] = params.cot_duration
-    elif audio_duration:
+    elif audio_duration and (not isinstance(audio_duration, (int, float)) or audio_duration > 0):
         metas_out["duration"] = audio_duration
 
     if params.cot_keyscale:
@@ -122,4 +132,6 @@ def build_generation_success_response(
         "timesignature": _none_if_na_str(metas_out.get("timesignature")),
         "lm_model": lm_model_name,
         "dit_model": dit_model_name,
+        "cot_caption": getattr(params, "cot_caption", "") or "",
+        "cot_lyrics": getattr(params, "cot_lyrics", "") or "",
     }

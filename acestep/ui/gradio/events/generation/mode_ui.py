@@ -19,7 +19,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
 
     is_simple = (mode == "Simple")
     is_custom = (mode == "Custom")
-    is_cover = (mode == "Remix")
+    is_cover = mode == "Remix"
     is_repaint = (mode == "Repaint")
     is_extract = (mode == "Extract")
     is_lego = (mode == "Lego")
@@ -50,8 +50,11 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     else:
         strength_label = t("generation.cover_strength_label")
         strength_info = t("generation.cover_strength_info")
-    strength_update = gr.update(visible=show_strength, label=strength_label, info=strength_info)
-    cover_noise_update = gr.update(visible=is_cover)
+    strength_kwargs = {"visible": show_strength, "label": strength_label, "info": strength_info}
+    if is_cover:
+        strength_kwargs["value"] = 0.0
+    strength_update = gr.update(**strength_kwargs)
+    cover_noise_update = gr.update(visible=is_cover, value=0.2) if is_cover else gr.update(visible=False)
 
     # Think checkbox
     lm_initialized = llm_handler.llm_initialized if llm_handler else False

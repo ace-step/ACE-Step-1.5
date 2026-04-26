@@ -5,7 +5,7 @@ import sys
 
 
 def _has_working_triton_installation() -> bool:
-    """Return whether the Triton modules required by customized_vllm import cleanly."""
+    """Return whether the Triton modules required by nano-vllm import cleanly."""
     try:
         importlib.import_module("triton")
         importlib.import_module("triton.language")

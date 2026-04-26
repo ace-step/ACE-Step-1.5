@@ -72,7 +72,7 @@ def prepare_llm_generation_inputs(
     use_cot_language = bool(req.use_cot_language)
     full_analysis_only = bool(req.full_analysis_only)
 
-    if req.task_type == "cover" and selected_handler_device == "mps":
+    if req.task_type in ("cover", "cover-nofsq") and selected_handler_device == "mps":
         if getattr(app_state, "_llm_initialized", False) and getattr(
             llm_handler, "llm_initialized", False
         ):

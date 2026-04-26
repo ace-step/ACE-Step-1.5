@@ -4,16 +4,12 @@ Regression test for the bug where CUDA graph capture would fail when
 ``flash_attn`` is not installed because the SDPA paged-cache decode path
 calls ``.item()`` inside the capture region (a forbidden CPU-GPU sync).
 
-When flash_attn is absent, customized_vllm must run in ``enforce_eager=True``
+When flash_attn is absent, nano-vllm must run in ``enforce_eager=True``
 (eager mode, no CUDA graph capture) to avoid corrupting the CUDA context.
 """
 
-import sys
 import unittest
-from types import ModuleType
 from unittest.mock import MagicMock, patch
-
-_SENTINEL = object()
 
 try:
     from acestep.llm_inference import LLMHandler
@@ -40,16 +36,13 @@ def _mock_gpu_config():
 class TestEnforceEagerWhenFlashAttnMissing(unittest.TestCase):
     """Verify that enforce_eager=True is set when flash_attn is not installed."""
 
-    def _run_initialize_with_mocks(self, flash_attn_available: bool,
-                                   device_name: str = "NVIDIA GeForce RTX 4090",
-                                   triton_available: bool = True):
+    def _run_initialize_with_mocks(self, flash_attn_available: bool, device_name: str = "NVIDIA GeForce RTX 4090"):
         """Call handler.initialize() with all heavy operations mocked.
 
         Args:
             flash_attn_available: Whether flash_attn should appear detectable
                 via ``importlib.util.find_spec``.
             device_name: Simulated CUDA device name.
-            triton_available: Whether ``import triton`` should succeed.
 
         Returns:
             The ``enforce_eager`` value that was passed to ``_initialize_5hz_lm_vllm``.
@@ -61,45 +54,28 @@ class TestEnforceEagerWhenFlashAttnMissing(unittest.TestCase):
 
         captured = {}
 
-        def fake_init_vllm(model_path: str, enforce_eager: bool = False, **_kw) -> str:
+        def fake_init_vllm(model_path: str, enforce_eager: bool = False) -> str:
             captured["enforce_eager"] = enforce_eager
             return "✅ ok"
 
-        # Inject a fake triton module so ``import triton`` inside initialize()
-        # succeeds (or fails) as requested.
-        fake_triton = ModuleType("triton") if triton_available else None
-        saved_triton = sys.modules.get("triton", _SENTINEL)
-        try:
-            if triton_available:
-                sys.modules["triton"] = fake_triton
-            else:
-                sys.modules.pop("triton", None)
+        with patch("importlib.util.find_spec", return_value=find_spec_return), \
+             patch("os.path.exists", return_value=True), \
+             patch("acestep.llm_inference.AutoTokenizer") as mock_tok, \
+             patch("acestep.llm_inference.get_global_gpu_config", return_value=_mock_gpu_config()), \
+             patch("acestep.llm_inference.MetadataConstrainedLogitsProcessor"), \
+             patch("torch.cuda.is_available", return_value=True), \
+             patch("torch.cuda.empty_cache"), \
+             patch("torch.cuda.synchronize"), \
+             patch("torch.cuda.get_device_name", return_value=device_name), \
+             patch.object(handler, "_initialize_5hz_lm_vllm", side_effect=fake_init_vllm):
 
-            with patch("importlib.util.find_spec", return_value=find_spec_return), \
-                 patch("os.path.exists", return_value=True), \
-                 patch("acestep.llm_inference.AutoTokenizer") as mock_tok, \
-                 patch("acestep.llm_inference.get_global_gpu_config", return_value=_mock_gpu_config()), \
-                 patch("acestep.llm_inference.get_gpu_memory_gb", return_value=16.0), \
-                 patch("acestep.llm_inference.MetadataConstrainedLogitsProcessor"), \
-                 patch("torch.cuda.is_available", return_value=True), \
-                 patch("torch.cuda.empty_cache"), \
-                 patch("torch.cuda.synchronize"), \
-                 patch("torch.cuda.get_device_name", return_value=device_name), \
-                 patch("torch.cuda.mem_get_info", return_value=(16 * 1024**3, 16 * 1024**3)), \
-                 patch.object(handler, "_initialize_5hz_lm_vllm", side_effect=fake_init_vllm):
-
-                mock_tok.from_pretrained.return_value = MagicMock()
-                handler.initialize(
-                    checkpoint_dir="/tmp/fake_ckpt",
-                    lm_model_path="model",
-                    backend="vllm",
-                    device="cuda",
-                )
-        finally:
-            if saved_triton is _SENTINEL:
-                sys.modules.pop("triton", None)
-            else:
-                sys.modules["triton"] = saved_triton
+            mock_tok.from_pretrained.return_value = MagicMock()
+            handler.initialize(
+                checkpoint_dir="/tmp/fake_ckpt",
+                lm_model_path="model",
+                backend="vllm",
+                device="cuda",
+            )
 
         return captured.get("enforce_eager")
 

@@ -3,10 +3,45 @@
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
+from loguru import logger
+
+# Default lyric alignment attention layers config for the 2B DiT model.
+# XL (4B) models MUST provide ``lyric_alignment_layers_config`` in their
+# config.json — this default will produce incorrect alignment for XL
+# because XL has 32 layers / 32 heads vs 24 layers / 16 heads in 2B.
+_DEFAULT_LAYERS_CONFIG: Dict[int, List[int]] = {2: [6], 3: [10, 11], 4: [3], 5: [8, 9], 6: [8]}
 
 
 class LyricAlignmentCommonMixin:
     """Provide shared data preparation helpers for lyric alignment methods."""
+
+    def _sync_alignment_config(self) -> None:
+        """Load lyric alignment layers config from model config if available.
+
+        Called after ``self.config`` is set during model initialization.
+        The model's ``lyric_alignment_layers_config`` (stored as
+        ``{"layer_idx": [head_indices]}`` with string keys in JSON) takes
+        precedence over the built-in 2B default.  When the field is absent
+        or invalid the default is always restored so that re-initialization
+        with a different model never leaves stale values behind.
+        """
+        raw = getattr(self.config, "lyric_alignment_layers_config", None) if self.config else None
+        if not raw or not isinstance(raw, dict):
+            if raw is not None:
+                logger.warning(
+                    "[lyric_alignment] Ignoring invalid lyric_alignment_layers_config "
+                    "type: {}", type(raw).__name__,
+                )
+            self.custom_layers_config = dict(_DEFAULT_LAYERS_CONFIG)
+            return
+        # HuggingFace config JSON serializes dict keys as strings — convert to int.
+        try:
+            self.custom_layers_config = {int(k): [int(h) for h in v] for k, v in raw.items()}
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "[lyric_alignment] Ignoring malformed lyric_alignment_layers_config: {}", exc,
+            )
+            self.custom_layers_config = dict(_DEFAULT_LAYERS_CONFIG)
 
     def _resolve_custom_layers_config(
         self, custom_layers_config: Optional[Dict[int, List[int]]]

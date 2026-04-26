@@ -103,6 +103,27 @@ class BatchManagementWrapperTests(unittest.TestCase):
 
         self.assertEqual(state["store_calls"][0]["codes"], ["code-0", "code-1", "code-2"])
 
+    def test_no_fsq_forwards_to_generation_and_saved_params(self):
+        """Wrapper should pass and persist the Remix no_fsq checkbox."""
+        module, state = load_batch_management_module(is_windows=False)
+        seen = {}
+
+        def _gen(*args, **_kwargs):
+            """Capture positional generation args and yield a standard result."""
+            seen["args"] = args
+            yield build_progress_result(length=48)
+
+        kwargs = _build_call_kwargs(module)
+        kwargs["task_type"] = "cover"
+        kwargs["no_fsq"] = True
+        with patch.dict(module.generate_with_batch_management.__globals__, {"generate_with_progress": _gen}):
+            list(module.generate_with_batch_management(None, None, **kwargs))
+
+        self.assertTrue(seen["args"][23])
+        saved_params = state["store_calls"][0]["generation_params"]
+        self.assertTrue(saved_params["no_fsq"])
+        self.assertEqual(saved_params["task_type"], "cover")
+
     def test_auto_lrc_copies_lrc_fields_to_batch_queue(self):
         """Auto-LRC mode should copy LRC/subtitle payloads into stored queue entry."""
         module, _state = load_batch_management_module(is_windows=False)

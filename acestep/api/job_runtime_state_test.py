@@ -20,19 +20,61 @@ from acestep.api.job_runtime_state import (
 class JobRuntimeStateTests(unittest.IsolatedAsyncioTestCase):
     """Behavior tests for runtime cache and job-state helpers."""
 
-    async def test_ensure_models_initialized_raises_on_error_or_uninitialized(self) -> None:
-        """Initialization guard should preserve legacy error behavior."""
+    async def test_ensure_models_initialized_raises_on_prior_error(self) -> None:
+        """Should propagate error from a previous failed initialization attempt."""
 
         app_state_error = SimpleNamespace(_init_error="boom", _initialized=False)
         with self.assertRaisesRegex(RuntimeError, "boom"):
             await ensure_models_initialized(app_state_error)
 
-        app_state_not_ready = SimpleNamespace(_init_error=None, _initialized=False)
-        with self.assertRaisesRegex(RuntimeError, "Model not initialized"):
-            await ensure_models_initialized(app_state_not_ready)
+    async def test_ensure_models_initialized_returns_immediately_when_ready(self) -> None:
+        """Fast path: no-op when models are already initialized."""
 
         app_state_ready = SimpleNamespace(_init_error=None, _initialized=True)
         await ensure_models_initialized(app_state_ready)
+
+    async def test_ensure_models_initialized_raises_without_init_kwargs(self) -> None:
+        """Should raise when not initialized and no lazy-init kwargs available."""
+
+        app_state_no_kwargs = SimpleNamespace(
+            _init_error=None,
+            _initialized=False,
+            _init_lock=asyncio.Lock(),
+        )
+        with self.assertRaisesRegex(RuntimeError, "no init kwargs"):
+            await ensure_models_initialized(app_state_no_kwargs)
+
+    async def test_ensure_models_initialized_lazy_loads_on_first_request(self) -> None:
+        """Should call do_model_initialization lazily when init kwargs are present."""
+
+        handler = MagicMock()
+        handler.initialize_service.return_value = ("ok", True)
+
+        app_state = SimpleNamespace(
+            _init_error=None,
+            _initialized=False,
+            _init_lock=asyncio.Lock(),
+            _model_init_kwargs=dict(
+                handler=handler,
+                llm_handler=MagicMock(),
+                handler2=None,
+                handler3=None,
+                config_path2="",
+                config_path3="",
+                get_project_root=MagicMock(return_value="/repo"),
+                get_model_name=MagicMock(return_value="acestep-v15-turbo"),
+                ensure_model_downloaded=MagicMock(),
+                env_bool=lambda _name, default: default,
+            ),
+            gpu_config=SimpleNamespace(
+                gpu_memory_gb=24.0,
+                tier="high",
+            ),
+        )
+
+        with patch("acestep.api.startup_model_init.do_model_initialization") as mock_init:
+            await ensure_models_initialized(app_state)
+            mock_init.assert_called_once()
 
     async def test_cleanup_job_temp_files_removes_tracked_paths(self) -> None:
         """Cleanup helper should remove tracked files and clear job mapping."""

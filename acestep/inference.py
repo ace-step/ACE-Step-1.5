@@ -7,6 +7,7 @@ backward-compatible Gradio UI support.
 """
 
 import math
+import inspect
 import os
 import tempfile
 from typing import Optional, Union, List, Dict, Any, Tuple
@@ -16,6 +17,7 @@ import torch
 
 
 from acestep.audio_utils import AudioSaver, apply_fade, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
+from acestep.constants import BPM_MIN, BPM_MAX, DURATION_MAX, TASK_TYPES, VALID_TIME_SIGNATURES
 
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
@@ -133,6 +135,21 @@ class GenerationParams:
     cfg_interval_end: float = 1.0
     shift: float = 1.0
     infer_method: str = "ode"  # "ode" or "sde" - diffusion inference method
+    sampler_mode: str = "euler"  # "euler" (first-order) or "heun" (second-order predictor-corrector)
+    velocity_norm_threshold: float = 0.0  # Clamp velocity prediction norms (0 = disabled, try 2.0)
+    velocity_ema_factor: float = 0.0  # Velocity EMA smoothing (0 = disabled, try 0.1)
+    # DCW — Differential Correction in Wavelet domain (CVPR 2026, arXiv:2604.16044).
+    # On by default to mitigate SNR-t bias via per-band wavelet-domain correction
+    # at each sampler step.  Uses `pytorch_wavelets` + `PyWavelets` (managed deps).
+    dcw_enabled: bool = True
+    # Defaults tuned by grid search on the pure-DiT path; "double" with
+    # low_scaler=0.05 and high_scaler=0.02 was the top configuration.  In
+    # LLM-think mode DCW's gain is small and these defaults still sit near
+    # the think-mode optimum band, so we keep a single global default.
+    dcw_mode: str = "double"        # "low" | "high" | "double" | "pix"
+    dcw_scaler: float = 0.05        # low-band scaler (or single scaler for "high"/"pix")
+    dcw_high_scaler: float = 0.02   # high-band scaler (used only in "double" mode)
+    dcw_wavelet: str = "haar"       # PyWavelets basis, e.g. "haar", "db4", "sym8"
     # Custom timesteps (parsed from string like "0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0")
     # If provided, overrides inference_steps and shift
     timesteps: Optional[List[float]] = None
@@ -156,7 +173,7 @@ class GenerationParams:
     lm_negative_prompt: str = "NO USER INPUT"
     use_cot_metas: bool = True
     use_cot_caption: bool = True
-    use_cot_lyrics: bool = False  # TODO: not used yet
+    use_cot_lyrics: bool = False  # gate is read in cli.py; not consumed by inference (see cot_lyrics below)
     use_cot_language: bool = True
     use_constrained_decoding: bool = True
 
@@ -167,6 +184,14 @@ class GenerationParams:
     cot_vocal_language: str = "unknown"
     cot_caption: str = ""
     cot_lyrics: str = ""
+
+    def __post_init__(self):
+        # shift=0 causes 0/0=NaN in timestep formula; shift<0 is nonsensical
+        if self.shift is not None and self.shift <= 0:
+            self.shift = 1.0
+        # inference_steps=0 produces empty diffusion loop (silent output)
+        if self.inference_steps is not None and self.inference_steps < 1:
+            self.inference_steps = 1
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary for JSON serialization."""
@@ -188,6 +213,8 @@ class GenerationConfig:
         lm_batch_chunk_size: Batch chunk size for LM processing
         constrained_decoding_debug: Whether to enable constrained decoding debug
         audio_format: Output audio format, one of "mp3", "wav", "flac", "wav32", "opus", "aac". Default: "flac"
+        mp3_bitrate: MP3 bitrate used when audio_format="mp3". Default: "128k"
+        mp3_sample_rate: MP3 output sample rate used when audio_format="mp3". Default: 48000
     """
     batch_size: int = 2
     allow_lm_batch: bool = False
@@ -196,6 +223,8 @@ class GenerationConfig:
     lm_batch_chunk_size: int = 8
     constrained_decoding_debug: bool = False
     audio_format: str = "flac"  # Default to FLAC for fast saving
+    mp3_bitrate: str = "128k"
+    mp3_sample_rate: int = 48000
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary for JSON serialization."""
@@ -392,9 +421,11 @@ def generate_music(
         actual_seed_list, _ = dit_handler.prepare_seeds(actual_batch_size, seed_for_generation, config.use_random_seed)
 
         # LM-based Chain-of-Thought reasoning
-        # Skip LM for cover/repaint tasks - these tasks use reference/src audio directly
-        # and don't need LM to generate audio codes
-        skip_lm_tasks = {"cover", "repaint"}
+        # Skip LM for cover/repaint/extract tasks - these tasks use reference/src audio directly
+        # and don't need LM to generate audio codes or metadata.
+        # For extract tasks, LLM-generated captions can conflict with the extract instruction
+        # and cause the DiT model to reconstruct input audio instead of extracting stems.
+        skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract"}
         
         # Determine if we should use LLM
         # LLM is needed for:
@@ -556,13 +587,13 @@ def generate_music(
                     vocal_language=dit_input_vocal_language,
                     caption=dit_input_caption,
                     lyrics=dit_input_lyrics)
-                if not params.bpm:
+                if (not params.bpm or params.bpm <= 0) and bpm and int(bpm) > 0:
                     params.cot_bpm = bpm
                 if not params.keyscale:
                     params.cot_keyscale = key_scale
                 if not params.timesignature:
                     params.cot_timesignature = time_signature
-                if not params.duration:
+                if (not params.duration or params.duration <= 0) and audio_duration and float(audio_duration) > 0:
                     params.cot_duration = audio_duration
                 if not params.vocal_language:
                     params.cot_vocal_language = vocal_language
@@ -577,59 +608,79 @@ def generate_music(
             if params.use_cot_language:
                 dit_input_vocal_language = lm_generated_metadata.get("vocal_language", dit_input_vocal_language)
 
-        # Repaint/cover: no LM run, so conditioning must come from params (caption + lyrics from GUI).
-        if params.task_type in ("repaint", "cover"):
+        # Repaint/cover/extract: no LM run, so conditioning must come from params (caption + lyrics from GUI).
+        if params.task_type in ("repaint", "cover", "cover-nofsq", "extract"):
             dit_input_caption = params.caption or dit_input_caption
             dit_input_lyrics = params.lyrics if params.lyrics is not None else dit_input_lyrics
-            logger.info(f"[generate_music] Repaint/Cover task: using params.caption='{params.caption}', params.lyrics='{params.lyrics}'")
+            logger.info(f"[generate_music] {params.task_type} task: using params.caption='{params.caption}', params.lyrics='{params.lyrics}'")
             logger.info(f"[generate_music] Final inputs: dit_input_caption='{dit_input_caption}', dit_input_lyrics='{dit_input_lyrics}'")
+
+        # Cover/repaint/lego/extract: duration is locked to the source audio
+        # length.  Silently ignore whatever the caller passed — the handler
+        # will set audio_duration from the loaded waveform.
+        if params.task_type in ("cover", "cover-nofsq", "repaint", "lego", "extract"):
+            audio_duration = None
 
         # Phase 2: DiT music generation
         # Use seed_for_generation (from config.seed or params.seed) instead of params.seed for actual generation
-        result = dit_handler.generate_music(
-            captions=dit_input_caption,
-            global_caption=params.global_caption,
-            lyrics=dit_input_lyrics,
-            bpm=bpm,
-            key_scale=key_scale,
-            time_signature=time_signature,
-            vocal_language=dit_input_vocal_language,
-            inference_steps=params.inference_steps,
-            guidance_scale=params.guidance_scale,
-            use_random_seed=config.use_random_seed,
-            seed=seed_for_generation,  # Use config.seed (or params.seed fallback) instead of params.seed directly
-            reference_audio=params.reference_audio,
-            audio_duration=audio_duration,
-            batch_size=config.batch_size if config.batch_size is not None else 1,
+        dit_generate_kwargs = {
+            "captions": dit_input_caption,
+            "global_caption": params.global_caption,
+            "lyrics": dit_input_lyrics,
+            "bpm": bpm,
+            "key_scale": key_scale,
+            "time_signature": time_signature,
+            "vocal_language": dit_input_vocal_language,
+            "inference_steps": params.inference_steps,
+            "guidance_scale": params.guidance_scale,
+            "use_random_seed": config.use_random_seed,
+            "seed": seed_for_generation,  # Use config.seed (or params.seed fallback) instead of params.seed directly
+            "reference_audio": params.reference_audio,
+            "audio_duration": audio_duration,
+            "batch_size": config.batch_size if config.batch_size is not None else 1,
             # text2music (Custom mode) never uses src_audio; force None to
             # prevent stale UI values from leaking into generation.
-            src_audio=None if params.task_type == "text2music" else params.src_audio,
-            audio_code_string=audio_code_string_to_use,
-            repainting_start=params.repainting_start,
-            repainting_end=params.repainting_end,
-            instruction=params.instruction,
-            audio_cover_strength=params.audio_cover_strength,
-            cover_noise_strength=params.cover_noise_strength,
-            task_type=params.task_type,
-            use_adg=params.use_adg,
-            cfg_interval_start=params.cfg_interval_start,
-            cfg_interval_end=params.cfg_interval_end,
-            shift=params.shift,
-            infer_method=params.infer_method,
-            timesteps=params.timesteps,
-            latent_shift=params.latent_shift,
-            latent_rescale=params.latent_rescale,
-            chunk_mask_mode=getattr(params, "chunk_mask_mode", "auto"),
-            repaint_latent_crossfade_frames=getattr(
-                params, "repaint_latent_crossfade_frames", 10,
-            ),
-            repaint_wav_crossfade_sec=getattr(
-                params, "repaint_wav_crossfade_sec", 0.0,
-            ),
-            repaint_mode=getattr(params, "repaint_mode", "balanced"),
-            repaint_strength=getattr(params, "repaint_strength", 0.5),
-            progress=progress,
-        )
+            "src_audio": None if params.task_type == "text2music" else params.src_audio,
+            "audio_code_string": audio_code_string_to_use,
+            "repainting_start": params.repainting_start,
+            "repainting_end": params.repainting_end,
+            "chunk_mask_mode": params.chunk_mask_mode,
+            "repaint_latent_crossfade_frames": params.repaint_latent_crossfade_frames,
+            "repaint_wav_crossfade_sec": params.repaint_wav_crossfade_sec,
+            "repaint_mode": params.repaint_mode,
+            "repaint_strength": params.repaint_strength,
+            "instruction": params.instruction,
+            "audio_cover_strength": params.audio_cover_strength,
+            "cover_noise_strength": params.cover_noise_strength,
+            "task_type": params.task_type,
+            "use_adg": params.use_adg,
+            "cfg_interval_start": params.cfg_interval_start,
+            "cfg_interval_end": params.cfg_interval_end,
+            "shift": params.shift,
+            "infer_method": params.infer_method,
+            "sampler_mode": params.sampler_mode,
+            "velocity_norm_threshold": params.velocity_norm_threshold,
+            "velocity_ema_factor": params.velocity_ema_factor,
+            "dcw_enabled": params.dcw_enabled,
+            "dcw_mode": params.dcw_mode,
+            "dcw_scaler": params.dcw_scaler,
+            "dcw_high_scaler": params.dcw_high_scaler,
+            "dcw_wavelet": params.dcw_wavelet,
+            "timesteps": params.timesteps,
+            "latent_shift": params.latent_shift,
+            "latent_rescale": params.latent_rescale,
+            "progress": progress,
+        }
+        supported_generate_keys = set(inspect.signature(dit_handler.generate_music).parameters.keys())
+        filtered_generate_kwargs = {
+            key: value for key, value in dit_generate_kwargs.items() if key in supported_generate_keys
+        }
+        dropped_generate_keys = sorted(set(dit_generate_kwargs.keys()) - supported_generate_keys)
+        if dropped_generate_keys:
+            logger.warning(
+                f"[generate_music] Skipping unsupported generate_music kwargs: {dropped_generate_keys}"
+            )
+        result = dit_handler.generate_music(**filtered_generate_kwargs)
 
         # Check if generation failed
         if not result.get("success", False):
@@ -654,7 +705,7 @@ def generate_music(
         base_params_dict = params.to_dict()
 
         # Save audio files using AudioSaver (format from config)
-        audio_format = config.audio_format if config.audio_format else "flac"
+        audio_format = str(config.audio_format).strip().lower() if config.audio_format else "flac"
         audio_saver = AudioSaver(default_format=audio_format)
 
         # Use handler's temp_dir for saving files
@@ -683,6 +734,10 @@ def generate_music(
             audio_params["use_lora"] = dit_handler.use_lora
             audio_params["lora_scale"] = dit_handler.lora_scale
             audio_params["lora_weights_hash"] = get_lora_weights_hash(dit_handler)
+            audio_params["audio_format"] = audio_format
+            if audio_format == "mp3":
+                audio_params["mp3_bitrate"] = getattr(config, "mp3_bitrate", "128k")
+                audio_params["mp3_sample_rate"] = getattr(config, "mp3_sample_rate", 48000)
 
             # Get audio tensor and metadata
             audio_tensor = dit_audio.get("tensor")
@@ -738,12 +793,13 @@ def generate_music(
                     # Handle wav32 special case for extension
                     file_ext = "wav" if audio_format == "wav32" else audio_format
                     audio_file = os.path.join(save_dir, f"{audio_key}.{file_ext}")
-                    
                     audio_path = audio_saver.save_audio(audio_tensor,
                                                         audio_file,
                                                         sample_rate=sample_rate,
                                                         format=audio_format,
-                                                        channels_first=True)
+                                                        channels_first=True,
+                                                        mp3_bitrate=getattr(config, "mp3_bitrate", "128k"),
+                                                        mp3_sample_rate=getattr(config, "mp3_sample_rate", 48000))
                 except Exception as e:
                     logger.error(f"[generate_music] Failed to save audio file: {e}")
                     audio_path = ""  # Fallback to empty path

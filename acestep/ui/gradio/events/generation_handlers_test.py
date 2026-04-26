@@ -423,9 +423,9 @@ class LoadMetadataLmCodesTests(unittest.TestCase):
             })
             result = generation_handlers.load_metadata(file_obj, llm_handler)
 
-        # think is at return position 30 (0-indexed)
-        think_value = result[30]
-        audio_codes_value = result[31]
+        # think is at return position 33 (0-indexed) after MP3 UI outputs
+        think_value = result[33]
+        audio_codes_value = result[34]
         self.assertFalse(think_value, "think should be False when audio_codes present")
         self.assertEqual(audio_codes_value, "<|audio_code_1|><|audio_code_2|>")
 
@@ -448,9 +448,69 @@ class LoadMetadataLmCodesTests(unittest.TestCase):
             })
             result = generation_handlers.load_metadata(file_obj, llm_handler)
 
-        think_value = result[30]
+        think_value = result[33]
         self.assertTrue(think_value, "think should remain True when audio_codes is empty")
 
+
+
+
+@unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")
+class LoadMetadataMp3SanitizationTests(unittest.TestCase):
+    """Tests for MP3 metadata normalization and fallback behavior."""
+
+    def _write_json(self, tmpdir, data):
+        """Write a JSON file and return a SimpleNamespace with .name pointing to it."""
+        import json, os
+        path = os.path.join(tmpdir, "test.json")
+        with open(path, "w") as f:
+            json.dump(data, f)
+        return SimpleNamespace(name=path)
+
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.get_global_gpu_config")
+    def test_load_metadata_normalizes_mp3_values_from_json(self, gpu_mock, info_mock):
+        """Uppercase MP3 metadata should be normalized to the UI-compatible values."""
+        import tempfile
+        gpu_cfg = MagicMock()
+        gpu_cfg.max_batch_size_with_lm = 8
+        gpu_cfg.max_batch_size_without_lm = 8
+        gpu_mock.return_value = gpu_cfg
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_obj = self._write_json(tmpdir, {
+                "audio_format": " MP3 ",
+                "mp3_bitrate": "320K",
+                "mp3_sample_rate": "44100",
+            })
+            result = generation_handlers.load_metadata(file_obj, None)
+
+        self.assertEqual(result[19], "mp3")
+        self.assertTrue(result[20]["visible"])
+        self.assertEqual(result[21]["value"], "320k")
+        self.assertEqual(result[22]["value"], 44100)
+
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.get_global_gpu_config")
+    def test_load_metadata_falls_back_for_invalid_mp3_values(self, gpu_mock, info_mock):
+        """Invalid MP3 metadata should fall back to the supported defaults."""
+        import tempfile
+        gpu_cfg = MagicMock()
+        gpu_cfg.max_batch_size_with_lm = 8
+        gpu_cfg.max_batch_size_without_lm = 8
+        gpu_mock.return_value = gpu_cfg
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_obj = self._write_json(tmpdir, {
+                "audio_format": "mp3",
+                "mp3_bitrate": "999k",
+                "mp3_sample_rate": "44.1",
+            })
+            result = generation_handlers.load_metadata(file_obj, None)
+
+        self.assertEqual(result[19], "mp3")
+        self.assertTrue(result[20]["visible"])
+        self.assertEqual(result[21]["value"], "128k")
+        self.assertEqual(result[22]["value"], 48000)
 
 @unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")
 class AutoCheckboxTests(unittest.TestCase):

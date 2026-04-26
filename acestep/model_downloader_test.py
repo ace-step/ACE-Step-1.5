@@ -88,6 +88,37 @@ class TestGetCheckpointsDir(unittest.TestCase):
                 result = self.mod.get_checkpoints_dir()
             self.assertEqual(result, Path(tmp_dir).resolve() / "checkpoints")
 
+    def test_checkpoints_dir_env_var_overrides_default(self):
+        """ACESTEP_CHECKPOINTS_DIR points directly to a shared model directory."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env = {k: v for k, v in os.environ.items() if k not in ("ACESTEP_PROJECT_ROOT", "ACESTEP_CHECKPOINTS_DIR")}
+            env["ACESTEP_CHECKPOINTS_DIR"] = tmp_dir
+            with patch.dict(os.environ, env, clear=True):
+                result = self.mod.get_checkpoints_dir()
+            self.assertEqual(result, Path(tmp_dir).resolve())
+
+    def test_checkpoints_dir_env_var_overrides_project_root(self):
+        """ACESTEP_CHECKPOINTS_DIR takes precedence over ACESTEP_PROJECT_ROOT."""
+        with tempfile.TemporaryDirectory() as ckpt_dir, tempfile.TemporaryDirectory() as proj_dir:
+            with patch.dict(os.environ, {"ACESTEP_CHECKPOINTS_DIR": ckpt_dir, "ACESTEP_PROJECT_ROOT": proj_dir}):
+                result = self.mod.get_checkpoints_dir()
+            self.assertEqual(result, Path(ckpt_dir).resolve())
+
+    def test_checkpoints_dir_env_var_expands_tilde(self):
+        """ACESTEP_CHECKPOINTS_DIR expands ~ to the user's home directory."""
+        env = {k: v for k, v in os.environ.items() if k not in ("ACESTEP_PROJECT_ROOT", "ACESTEP_CHECKPOINTS_DIR")}
+        env["ACESTEP_CHECKPOINTS_DIR"] = "~/ace-step-models"
+        with patch.dict(os.environ, env, clear=True):
+            result = self.mod.get_checkpoints_dir()
+        self.assertEqual(result, Path.home() / "ace-step-models")
+
+    def test_custom_dir_overrides_checkpoints_dir_env_var(self):
+        """Programmatic custom_dir takes highest precedence over env vars."""
+        with tempfile.TemporaryDirectory() as custom, tempfile.TemporaryDirectory() as env_dir:
+            with patch.dict(os.environ, {"ACESTEP_CHECKPOINTS_DIR": env_dir}):
+                result = self.mod.get_checkpoints_dir(custom_dir=custom)
+            self.assertEqual(result, Path(custom))
+
 class TestCheckMainModelExists(unittest.TestCase):
     """Tests for model_downloader.check_main_model_exists()."""
 
@@ -169,6 +200,165 @@ class TestCheckModelExists(unittest.TestCase):
             result = self.mod.check_model_exists("acestep-v15-turbo", Path(tmp_dir))
 
         self.assertTrue(result)
+
+
+class TestResolveVaePath(unittest.TestCase):
+    """Tests for model_downloader.resolve_vae_path()."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_default_resolves_to_bundled_vae_directory(self):
+        """None / empty / 'official' all map to <ckpt>/vae."""
+        ckpt = Path(tempfile.gettempdir()) / "some-ckpts"
+        expected = ckpt / "vae"
+        self.assertEqual(self.mod.resolve_vae_path(ckpt, None), expected)
+        self.assertEqual(self.mod.resolve_vae_path(ckpt, ""), expected)
+        self.assertEqual(self.mod.resolve_vae_path(ckpt, "official"), expected)
+        self.assertEqual(self.mod.resolve_vae_path(str(ckpt), "official"), expected)
+
+    def test_registered_variant_maps_to_subdirectory(self):
+        """A variant id from VAE_REGISTRY resolves to <ckpt>/<variant>."""
+        ckpt = Path(tempfile.gettempdir()) / "some-ckpts"
+        for variant in self.mod.VAE_REGISTRY:
+            self.assertEqual(
+                self.mod.resolve_vae_path(ckpt, variant), ckpt / variant
+            )
+
+    def test_absolute_path_passes_through(self):
+        """An absolute path is returned verbatim."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ckpt = Path(tempfile.gettempdir()) / "some-ckpts"
+            self.assertEqual(
+                self.mod.resolve_vae_path(ckpt, tmp_dir), Path(tmp_dir)
+            )
+
+    def test_unknown_variant_raises(self):
+        """Unrecognized variant ids surface a ValueError listing the registry."""
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.resolve_vae_path(
+                Path(tempfile.gettempdir()) / "c", "no-such-vae"
+            )
+        msg = str(ctx.exception)
+        self.assertIn("no-such-vae", msg)
+        self.assertIn("official", msg)
+
+
+class TestVaeRegistryMembership(unittest.TestCase):
+    """Confirm the bundled VAE_REGISTRY entries surface via list_available_vae_variants."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_official_listed_first(self):
+        """list_available_vae_variants always begins with 'official'."""
+        variants = self.mod.list_available_vae_variants()
+        self.assertEqual(variants[0], self.mod.DEFAULT_VAE_VARIANT)
+
+    def test_scragvae_is_registered(self):
+        """ScragVAE ships in the registry as 'scragvae'."""
+        self.assertIn("scragvae", self.mod.VAE_REGISTRY)
+        self.assertIn("scragvae", self.mod.list_available_vae_variants())
+
+
+class TestCheckVaeExists(unittest.TestCase):
+    """Tests for model_downloader.check_vae_exists()."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_official_detected_when_bundled_weights_present(self):
+        """check_vae_exists('official') returns True iff <ckpt>/vae has weights."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ckpt = Path(tmp_dir)
+            self.assertFalse(self.mod.check_vae_exists("official", ckpt))
+            (ckpt / "vae").mkdir()
+            (ckpt / "vae" / "diffusion_pytorch_model.safetensors").write_bytes(b"x")
+            self.assertTrue(self.mod.check_vae_exists("official", ckpt))
+
+    def test_scragvae_detected_in_subdirectory(self):
+        """A registered community variant is detected in <ckpt>/<variant>/."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ckpt = Path(tmp_dir)
+            self.assertFalse(self.mod.check_vae_exists("scragvae", ckpt))
+            (ckpt / "scragvae").mkdir()
+            (ckpt / "scragvae" / "diffusion_pytorch_model.safetensors").write_bytes(b"x")
+            self.assertTrue(self.mod.check_vae_exists("scragvae", ckpt))
+
+    def test_unknown_variant_returns_false(self):
+        """An unknown variant id reports as missing without raising."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.assertFalse(self.mod.check_vae_exists("no-such", Path(tmp_dir)))
+
+
+class TestDownloadVaeRejectsOfficial(unittest.TestCase):
+    """download_vae must refuse to fetch the bundled 'official' VAE separately."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_official_variant_returns_helpful_error(self):
+        """Refusing 'official' nudges callers toward download_main_model()."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            success, msg = self.mod.download_vae("official", Path(tmp_dir))
+        self.assertFalse(success)
+        self.assertIn("download_main_model", msg)
+
+    def test_unknown_variant_returns_helpful_error(self):
+        """Unknown variants are rejected before any network call."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            success, msg = self.mod.download_vae("no-such-vae", Path(tmp_dir))
+        self.assertFalse(success)
+        self.assertIn("no-such-vae", msg)
+
+
+class TestEnsureVaeModelAbsolutePath(unittest.TestCase):
+    """ensure_vae_model must short-circuit absolute paths instead of routing to download_vae."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_absolute_path_with_weights_returns_success(self):
+        """A pre-populated absolute VAE path should be reported as available."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            vae_dir = Path(tmp_dir) / "my-vae"
+            vae_dir.mkdir()
+            (vae_dir / "diffusion_pytorch_model.safetensors").write_bytes(b"x")
+            ckpt_dir = Path(tmp_dir) / "checkpoints"
+            ckpt_dir.mkdir()
+            success, msg = self.mod.ensure_vae_model(str(vae_dir), ckpt_dir)
+        self.assertTrue(success)
+        self.assertIn(str(vae_dir), msg)
+
+    def test_absolute_path_without_weights_returns_clear_error(self):
+        """An absolute path missing weights should not be misreported as 'Unknown variant'."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            vae_dir = Path(tmp_dir) / "empty-vae"
+            vae_dir.mkdir()
+            ckpt_dir = Path(tmp_dir) / "checkpoints"
+            ckpt_dir.mkdir()
+            success, msg = self.mod.ensure_vae_model(str(vae_dir), ckpt_dir)
+        self.assertFalse(success)
+        self.assertIn(str(vae_dir), msg)
+        self.assertIn("does not contain VAE weights", msg)
+        self.assertNotIn("Unknown VAE variant", msg)
+
+    def test_absolute_path_missing_directory_returns_clear_error(self):
+        """A non-existent absolute path should report 'does not exist', not download."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            missing = Path(tmp_dir) / "nope"
+            ckpt_dir = Path(tmp_dir) / "checkpoints"
+            ckpt_dir.mkdir()
+            success, msg = self.mod.ensure_vae_model(str(missing), ckpt_dir)
+        self.assertFalse(success)
+        self.assertIn(str(missing), msg)
+        self.assertIn("does not exist", msg)
+        self.assertNotIn("Unknown VAE variant", msg)
 
 
 if __name__ == "__main__":

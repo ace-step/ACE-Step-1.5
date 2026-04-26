@@ -90,6 +90,17 @@ def _get_project_root() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def _get_default_checkpoint_dir() -> str:
+    """Return the default checkpoints directory via the shared resolver.
+
+    Always delegates to model_downloader.get_checkpoints_dir() so that
+    ACESTEP_CHECKPOINTS_DIR, ACESTEP_PROJECT_ROOT, and the cwd-based
+    fallback are handled in one place.
+    """
+    from acestep.model_downloader import get_checkpoints_dir
+    return str(get_checkpoints_dir())
+
+
 def _parse_description_hints(description: str) -> tuple[Optional[str], bool]:
     import re
 
@@ -1060,7 +1071,7 @@ def main():
     defaults = {
         "project_root": _get_project_root(),
         "config_path": None,
-        "checkpoint_dir": os.path.join(_get_project_root(), "checkpoints"),
+        "checkpoint_dir": str(_get_default_checkpoint_dir()),
         "lm_model_path": None,
         "backend": default_backend,
         "device": "auto",

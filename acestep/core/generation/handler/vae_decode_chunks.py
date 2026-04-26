@@ -28,9 +28,13 @@ class VaeDecodeChunksMixin:
                 result = result.to(latents.device)
             return result
 
+        min_overlap = 4  # Minimum floor to prevent audio artifacts at chunk boundaries
         effective_overlap = overlap
-        while chunk_size - 2 * effective_overlap <= 0 and effective_overlap > 0:
+        while chunk_size - 2 * effective_overlap <= 0 and effective_overlap > min_overlap:
             effective_overlap = effective_overlap // 2
+        # Enforce minimum overlap floor to avoid near-zero values that cause corruption
+        if effective_overlap < min_overlap and overlap >= min_overlap:
+            effective_overlap = min_overlap
         if effective_overlap != overlap:
             logger.warning(
                 f"[tiled_decode] Reduced overlap from {overlap} to {effective_overlap} for chunk_size={chunk_size}"

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import copy
 import math
 import time
 from typing import Callable, List, Optional, Union
@@ -45,6 +46,11 @@ try:
     from .configuration_acestep_v15 import AceStepConfig
 except ImportError:
     from configuration_acestep_v15 import AceStepConfig
+
+# DCW (Differential Correction in Wavelet domain) — CVPR 2026.
+# Opt-in sampler-side correction for SNR-t bias; see the `dcw_*` kwargs
+# on `generate_audio` and docs/en/DCW.md for details.
+from acestep.models.common.dcw_correction import DCWCorrector
 
 
 logger = logging.get_logger(__name__)
@@ -1276,7 +1282,8 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         self.time_embed_r = TimestepEmbedding(in_channels=256, time_embed_dim=inner_dim)
         
         # Project encoder hidden states to model dimension
-        self.condition_embedder = nn.Linear(inner_dim, inner_dim, bias=True)
+        condition_dim = getattr(config, "encoder_hidden_size", None) or config.hidden_size
+        self.condition_embedder = nn.Linear(condition_dim, inner_dim, bias=True)
 
         # Output normalization and projection
         # Adaptive layer norm with scale-shift modulation, then de-patchify
@@ -1597,11 +1604,22 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         self.config = config
         # Diffusion model components
         self.decoder = AceStepDiTModel(config)  # Main diffusion transformer
-        self.encoder = AceStepConditionEncoder(config)  # Condition encoder
-        self.tokenizer = AceStepAudioTokenizer(config)  # Audio tokenizer
-        self.detokenizer = AudioTokenDetokenizer(config)  # Audio detokenizer
+        # Build encoder config: use separate encoder_hidden_size when available
+        # (4B models have encoder_hidden_size=2048 != hidden_size=2560)
+        _enc_hs = getattr(config, "encoder_hidden_size", None) or config.hidden_size
+        if _enc_hs != config.hidden_size:
+            encoder_config = copy.deepcopy(config)
+            encoder_config.hidden_size = _enc_hs
+            encoder_config.intermediate_size = getattr(config, "encoder_intermediate_size", None) or config.intermediate_size
+            encoder_config.num_attention_heads = getattr(config, "encoder_num_attention_heads", None) or config.num_attention_heads
+            encoder_config.num_key_value_heads = getattr(config, "encoder_num_key_value_heads", None) or config.num_key_value_heads
+        else:
+            encoder_config = config
+        self.encoder = AceStepConditionEncoder(encoder_config)  # Condition encoder
+        self.tokenizer = AceStepAudioTokenizer(encoder_config)  # Audio tokenizer
+        self.detokenizer = AudioTokenDetokenizer(encoder_config)  # Audio detokenizer
         # Null condition embedding for classifier-free guidance
-        self.null_condition_emb = nn.Parameter(torch.randn(1, 1, config.hidden_size))
+        self.null_condition_emb = nn.Parameter(torch.randn(1, 1, encoder_config.hidden_size))
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1824,6 +1842,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         attention_mask: torch.Tensor = None,
         seed: int = None,
         fix_nfe: int = 8,
+        infer_steps: Optional[int] = None,
         infer_method: str = "ode",
         use_cache: bool = True,
         audio_cover_strength: float = 1.0,
@@ -1838,8 +1857,36 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         clean_src_latents: Optional[torch.FloatTensor] = None,
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        sampler_mode: str = "euler",
+        velocity_norm_threshold: float = 0.0,
+        velocity_ema_factor: float = 0.0,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
+        dcw_wavelet: str = "haar",
+        # --- CFG-related params accepted for API parity but unused on turbo.
+        # Turbo models bake classifier-free guidance into the distillation
+        # weights and do NOT run a twin unconditional forward pass.  Handlers
+        # upstream already force guidance_scale=1.0 before it reaches us (see
+        # `AceStepHandler.generate_music`), and the other CFG knobs have
+        # no corresponding code path in this sampler.  We declare them
+        # explicitly so they don't disappear into `**kwargs` silently, and
+        # log an info when a caller sets a non-default value so it's visible
+        # that the knob is intentionally a no-op here.
+        diffusion_guidance_scale: float = 1.0,
+        use_adg: bool = False,
+        cfg_interval_start: float = 0.0,
+        cfg_interval_end: float = 1.0,
         **kwargs,
     ):
+        if diffusion_guidance_scale != 1.0 or use_adg or cfg_interval_start != 0.0 or cfg_interval_end != 1.0:
+            logger.info(
+                "Turbo DiT ignores CFG params (guidance_scale=%.2f, use_adg=%s, "
+                "cfg_interval=[%.2f, %.2f]); turbo is CFG-distilled.",
+                diffusion_guidance_scale, use_adg, cfg_interval_start, cfg_interval_end,
+            )
+
         # Valid shifts: only discrete values 1, 2, 3 are supported
         VALID_SHIFTS = [1.0, 2.0, 3.0]
         
@@ -1891,7 +1938,22 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     logger.warning(f"timesteps mapped to nearest valid values: {original_timesteps} -> {mapped_timesteps}")
                 
                 t_schedule_list = mapped_timesteps
-        
+
+        # Variable-step schedule: respect `infer_steps` (UI exposes 1–20).
+        # Mirrors the base model's `torch.linspace` + shift transform so users
+        # can trade quality for speed on turbo models too.  Only fires when
+        # the caller did NOT pass an explicit `timesteps` list.
+        if t_schedule_list is None and infer_steps is not None and infer_steps > 0:
+            n = min(int(infer_steps), 20)
+            if n != int(infer_steps):
+                logger.warning(
+                    "infer_steps=%d exceeds maximum 20, clamping to 20.", infer_steps
+                )
+            raw = [1.0 - i / n for i in range(n)]
+            if shift != 1.0:
+                raw = [shift * t / (1.0 + (shift - 1.0) * t) for t in raw]
+            t_schedule_list = raw
+
         if t_schedule_list is None:
             # Use shift-based schedule: round to nearest valid shift
             original_shift = shift
@@ -1978,6 +2040,24 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         num_steps = len(t_schedule)
         
         # Recalculate cover_steps based on actual num_steps
+        use_heun = sampler_mode == "heun"
+        use_norm_clamp = velocity_norm_threshold > 0.0
+        use_ema = velocity_ema_factor > 0.0
+        prev_vt = None
+        if use_heun and infer_method == "sde":
+            logger.warning("Heun sampler is not compatible with SDE; falling back to Euler.")
+            use_heun = False
+
+        # DCW — opt-in per-band wavelet-domain correction (CVPR 2026).
+        # No-op unless `dcw_enabled=True` and a non-zero scaler is configured.
+        dcw_corrector = DCWCorrector(
+            enabled=dcw_enabled,
+            mode=dcw_mode,
+            scaler=dcw_scaler,
+            high_scaler=dcw_high_scaler,
+            wavelet=dcw_wavelet,
+        )
+
         cover_steps = int(num_steps * audio_cover_strength)
         _switched_to_non_cover = False
         for step_idx in range(num_steps):
@@ -2006,18 +2086,75 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 
             vt = decoder_outputs[0]
             past_key_values = decoder_outputs[1]
-            
+
+            # Velocity norm clamping — prevents outlier predictions
+            if use_norm_clamp:
+                vt_norm = torch.norm(vt, dim=(1, 2), keepdim=True)
+                xt_norm = torch.norm(xt, dim=(1, 2), keepdim=True) + 1e-10
+                scale = torch.clamp(velocity_norm_threshold * xt_norm / (vt_norm + 1e-10), max=1.0)
+                vt = vt * scale
+
+            # Velocity EMA smoothing — stabilises denoising trajectory
+            if use_ema and prev_vt is not None:
+                vt = (1.0 - velocity_ema_factor) * vt + velocity_ema_factor * prev_vt
+
+            # Cache pre-step latent so DCW can reconstruct the predicted
+            # clean sample `denoised = x - v * t` after the sampler update.
+            # Also stash the raw velocity (pre-Heun-averaging) so the x0
+            # reconstruction uses the single-evaluation v(t_curr), matching
+            # the reference FLUX scheduler's `x0 = sample - sigma * v`.
+            xt_before_step = xt
+            vt_for_denoise = vt
+
             # On final step, directly compute x0 from noise
             if step_idx == num_steps - 1:
                 xt = self.get_x0_from_noise(xt, vt, t_curr_tensor)
+                if dcw_corrector.is_active:
+                    t_unsq = current_timestep * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                    denoised = xt_before_step - vt_for_denoise * t_unsq
+                    xt = dcw_corrector.apply(xt, denoised, current_timestep)
+                prev_vt = vt
                 break
-            
+
             # Update x_t based on inference method
             if infer_method == "sde":
                 # Stochastic Differential Equation: predict clean, then re-add noise
                 pred_clean = self.get_x0_from_noise(xt, vt, t_curr_tensor)
                 next_timestep = t_schedule[step_idx + 1].item()
                 xt = self.renoise(pred_clean, next_timestep)
+                t_after_step = next_timestep
+            elif use_heun and infer_method == "ode":
+                # Heun (second-order) ODE step via trapezoidal rule
+                next_timestep = t_schedule[step_idx + 1].item()
+                dt = current_timestep - next_timestep
+                dt_tensor = dt * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                xt_predicted = xt - vt * dt_tensor
+                # Corrector: evaluate model at the predicted point
+                t_next_tensor = next_timestep * torch.ones((bsz,), device=device, dtype=dtype)
+                corrector_kv = EncoderDecoderCache(DynamicCache(), DynamicCache())
+                with torch.no_grad():
+                    decoder_outputs2 = self.decoder(
+                        hidden_states=xt_predicted,
+                        timestep=t_next_tensor,
+                        timestep_r=t_next_tensor,
+                        attention_mask=attention_mask,
+                        encoder_hidden_states=encoder_hidden_states,
+                        encoder_attention_mask=encoder_attention_mask,
+                        context_latents=context_latents,
+                        use_cache=False,
+                        past_key_values=corrector_kv,
+                    )
+                vt2 = decoder_outputs2[0]
+                if use_norm_clamp:
+                    vt2_norm = torch.norm(vt2, dim=(1, 2), keepdim=True)
+                    xt_pred_norm = torch.norm(xt_predicted, dim=(1, 2), keepdim=True) + 1e-10
+                    scale2 = torch.clamp(velocity_norm_threshold * xt_pred_norm / (vt2_norm + 1e-10), max=1.0)
+                    vt2 = vt2 * scale2
+                if use_ema:
+                    vt2 = (1.0 - velocity_ema_factor) * vt2 + velocity_ema_factor * vt
+                vt_avg = 0.5 * (vt + vt2)
+                xt = xt - vt_avg * dt_tensor
+                vt = vt_avg
                 t_after_step = next_timestep
             elif infer_method == "ode":
                 # Ordinary Differential Equation: Euler method
@@ -2027,6 +2164,15 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 dt_tensor = dt * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
                 xt = xt - vt * dt_tensor
                 t_after_step = next_timestep
+
+            # DCW correction — push x_next's frequency band(s) away from
+            # the predicted clean sample.  Scaler decays with t_curr.
+            if dcw_corrector.is_active:
+                t_unsq = current_timestep * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                denoised = xt_before_step - vt_for_denoise * t_unsq
+                xt = dcw_corrector.apply(xt, denoised, current_timestep)
+
+            prev_vt = vt
 
             injection_cutoff = round(repaint_injection_ratio * num_steps)
             if repaint_mask is not None and clean_src_latents is not None and step_idx < injection_cutoff:

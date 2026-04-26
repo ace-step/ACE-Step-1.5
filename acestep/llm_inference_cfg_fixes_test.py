@@ -80,8 +80,6 @@ class TestCotCfgScaleFixed(unittest.TestCase):
         handler = LLMHandler()
         handler.llm_initialized = True
         handler.llm_backend = "pt"
-        handler.llm = MagicMock()
-        handler.llm_tokenizer = MagicMock()
 
         captured_cfg = {}
 
@@ -127,8 +125,6 @@ class TestCotCfgScaleFixed(unittest.TestCase):
         handler = LLMHandler()
         handler.llm_initialized = True
         handler.llm_backend = "pt"
-        handler.llm = MagicMock()
-        handler.llm_tokenizer = MagicMock()
 
         # Capture cfg passed to generate_from_formatted_prompt
         captured_cfgs = []
@@ -138,24 +134,26 @@ class TestCotCfgScaleFixed(unittest.TestCase):
             # Return a minimal CoT response so Phase 1 succeeds
             return "<think>metadata</think>", "ok"
 
-        with patch.object(handler, "generate_from_formatted_prompt", side_effect=capturing_gen), \
-             patch.object(handler, "build_formatted_prompt", return_value="P"), \
-             patch.object(handler, "parse_lm_output", return_value=({}, "")), \
-             patch.object(handler, "_format_metadata_as_cot", return_value=""), \
-             patch.object(handler, "build_formatted_prompt_with_cot", return_value="P2"):
-            # Invoke with cfg_scale=2.0 (typical UI default)
-            handler.generate_with_stop_condition(
-                caption="test caption",
-                lyrics="test lyrics",
-                cfg_scale=2.0,
-                temperature=0.6,
-                negative_prompt="",
-                top_k=None,
-                top_p=None,
-                repetition_penalty=1.0,
-                infer_type="dit",  # Phase 1 only – avoids Phase 2 setup
-                progress=lambda *a, **kw: None,
-            )
+        with patch.object(handler, "generate_from_formatted_prompt", side_effect=capturing_gen):
+            with patch.object(handler, "build_formatted_prompt", return_value="P"):
+                with patch.object(handler, "_parse_metadata_from_cot", return_value={}):
+                    with patch.object(handler, "_format_metadata_as_cot", return_value=""):
+                        with patch.object(
+                            handler, "build_formatted_prompt_with_cot", return_value="P2"
+                        ):
+                            # Invoke with cfg_scale=2.0 (typical UI default)
+                            handler.generate_with_stop_condition(
+                                caption="test caption",
+                                lyrics="test lyrics",
+                                cfg_scale=2.0,
+                                temperature=0.6,
+                                negative_prompt="",
+                                top_k=None,
+                                top_p=None,
+                                repetition_penalty=1.0,
+                                infer_type="dit",  # Phase 1 only – avoids Phase 2 setup
+                                progress=lambda *a, **kw: None,
+                            )
 
         # At least one generate_from_formatted_prompt call must exist
         self.assertTrue(len(captured_cfgs) >= 1, "generate_from_formatted_prompt was not called")

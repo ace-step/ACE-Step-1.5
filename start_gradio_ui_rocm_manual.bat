@@ -14,7 +14,7 @@ REM Ask for manual settings
 call :LoadManual
 
 REM ==================== ROCm Configuration ====================
-REM Force PyTorch LM backend (bypasses vllm engine flash_attn dependency)
+REM Force PyTorch LM backend (bypasses nano-vllm flash_attn dependency)
 set ACESTEP_LM_BACKEND=pt
 
 REM RDNA3 GPU architecture override (RX 7900 XT/XTX, RX 7800 XT, etc.)

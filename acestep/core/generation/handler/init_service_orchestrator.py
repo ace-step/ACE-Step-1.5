@@ -61,6 +61,7 @@ class InitServiceOrchestratorMixin:
         quantization: Optional[str] = None,
         prefer_source: Optional[str] = None,
         use_mlx_dit: bool = True,
+        vae_checkpoint: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """Initialize model artifacts and runtime backends for generation.
 
@@ -129,14 +130,31 @@ class InitServiceOrchestratorMixin:
                 else:
                     raise
 
-            base_root = project_root or self._get_project_root()
-            checkpoint_dir = os.path.join(base_root, "checkpoints")
+            from acestep.model_downloader import (
+                DEFAULT_VAE_VARIANT,
+                get_checkpoints_dir,
+            )
+            env_ckpt = os.environ.get("ACESTEP_CHECKPOINTS_DIR")
+            if env_ckpt:
+                checkpoint_dir = str(get_checkpoints_dir())
+            elif project_root:
+                checkpoint_dir = os.path.join(project_root, "checkpoints")
+            else:
+                checkpoint_dir = str(get_checkpoints_dir())
             checkpoint_path = Path(checkpoint_dir)
+
+            # Resolve VAE selection: explicit param > env var > default.
+            resolved_vae_variant = (
+                vae_checkpoint
+                or os.environ.get("ACESTEP_VAE_CHECKPOINT")
+                or DEFAULT_VAE_VARIANT
+            )
 
             precheck_failure = self._ensure_models_present(
                 checkpoint_path=checkpoint_path,
                 config_path=config_path,
                 prefer_source=prefer_source,
+                vae_variant=resolved_vae_variant,
             )
             if precheck_failure is not None:
                 self.model = None
@@ -161,6 +179,7 @@ class InitServiceOrchestratorMixin:
                 checkpoint_dir=checkpoint_dir,
                 device=vae_device,
                 compile_model=normalized_compile,
+                vae_variant=resolved_vae_variant,
             )
             text_encoder_path = self._load_text_encoder_and_tokenizer(
                 checkpoint_dir=checkpoint_dir,
@@ -202,6 +221,7 @@ class InitServiceOrchestratorMixin:
                 "quantization": self.quantization,
                 "use_mlx_dit": use_mlx_dit,
                 "prefer_source": prefer_source,
+                "vae_checkpoint": resolved_vae_variant,
             }
 
             return status_msg, True

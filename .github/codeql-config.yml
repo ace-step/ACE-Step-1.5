@@ -23,4 +23,6 @@ paths-ignore:
   # Training modules — local-only, paths validated via safe_path()
   - acestep/training
   - acestep/ui
+  # Third-party vendored code
+  - acestep/third_parts
   - third_party

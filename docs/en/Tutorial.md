@@ -188,7 +188,7 @@ Based on your hardware:
 
 With a planning scheme, you still need to choose an executor. DiT is the core of ACE-Step 1.5—it handles various tasks and decides how to interpret LM-generated codes.
 
-We've open-sourced **4 Turbo models**, **1 SFT model**, and **1 Base model**.
+We've open-sourced **4 Turbo models**, **1 SFT model**, and **1 Base model** — plus their **XL (4B)** counterparts for higher audio quality.
 
 #### Turbo Series (Recommended for Daily Use)
 
@@ -250,6 +250,18 @@ This greatly expands **customization and playability**—train a model unique to
 
 > For the detailed LoRA training guide, see the [LoRA Training Tutorial](./LoRA_Training_Tutorial.md). You can also use the "LoRA Training" tab in Gradio UI for one-click training.
 
+#### XL (4B) Models
+
+XL models use a larger 4B-parameter DiT decoder for higher audio quality. They come in the same three variants (base, sft, turbo) and behave identically — just with better generation quality. **All LM models (0.6B / 1.7B / 4B) are fully compatible with XL.**
+
+**Requirements:** XL models need ~9GB VRAM for weights (vs ~4.7GB for 2B). Minimum 12GB VRAM with offload + quantization, 20GB+ recommended.
+
+| XL Model (full name) | Steps | CFG | VRAM | Notes |
+|----------------------|:-----:|:---:|:----:|-------|
+| `acestep-v15-xl-turbo` | 8 | ❌ | ≥12GB | Fast + high quality, best daily driver on 20GB+ GPUs |
+| `acestep-v15-xl-sft` | 50 | ✅ | ≥12GB | Highest quality, tunable CFG |
+| `acestep-v15-xl-base` | 50 | ✅ | ≥12GB | All tasks including extract/lego/complete |
+
 #### DiT Selection Summary
 
 | Model | Steps | CFG | Speed | Exclusive Tasks | Recommended Scenarios |
@@ -257,6 +269,9 @@ This greatly expands **customization and playability**—train a model unique to
 | `turbo` (default) | 8 | ❌ | ⚡⚡⚡ | — | Daily use, rapid iteration |
 | `sft` | 50 | ✅ | ⚡ | — | Pursuing details, like tuning |
 | `base` | 50 | ✅ | ⚡ | extract, lego, complete | Special tasks, large-scale fine-tuning |
+| **`acestep-v15-xl-turbo`** | 8 | ❌ | ⚡⚡ | — | Best daily driver on 20GB+ GPUs |
+| **`acestep-v15-xl-sft`** | 50 | ✅ | ⚡ | — | Highest quality, ≥12GB VRAM |
+| **`acestep-v15-xl-base`** | 50 | ✅ | ⚡ | extract, lego, complete | All tasks with higher quality, ≥12GB VRAM |
 
 ### Combination Strategies
 

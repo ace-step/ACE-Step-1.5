@@ -4,6 +4,7 @@ from typing import Any
 
 import gradio as gr
 
+from acestep.gpu_config import get_global_gpu_config
 from acestep.ui.gradio.i18n import t
 
 
@@ -21,6 +22,7 @@ def _build_left_generate_toggles(
         The ``think_checkbox`` and ``auto_score`` controls in creation order.
     """
 
+    save_memory = get_global_gpu_config().save_memory_mode
     with gr.Column(scale=1, variant="compact"):
         think_checkbox = gr.Checkbox(
             label=t("generation.think_label"),
@@ -33,7 +35,7 @@ def _build_left_generate_toggles(
             label=t("generation.auto_score_label"),
             value=False,
             scale=1,
-            interactive=not service_mode,
+            interactive=not service_mode and not save_memory,
         )
     return think_checkbox, auto_score
 
@@ -48,6 +50,7 @@ def _build_right_generate_toggles(service_mode: bool) -> tuple[gr.Checkbox, gr.C
         The ``autogen_checkbox`` and ``auto_lrc`` controls in creation order.
     """
 
+    save_memory = get_global_gpu_config().save_memory_mode
     with gr.Column(scale=1, variant="compact"):
         autogen_checkbox = gr.Checkbox(
             label=t("generation.autogen_label"),
@@ -59,7 +62,7 @@ def _build_right_generate_toggles(service_mode: bool) -> tuple[gr.Checkbox, gr.C
             label=t("generation.auto_lrc_label"),
             value=False,
             scale=1,
-            interactive=not service_mode,
+            interactive=not service_mode and not save_memory,
         )
     return autogen_checkbox, auto_lrc
 

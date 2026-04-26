@@ -7,6 +7,7 @@ from typing import Optional
 import torch
 from loguru import logger
 
+from acestep import gpu_config
 from .init_service_loader_components import InitServiceLoaderComponentsMixin
 
 
@@ -142,6 +143,16 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
 
         if use_flash_attention and self.is_flash_attention_available(device):
             attn_implementation = "flash_attention_2"
+        elif device == "cuda" and not gpu_config.cuda_supports_bfloat16():
+            # Pre-Ampere GPUs (compute capability < 8.0) run in float16 which
+            # can overflow in SDPA's fused softmax with longer sequences,
+            # producing NaN/Inf latents (see issues #924, #927).  Eager
+            # attention upcasts to float32 for softmax, avoiding the overflow.
+            logger.info(
+                "[initialize_service] Pre-Ampere CUDA detected: using eager "
+                "attention for float16 numerical stability."
+            )
+            attn_implementation = "eager"
         else:
             if use_flash_attention:
                 logger.warning(
@@ -180,6 +191,7 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
 
         self.model.config._attn_implementation = attn_implementation
         self.config = self.model.config
+        self._sync_alignment_config()
         self._apply_cuda_bool_argsort_workaround()
 
         if not self.offload_to_cpu:

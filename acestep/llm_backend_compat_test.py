@@ -72,7 +72,7 @@ class LlmInitializeBackendCompatTests(unittest.TestCase):
         _mock_empty_cache: MagicMock,
         _mock_synchronize: MagicMock,
     ) -> None:
-        """Initialization should avoid customized_vllm when the Windows Triton preflight fails."""
+        """Initialization should avoid nano-vllm when the Windows Triton preflight fails."""
         handler = LLMHandler()
         mock_tokenizer.return_value = MagicMock()
         mock_gpu_config.return_value = SimpleNamespace(max_duration_with_lm=600, tier="tier6")

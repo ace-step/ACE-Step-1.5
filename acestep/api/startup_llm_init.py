@@ -7,6 +7,11 @@ from typing import Any, Callable
 
 from acestep.core.generation.device_mapping import ComponentDeviceMap
 from acestep.gpu_config import get_recommended_lm_model, is_lm_model_supported
+from acestep.gpu_config import (
+    get_recommended_lm_model,
+    is_lm_model_supported,
+    resolve_lm_backend,
+)
 
 
 def initialize_llm_at_startup(
@@ -74,6 +79,8 @@ def initialize_llm_at_startup(
             lm_backend = "vllm"
         mapped_lm_device = component_device_map.lm if component_device_map else None
         lm_device = os.getenv("ACESTEP_LM_DEVICE", mapped_lm_device or device)
+        lm_backend = resolve_lm_backend(os.getenv("ACESTEP_LM_BACKEND"), gpu_config)
+        lm_device = os.getenv("ACESTEP_LM_DEVICE", device)
         lm_offload_env = os.getenv("ACESTEP_LM_OFFLOAD_TO_CPU")
         lm_offload = env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False) if lm_offload_env is not None else offload_to_cpu
 

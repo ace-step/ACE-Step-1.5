@@ -14,7 +14,7 @@ ACE-Step 1.5 is an open-source music foundation model combining a Language Model
 - **FastAPI + Uvicorn** for REST API server
 - **uv** for dependency management
 - **MLX** (Apple Silicon native acceleration, macOS ARM64)
-- **customized_vllm** (built-in LLM inference engine)
+- **nano-vllm** (optimized LLM inference, non-macOS ARM64)
 
 ## Multi-Platform Support
 

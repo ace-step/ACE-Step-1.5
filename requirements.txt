@@ -48,8 +48,12 @@ tensorboard>=2.0.0
 mlx>=0.25.2; sys_platform == 'darwin' and platform_machine == 'arm64'
 mlx-lm>=0.20.0; sys_platform == 'darwin' and platform_machine == 'arm64'
 
-# Optional accelerators for LLM inference engine (SDPA fallback if unavailable)
+# nano-vllm dependencies
 triton-windows>=3.0.0,<3.4; sys_platform == 'win32'
 triton>=3.0.0; sys_platform == 'linux'
 flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.2/flash_attn-2.8.2+cu128torch2.7.1cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11' and platform_machine == 'AMD64'
 flash-attn; sys_platform == 'linux' and platform_machine == 'x86_64'
+xxhash
+
+# Local package - install with: pip install -e acestep/third_parts/nano-vllm
+# nano-vllm

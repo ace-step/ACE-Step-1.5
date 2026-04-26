@@ -71,7 +71,7 @@ _load_env_file() {
 _load_env_file
 
 # ==================== ROCm Configuration ====================
-# Force PyTorch LM backend (bypasses vllm engine flash_attn dependency)
+# Force PyTorch LM backend (bypasses nano-vllm flash_attn dependency)
 export ACESTEP_LM_BACKEND="pt"
 
 # RDNA3 GPU architecture override (RX 7900 XT/XTX, RX 7800 XT, etc.)
@@ -93,6 +93,11 @@ export TOKENIZERS_PARALLELISM="false"
 SHARE="${SHARE:-}"
 # SHARE="--share"
 
+# Reset LANGUAGE if it contains an invalid value (e.g. system locale like en_CA:en)
+case "$LANGUAGE" in
+    en|zh|he|ja) ;;
+    *) unset LANGUAGE ;;
+esac
 # UI language: en, zh, he, ja
 : "${LANGUAGE:=en}"
 

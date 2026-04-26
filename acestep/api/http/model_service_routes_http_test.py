@@ -180,6 +180,67 @@ class ModelServiceRoutesHttpTests(unittest.TestCase):
         self.assertEqual(500, payload["code"])
         self.assertIn("Model initialization failed", payload["error"])
 
+    def test_init_route_passes_slot_to_initializer(self):
+        """POST /v1/init with slot should forward slot to the initializer."""
+
+        client = self._build_client()
+        with mock.patch(
+            "acestep.api.http.model_service_routes.initialize_models_for_request",
+            return_value={"slot": 2, "loaded_model": "acestep-v15-base", "loaded_lm_model": None},
+        ) as mock_init:
+            response = client.post(
+                "/v1/init",
+                headers={"Authorization": "Bearer test-token"},
+                json={"model": "acestep-v15-base", "slot": 2, "init_llm": False},
+            )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(200, payload["code"])
+        self.assertEqual(2, payload["data"]["slot"])
+        # Verify slot was passed through to the service function
+        call_kwargs = mock_init.call_args.kwargs
+        self.assertEqual(2, call_kwargs["slot"])
+
+    def test_init_route_returns_400_for_unavailable_slot(self):
+        """POST /v1/init for a disabled slot should return code=400."""
+
+        client = self._build_client()
+        with mock.patch(
+            "acestep.api.http.model_service_routes.initialize_models_for_request",
+            side_effect=RuntimeError(
+                "Slot 2 is not available because ACESTEP_CONFIG_PATH2 was not set at startup."
+            ),
+        ):
+            response = client.post(
+                "/v1/init",
+                headers={"Authorization": "Bearer test-token"},
+                json={"model": "acestep-v15-base", "slot": 2, "init_llm": False},
+            )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(400, payload["code"])
+        self.assertIn("Slot 2", payload["error"])
+
+    def test_init_route_rejects_invalid_slot_values(self):
+        """POST /v1/init with slot outside 1-3 should return HTTP 422."""
+
+        client = self._build_client()
+        response = client.post(
+            "/v1/init",
+            headers={"Authorization": "Bearer test-token"},
+            json={"model": "acestep-v15-base", "slot": 4, "init_llm": False},
+        )
+        self.assertEqual(422, response.status_code)
+
+        response = client.post(
+            "/v1/init",
+            headers={"Authorization": "Bearer test-token"},
+            json={"model": "acestep-v15-base", "slot": 0, "init_llm": False},
+        )
+        self.assertEqual(422, response.status_code)
+
     def test_init_route_returns_wrapped_error_when_llm_init_fails(self):
         """POST /v1/init with init_llm should wrap LLM initialization failures."""
 

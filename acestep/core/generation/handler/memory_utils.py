@@ -8,6 +8,7 @@ from loguru import logger
 
 from acestep.gpu_config import (
     cuda_supports_bfloat16,
+    get_dit_type_from_path,
     get_effective_free_vram_gb,
     get_global_gpu_config,
     is_rocm_available,
@@ -167,8 +168,15 @@ class MemoryUtilsMixin:
         duration_sec = float(audio_duration) if audio_duration and float(audio_duration) > 0 else 60.0
         per_sample_gb = 0.5 + max(0.0, 0.15 * (duration_sec - 60.0) / 60.0)
         if hasattr(self, "model") and self.model is not None:
-            model_name = getattr(self, "config_path", "") or ""
-            if "base" in model_name.lower():
+            config_path = ""
+            if getattr(self, "last_init_params", None):
+                config_path = self.last_init_params.get("config_path", "")
+            dit_type = get_dit_type_from_path(config_path)
+            # XL (4B DiT) models have ~70% more activations per sample
+            if dit_type.startswith("xl_"):
+                per_sample_gb *= 1.7
+            # Base/SFT models use CFG (2x forward passes)
+            if dit_type.endswith("_base") or dit_type == "base":
                 per_sample_gb *= 2.0
 
         safety_margin_gb = 1.5

@@ -2,6 +2,20 @@
 #
 # Replicates the timestep scheduling and ODE/SDE stepping from
 # ``AceStepConditionGenerationModel.generate_audio`` using pure MLX arrays.
+#
+# Enhanced sampling modes (see issue #957):
+# - ``euler``: First-order Euler ODE/SDE step (default, original behaviour).
+# - ``heun``: Second-order Heun predictor-corrector — evaluates the model
+#   twice per step and averages the predictions for higher accuracy, which
+#   matters especially with 8-step turbo inference.
+#
+# Optional stabilisation techniques (work with *any* sampler mode):
+# - ``velocity_norm_threshold``: Clamp the L2 norm of velocity predictions
+#   relative to the input norm.  Prevents outlier predictions that cause
+#   audio artefacts.
+# - ``velocity_ema_factor``: Exponential moving average blending between
+#   the current and previous velocity prediction, smoothing the denoising
+#   trajectory.
 
 import logging
 import time
@@ -11,6 +25,8 @@ import numpy as np
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
+
+VALID_SAMPLER_MODES = {"euler", "heun"}
 
 # Pre-defined timestep schedules (from modeling_acestep_v15_turbo.py)
 VALID_SHIFTS = [1.0, 2.0, 3.0]
@@ -135,6 +151,14 @@ def mlx_generate_diffusion(
     context_latents_non_cover_np: Optional[np.ndarray] = None,
     compile_model: bool = False,
     disable_tqdm: bool = False,
+    sampler_mode: str = "euler",
+    velocity_norm_threshold: float = 0.0,
+    velocity_ema_factor: float = 0.0,
+    dcw_enabled: bool = True,
+    dcw_mode: str = "double",
+    dcw_scaler: float = 0.05,
+    dcw_high_scaler: float = 0.02,
+    dcw_wavelet: str = "haar",
 ) -> Dict[str, object]:
     """Run the complete MLX diffusion loop with optional CFG guidance.
 
@@ -161,12 +185,40 @@ def mlx_generate_diffusion(
         context_latents_non_cover_np: optional [B, T, C] for non-cover.
         compile_model: If True, compile the decoder step with ``mx.compile``.
         disable_tqdm: If True, suppress the diffusion progress bar.
+        sampler_mode: Sampler algorithm — ``"euler"`` (first-order, default) or
+            ``"heun"`` (second-order predictor-corrector for cleaner output).
+        velocity_norm_threshold: Clamp velocity prediction L2 norm relative to
+            input norm at each step.  0 disables (default).  Values around
+            1.5–3.0 reduce outlier artefacts.
+        velocity_ema_factor: Blend current velocity prediction with the previous
+            step's prediction via EMA (``vt = (1-f)*vt + f*prev``).
+            0 disables (default).  Values around 0.05–0.2 smooth the trajectory.
 
     Returns:
         Dict with ``"target_latents"`` (numpy) and ``"time_costs"`` dict.
     """
     import mlx.core as mx
     from .dit_model import MLXCrossAttentionCache
+
+    if sampler_mode not in VALID_SAMPLER_MODES:
+        raise ValueError(f"Unsupported sampler_mode '{sampler_mode}'. Expected one of {VALID_SAMPLER_MODES}.")
+
+    use_heun = sampler_mode == "heun"
+    use_norm_clamp = velocity_norm_threshold > 0
+    use_ema = velocity_ema_factor > 0
+
+    if use_heun:
+        if infer_method == "sde":
+            logger.warning(
+                "[MLX-DiT] Heun sampler is not supported with SDE inference method. "
+                "Falling back to Euler for SDE steps. Use infer_method='ode' for Heun."
+            )
+        else:
+            logger.info("[MLX-DiT] Using Heun (second-order) sampler for higher-quality output.")
+    if use_norm_clamp:
+        logger.info("[MLX-DiT] Velocity norm clamping enabled (threshold=%.2f).", velocity_norm_threshold)
+    if use_ema:
+        logger.info("[MLX-DiT] Velocity EMA smoothing enabled (factor=%.3f).", velocity_ema_factor)
 
     time_costs = {}
     total_start = time.time()
@@ -236,11 +288,77 @@ def mlx_generate_diffusion(
                 "[MLX-DiT] mx.compile() failed (%s); using uncompiled path.", exc
             )
 
-    cache = MLXCrossAttentionCache() if _compiled_step is None else None
+    # Note: Heun solver requires two model evaluations per step with
+    # different inputs, so we disable KV caching when using it.
+    if use_heun:
+        cache = None
+    else:
+        cache = MLXCrossAttentionCache() if _compiled_step is None else None
+
     xt = noise
+    prev_vt = None  # for EMA smoothing
+
+    def _model_eval(x_input, t_val, enc, ctx_in, step_cache):
+        """Single model evaluation helper."""
+        t_arr = mx.full((x_input.shape[0],), t_val)
+        if _compiled_step is not None:
+            return _compiled_step(x_input, t_arr, t_arr, enc, ctx_in), step_cache
+        vt_out, step_cache = mlx_decoder(
+            hidden_states=x_input,
+            timestep=t_arr,
+            timestep_r=t_arr,
+            encoder_hidden_states=enc,
+            context_latents=ctx_in,
+            cache=step_cache,
+            use_cache=(not do_cfg and not use_heun),
+        )
+        return vt_out, step_cache
+
+    def _apply_cfg(vt_raw, current_t_val):
+        """Apply CFG guidance if enabled."""
+        if not do_cfg:
+            return vt_raw
+        pred_cond = vt_raw[:bsz]
+        pred_uncond = vt_raw[bsz:]
+        if cfg_interval_start <= current_t_val <= cfg_interval_end:
+            return _mlx_apg_forward(pred_cond, pred_uncond, guidance_scale, momentum_state)
+        return pred_cond
+
+    def _apply_stabilisation(vt_guided, xt_current, prev_velocity):
+        """Apply optional norm clamping and EMA smoothing."""
+        # Velocity norm clamping — prevents outlier predictions
+        if use_norm_clamp:
+            vt_norm = mx.sqrt((vt_guided * vt_guided).sum(axis=(1, 2), keepdims=True))
+            xt_norm = mx.sqrt((xt_current * xt_current).sum(axis=(1, 2), keepdims=True)) + 1e-10
+            scale = mx.minimum(
+                mx.ones_like(vt_norm),
+                (velocity_norm_threshold * xt_norm) / (vt_norm + 1e-10),
+            )
+            vt_guided = vt_guided * scale
+
+        # Velocity EMA smoothing — stabilises denoising trajectory
+        if use_ema and prev_velocity is not None:
+            vt_guided = (1.0 - velocity_ema_factor) * vt_guided + velocity_ema_factor * prev_velocity
+
+        return vt_guided
 
     diff_start = time.time()
     _switched_to_non_cover = False
+
+    # DCW — opt-in per-band wavelet-domain correction (CVPR 2026).  On MLX,
+    # `haar` runs natively; other wavelets bridge through pytorch_wavelets
+    # for output parity with the CUDA/CPU PyTorch path.  See
+    # `acestep.models.mlx.dcw_correction_mlx`.
+    from acestep.models.mlx.dcw_correction_mlx import apply_mlx_dcw
+    dcw_active = dcw_enabled and (
+        dcw_scaler != 0.0 or (dcw_mode == "double" and dcw_high_scaler != 0.0)
+    )
+    if dcw_active:
+        _backend = "MLX-native Haar" if dcw_wavelet == "haar" else f"torch bridge ({dcw_wavelet})"
+        logger.info(
+            "[MLX-DiT] DCW enabled (mode=%s, scaler=%.3f, high_scaler=%.3f, wavelet=%s, backend=%s).",
+            dcw_mode, dcw_scaler, dcw_high_scaler, dcw_wavelet, _backend,
+        )
 
     for step_idx in tqdm(range(num_steps), desc="MLX DiT diffusion", disable=disable_tqdm):
         current_t = t_schedule_list[step_idx]
@@ -256,32 +374,21 @@ def mlx_generate_diffusion(
 
         # Build input: double batch for CFG
         x_in = mx.concatenate([xt, xt], axis=0) if do_cfg else xt
-        t_curr = mx.full((x_in.shape[0],), current_t)
 
-        if _compiled_step is not None:
-            vt = _compiled_step(x_in, t_curr, t_curr, enc_hs, ctx)
-        else:
-            vt, cache = mlx_decoder(
-                hidden_states=x_in,
-                timestep=t_curr,
-                timestep_r=t_curr,
-                encoder_hidden_states=enc_hs,
-                context_latents=ctx,
-                cache=cache,
-                use_cache=not do_cfg,
-            )
-
+        # ---- First model evaluation (predictor) ----
+        vt, cache = _model_eval(x_in, current_t, enc_hs, ctx, cache)
         mx.eval(vt)
 
-        # Apply CFG guidance
-        if do_cfg:
-            pred_cond = vt[:bsz]
-            pred_uncond = vt[bsz:]
-            apply_cfg = cfg_interval_start <= current_t <= cfg_interval_end
-            if apply_cfg:
-                vt = _mlx_apg_forward(pred_cond, pred_uncond, guidance_scale, momentum_state)
-            else:
-                vt = pred_cond
+        vt = _apply_cfg(vt, current_t)
+        vt = _apply_stabilisation(vt, xt, prev_vt)
+
+        # Cache pre-step latent so DCW can reconstruct the predicted clean
+        # sample ``denoised = x_before - v * t`` after the sampler update.
+        # Also stash the raw velocity (pre-Heun-averaging) so the x0
+        # reconstruction uses the single-evaluation ``v(t_curr)``, matching
+        # the reference FLUX scheduler's ``x0 = sample - sigma * v``.
+        xt_before_step = xt
+        vt_for_denoise = vt
 
         # Final step: compute x0
         if step_idx == num_steps - 1:
@@ -289,19 +396,55 @@ def mlx_generate_diffusion(
             xt = xt - vt * t_unsq
             mx.eval(xt)
         else:
-            # ODE / SDE update
             next_t = t_schedule_list[step_idx + 1]
-            if infer_method == "sde":
+
+            if use_heun and infer_method == "ode":
+                # ---- Heun (second-order) ODE step ----
+                # Predictor: Euler step to get xt_predicted at next_t
+                dt = current_t - next_t
+                dt_arr = mx.full((bsz, 1, 1), dt)
+                xt_predicted = xt - vt * dt_arr
+                mx.eval(xt_predicted)
+
+                # Corrector: evaluate model at the predicted point
+                x_in2 = mx.concatenate([xt_predicted, xt_predicted], axis=0) if do_cfg else xt_predicted
+                vt2, cache = _model_eval(x_in2, next_t, enc_hs, ctx, cache)
+                mx.eval(vt2)
+                vt2 = _apply_cfg(vt2, next_t)
+                vt2 = _apply_stabilisation(vt2, xt_predicted, vt)
+
+                # Average the two velocity predictions (trapezoidal rule)
+                vt_avg = 0.5 * (vt + vt2)
+                xt = xt - vt_avg * dt_arr
+                vt = vt_avg  # store averaged velocity for EMA
+            elif infer_method == "sde":
                 t_unsq = mx.full((bsz, 1, 1), current_t)
                 pred_clean = xt - vt * t_unsq
                 new_noise = mx.random.normal(xt.shape)
                 xt = next_t * new_noise + (1.0 - next_t) * pred_clean
             else:
+                # ---- Standard Euler ODE step ----
                 dt = current_t - next_t
                 dt_arr = mx.full((bsz, 1, 1), dt)
                 xt = xt - vt * dt_arr
 
             mx.eval(xt)
+
+        # DCW correction — push x_next's frequency bands away from the
+        # predicted clean sample.  Scaler decays with t_curr so this is
+        # identity at t=0 and strongest at t≈1.
+        if dcw_active:
+            t_unsq_d = mx.full((bsz, 1, 1), current_t)
+            denoised = xt_before_step - vt_for_denoise * t_unsq_d
+            xt = apply_mlx_dcw(
+                xt, denoised, t_curr=current_t,
+                enabled=True,
+                mode=dcw_mode, scaler=dcw_scaler,
+                high_scaler=dcw_high_scaler, wavelet=dcw_wavelet,
+            )
+            mx.eval(xt)
+
+        prev_vt = vt  # store for EMA
 
     diff_end = time.time()
     total_end = time.time()
@@ -309,6 +452,7 @@ def mlx_generate_diffusion(
     time_costs["diffusion_time_cost"] = diff_end - diff_start
     time_costs["diffusion_per_step_time_cost"] = time_costs["diffusion_time_cost"] / max(num_steps, 1)
     time_costs["total_time_cost"] = total_end - total_start
+    time_costs["sampler_mode"] = sampler_mode
 
     result_np = np.array(xt)
     return {

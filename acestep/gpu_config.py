@@ -13,6 +13,7 @@ Centralized GPU memory detection and adaptive configuration management
 """
 
 import os
+import re
 import sys
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Tuple
@@ -23,6 +24,7 @@ from loguru import logger
 DEBUG_MAX_CUDA_VRAM_ENV = "MAX_CUDA_VRAM"
 DEBUG_MAX_MPS_VRAM_ENV = "MAX_MPS_VRAM"
 DEBUG_MAX_XPU_VRAM_ENV = "MAX_XPU_VRAM"
+SAVE_MEMORY_ENV = "ACESTEP_SAVE_MEMORY"
 
 # Tolerance for 16GB detection: reported VRAM like 15.5GB is effectively 16GB hardware
 # Real-world 16GB GPUs often report 15.7-15.9GB due to system/driver reservations
@@ -36,6 +38,7 @@ VRAM_AUTO_OFFLOAD_THRESHOLD_GB = 20.0
 # PyTorch installation URLs for diagnostics
 PYTORCH_CUDA_INSTALL_URL = "https://download.pytorch.org/whl/cu121"
 PYTORCH_ROCM_INSTALL_URL = "https://download.pytorch.org/whl/rocm6.0"
+VALID_LM_BACKENDS = {"vllm", "pt", "mlx"}
 
 
 def is_mps_platform() -> bool:
@@ -118,6 +121,24 @@ def cuda_supports_bfloat16(device_index: int | None = None) -> bool:
         return False
 
 
+def get_cuda_device_capability(device_index: int = 0) -> Optional[Tuple[int, int]]:
+    """Return the active CUDA device capability tuple when available."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_capability(device_index)
+    except Exception:
+        return None
+    return None
+
+
+def is_legacy_cuda_gpu(device_index: int = 0) -> bool:
+    """Return True for pre-Volta CUDA GPUs that should avoid vLLM defaults."""
+    capability = get_cuda_device_capability(device_index)
+    return capability is not None and capability[0] < 7 and not is_rocm_available()
+
+
 # ===========================================================================
 # Empirical VRAM measurements (GB) -- model weights only, bf16 precision
 # These values should be calibrated using scripts/profile_vram.py
@@ -127,6 +148,8 @@ def cuda_supports_bfloat16(device_index: int | None = None) -> bool:
 MODEL_VRAM = {
     "dit_turbo": 4.7,  # DiT turbo model weights (bf16)
     "dit_base": 4.7,  # DiT base model weights (bf16)
+    "dit_xl_turbo": 9.0,  # DiT XL (4B) turbo model weights (bf16)
+    "dit_xl_base": 9.0,  # DiT XL (4B) base model weights (bf16)
     "vae": 0.33,  # VAE (AutoencoderOobleck) weights (fp16)
     "text_encoder": 1.2,  # Qwen3-Embedding-0.6B text encoder (bf16)
     "silence_latent": 0.01,  # Silence latent tensor
@@ -150,10 +173,48 @@ LM_VRAM = {
 DIT_INFERENCE_VRAM_PER_BATCH = {
     "turbo": 0.3,  # GB per batch item (no CFG)
     "base": 0.6,  # GB per batch item (with CFG, 2x forward)
+    "xl_turbo": 0.5,  # GB per batch item, XL (4B) no CFG, larger activations
+    "xl_base": 1.0,  # GB per batch item, XL (4B) with CFG, 2x forward
 }
 
 # Safety margin to keep free for OS/driver/fragmentation (GB)
 VRAM_SAFETY_MARGIN_GB = 0.5
+
+
+def _has_path_token(token: str, path: str) -> bool:
+    """Check if *token* appears as a delimited word in *path*.
+
+    Matches when *token* is bounded by start/end of string or a common
+    path delimiter (``/``, ``\\``, ``.``, ``_``, ``-``).
+    """
+    return re.search(rf"(^|[\\/._-]){token}($|[\\/._-])", path) is not None
+
+
+def get_dit_type_from_path(config_path: str) -> str:
+    """Derive the DiT type key from a model checkpoint path.
+
+    Returns a string suitable for looking up ``MODEL_VRAM`` (prefixed with
+    ``"dit_"``) and ``DIT_INFERENCE_VRAM_PER_BATCH``.
+
+    Examples::
+
+        "acestep-v15-xl-turbo"  -> "xl_turbo"
+        "acestep-v15-xl-base"   -> "xl_base"
+        "acestep-v15-xl-sft"    -> "xl_base"   (sft shares base VRAM profile)
+        "acestep-v15-turbo"     -> "turbo"
+        "acestep-v15-base"      -> "base"
+        "acestep-v15-sft"       -> "base"       (sft shares base VRAM profile)
+    """
+    path = (config_path or "").lower()
+    is_xl = _has_path_token("xl", path)
+
+    if _has_path_token("turbo", path):
+        variant = "turbo"
+    else:
+        # Both "base" and "sft" use the base VRAM profile (CFG doubles forward)
+        variant = "base"
+
+    return f"xl_{variant}" if is_xl else variant
 
 
 @dataclass
@@ -195,6 +256,57 @@ class GPUConfig:
 
     # LM memory allocation (GB) for each model size
     lm_memory_gb: Dict[str, float]  # e.g., {"0.6B": 3, "1.7B": 8, "4B": 12}
+
+    # Save-memory mode: skip storing intermediate tensors in extra_outputs
+    # and disable auto_lrc / auto_score to reduce RAM usage.
+    # Controlled via ACESTEP_SAVE_MEMORY=1 environment variable.
+    save_memory_mode: bool = False
+
+    # MLX VAE decode chunk size (Apple Silicon only).
+    # Controls the maximum number of latent frames decoded in a single pass.
+    # Larger values decode faster but use more memory.
+    # Auto-detected based on available unified memory; overridable via
+    # ACESTEP_MLX_VAE_CHUNK environment variable.
+    mlx_vae_chunk_size: int = 512
+
+
+def _apply_lm_backend_compatibility_overrides(config: GPUConfig) -> GPUConfig:
+    """Apply runtime hardware overrides for LM backend selection."""
+    if is_legacy_cuda_gpu():
+        logger.info(
+            "Legacy CUDA GPU detected (pre-Volta compute capability): "
+            "forcing 5Hz LM backend recommendation to PyTorch."
+        )
+        config.lm_backend_restriction = "pt_only"
+        config.recommended_backend = "pt"
+    return config
+
+
+def resolve_lm_backend(
+    requested_backend: Optional[str],
+    gpu_config: Optional["GPUConfig"] = None,
+) -> str:
+    """Resolve the LM backend against runtime compatibility restrictions."""
+    config = gpu_config or get_global_gpu_config()
+    recommended_backend = getattr(config, "recommended_backend", "vllm")
+    lm_backend_restriction = getattr(config, "lm_backend_restriction", "all")
+
+    backend = (requested_backend or "").strip().lower()
+    if backend not in VALID_LM_BACKENDS:
+        backend = recommended_backend
+        if backend not in VALID_LM_BACKENDS:
+            backend = "pt"
+
+    if lm_backend_restriction == "pt_only":
+        return "pt"
+
+    if lm_backend_restriction == "pt_mlx_only" and backend == "vllm":
+        fallback = recommended_backend
+        if fallback not in {"pt", "mlx"}:
+            fallback = "pt"
+        return fallback
+
+    return backend
 
 
 # GPU tier configurations
@@ -664,6 +776,40 @@ def get_gpu_tier(gpu_memory_gb: float) -> str:
         return "unlimited"
 
 
+def _auto_mlx_vae_chunk_size(mem_gb: Optional[float] = None) -> int:
+    """Select MLX VAE decode chunk size based on available unified memory.
+
+    The ``ACESTEP_MLX_VAE_CHUNK`` environment variable takes highest
+    priority.  Otherwise the chunk size is chosen from a memory-based
+    heuristic targeting Apple Silicon unified-memory configurations.
+
+    Args:
+        mem_gb: GPU/unified memory in GB.  When ``None``, auto-detected
+            via :func:`get_gpu_memory_gb`.
+
+    Returns:
+        Chunk size as a positive integer (minimum 192, to keep
+        ``stride = chunk - 2 * overlap`` positive with overlap=64).
+    """
+    env_val = os.environ.get("ACESTEP_MLX_VAE_CHUNK")
+    if env_val is not None:
+        try:
+            return max(192, int(env_val))
+        except ValueError:
+            pass
+    if mem_gb is None:
+        mem_gb = get_gpu_memory_gb()
+    if mem_gb <= 16:
+        size = 256
+    elif mem_gb <= 36:
+        size = 512
+    elif mem_gb <= 64:
+        size = 1024
+    else:
+        size = 2048
+    return max(192, size)
+
+
 def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
     """
     Get GPU configuration based on detected or provided GPU memory.
@@ -703,7 +849,7 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
             "mlx backend, no CPU offload."
         )
 
-    return GPUConfig(
+    config = GPUConfig(
         tier=tier,
         gpu_memory_gb=gpu_memory_gb,
         max_duration_with_lm=config["max_duration_with_lm"],
@@ -737,7 +883,12 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
         if _mps
         else config.get("compile_model_default", True),
         lm_memory_gb=config["lm_memory_gb"],
+        # MPS: auto-tune MLX VAE decode chunk size based on unified memory
+        mlx_vae_chunk_size=_auto_mlx_vae_chunk_size(gpu_memory_gb)
+        if _mps
+        else 512,
     )
+    return _apply_lm_backend_compatibility_overrides(config)
 
 
 def get_lm_model_size(model_path: str) -> str:
@@ -877,7 +1028,7 @@ def get_lm_gpu_memory_ratio(
                 except (ValueError, TypeError):
                     pass
 
-            # The ratio is relative to total GPU memory (customized_vllm convention),
+            # The ratio is relative to total GPU memory (nano-vllm convention),
             # but we compute it so that the LM only claims what's actually free
             # minus a safety margin for DiT inference activations.
             # Reserve at least 1.5 GB for DiT inference activations
@@ -888,7 +1039,7 @@ def get_lm_gpu_memory_ratio(
             usable_for_lm = min(usable_for_lm, total_target_gb)
 
             # Convert to ratio of total GPU memory
-            # customized_vllm uses: target_total_usage = total * gpu_memory_utilization
+            # nano-vllm uses: target_total_usage = total * gpu_memory_utilization
             # We want: (total * ratio) = current_usage + usable_for_lm
             current_usage_gb = actual_total_gb - free_gb
             desired_total_usage = current_usage_gb + usable_for_lm
@@ -925,7 +1076,8 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
 
     Args:
         total_vram_gb: Total GPU VRAM in GB
-        dit_type: "turbo" or "base" (affects inference VRAM due to CFG)
+        dit_type: DiT type key -- "turbo", "base", "xl_turbo", "xl_base", etc.
+                  (affects model weight size and inference VRAM due to CFG)
 
     Returns:
         GPUConfig with parameters that fit within the VRAM budget
@@ -1002,7 +1154,7 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
     tier = get_gpu_tier(total_vram_gb)
     tier_config = GPU_TIER_CONFIGS.get(tier, {})
 
-    return GPUConfig(
+    config = GPUConfig(
         tier=tier,
         gpu_memory_gb=total_vram_gb,
         max_duration_with_lm=max_dur_lm,
@@ -1023,6 +1175,7 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
         compile_model_default=tier_config.get("compile_model_default", True),
         lm_memory_gb=lm_memory_gb,
     )
+    return _apply_lm_backend_compatibility_overrides(config)
 
 
 def get_effective_free_vram_gb(device_index: int = 0) -> float:
@@ -1130,7 +1283,7 @@ def estimate_inference_vram(
     Args:
         batch_size: Number of samples to generate
         duration_s: Audio duration in seconds
-        dit_type: "turbo" or "base"
+        dit_type: DiT type key -- "turbo", "base", "xl_turbo", "xl_base", etc.
         with_lm: Whether LM is loaded
         lm_size: LM model size if with_lm is True
 
@@ -1366,7 +1519,7 @@ def get_gpu_config_for_tier(tier: str) -> GPUConfig:
             f"Manual tier override to {tier} on macOS MPS — applying Apple Silicon overrides"
         )
 
-    return GPUConfig(
+    config = GPUConfig(
         tier=tier,
         gpu_memory_gb=real_gpu_memory,
         max_duration_with_lm=config["max_duration_with_lm"],
@@ -1395,7 +1548,11 @@ def get_gpu_config_for_tier(tier: str) -> GPUConfig:
         if _mps
         else config.get("compile_model_default", True),
         lm_memory_gb=config["lm_memory_gb"],
+        mlx_vae_chunk_size=_auto_mlx_vae_chunk_size(real_gpu_memory)
+        if _mps
+        else 512,
     )
+    return _apply_lm_backend_compatibility_overrides(config)
 
 
 # Global GPU config instance (initialized lazily)
@@ -1403,10 +1560,18 @@ _global_gpu_config: Optional[GPUConfig] = None
 
 
 def get_global_gpu_config() -> GPUConfig:
-    """Get the global GPU configuration, initializing if necessary."""
+    """Get the global GPU configuration, initializing if necessary.
+
+    Respects the ``ACESTEP_SAVE_MEMORY`` environment variable: when set to
+    ``"1"`` or ``"true"``, ``save_memory_mode`` is enabled regardless of tier.
+    """
     global _global_gpu_config
     if _global_gpu_config is None:
         _global_gpu_config = get_gpu_config()
+        env_val = os.environ.get(SAVE_MEMORY_ENV, "").strip().lower()
+        if env_val in ("1", "true", "yes"):
+            _global_gpu_config.save_memory_mode = True
+            logger.info("[gpu_config] Save-memory mode enabled via {}={}".format(SAVE_MEMORY_ENV, env_val))
     return _global_gpu_config
 
 

@@ -93,7 +93,7 @@ def run_vanilla(args: argparse.Namespace) -> int:
     gpu = detect_gpu(args.device, args.precision)
 
     # -- Extra-strong warning for base/sft + vanilla (especially problematic) --
-    if args.model_variant in ("base", "sft"):
+    if args.model_variant in ("base", "sft", "xl_base", "xl_sft"):
         from acestep.training_v2.ui.config_panel import confirm_start
         from acestep.training_v2.ui.errors import show_error
 

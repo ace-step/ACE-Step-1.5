@@ -15,6 +15,23 @@ class ConditioningTargetMixin:
       ``is_silence``, ``_encode_audio_to_latents``, ``_decode_audio_codes_to_latents``.
     """
 
+    def _get_silence_latent_slice(self, length: int) -> torch.Tensor:
+        """Return a silence-latent slice of exactly ``length`` frames.
+
+        When the pre-computed ``silence_latent`` tensor is shorter than
+        ``length``, it is tiled (repeated) along the time axis to cover
+        the needed span.  This prevents a silent shape mismatch that
+        previously occurred when ``audio_duration`` was null and the
+        generated code count exceeded the stored silence latent size.
+        """
+        available = self.silence_latent.shape[1]
+        if length <= available:
+            return self.silence_latent[0, :length, :]
+        # Tile to cover the needed length
+        repeats = (length + available - 1) // available  # ceil division
+        tiled = self.silence_latent[0].repeat(repeats, 1)  # (repeats*available, C)
+        return tiled[:length, :]
+
     def _prepare_target_latents_and_wavs(
         self,
         batch_size: int,
@@ -51,7 +68,7 @@ class ConditioningTargetMixin:
                     current_wav = target_wavs_list[i].to(self.device).unsqueeze(0)
                     if self.is_silence(current_wav):
                         expected_latent_length = current_wav.shape[-1] // 1920
-                        target_latent = self.silence_latent[0, :expected_latent_length, :]
+                        target_latent = self._get_silence_latent_slice(expected_latent_length)
                     else:
                         if (
                             _cached_wav_ref is not None
@@ -82,14 +99,14 @@ class ConditioningTargetMixin:
 
             max_latent_length = max(latent.shape[0] for latent in target_latents_list)
             max_latent_length = max(128, max_latent_length)
-            silence_latent_tiled = self.silence_latent[0, :max_latent_length, :]
+            silence_latent_tiled = self._get_silence_latent_slice(max_latent_length)
 
             padded_latents = []
             for latent in target_latents_list:
                 latent_length = latent.shape[0]
                 if latent_length < max_latent_length:
                     pad_length = max_latent_length - latent_length
-                    latent = torch.cat([latent, self.silence_latent[0, :pad_length, :]], dim=0)
+                    latent = torch.cat([latent, self._get_silence_latent_slice(pad_length)], dim=0)
                 padded_latents.append(latent)
 
             target_latents = torch.stack(padded_latents)

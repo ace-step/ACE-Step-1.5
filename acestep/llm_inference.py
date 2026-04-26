@@ -2,6 +2,7 @@
 5Hz LM (Language Model) Handler
 Handles all LM-related operations including initialization and generation
 """
+import gc
 import os
 import sys
 import traceback
@@ -37,7 +38,7 @@ def _warn_if_prerelease_python():
     if getattr(v, "releaselevel", "final") != "final" and sys.platform.startswith("linux"):
         warnings.warn(
             f"Detected pre-release Python {sys.version.split()[0]} ({getattr(v, 'releaselevel', '')}). "
-            "This is known to cause segmentation faults with the vLLM engine on Linux. "
+            "This is known to cause segmentation faults with vLLM/nano-vllm on Linux. "
             "Please install a stable Python release (e.g. 3.11.12+), or use --backend pt as a workaround.",
             RuntimeWarning,
             stacklevel=2,
@@ -79,20 +80,43 @@ class LLMHandler:
         self._mlx_model = None
         self._mlx_model_path = None
 
+        # A/B toggle: when True, use the pre-fix prompt format for CFG uncond
+        # (keeps caption+lyrics in uncond, closes the assistant turn with <|im_end|>
+        # before codes). Intended for manual comparison against the training-aligned
+        # format only.
+        self.use_legacy_cfg_prompt = False
+
     def _clear_accelerator_cache(self) -> None:
         """Release freed accelerator memory back to the driver.
 
-        Clears the cache of the accelerator that was actually used for
-        generation (based on ``self.device``), rather than clearing by
-        availability order.  Supports CUDA, XPU (Intel), and MPS
+        Synchronises the device *before* releasing cached blocks so that
+        every in-flight async write has landed and the freed blocks are
+        actually reclaimable.  Supports CUDA, XPU (Intel), and MPS
         (Apple Silicon) backends.
         """
-        active_device = str(getattr(self, "device", "cpu")).split(":")[0]
+        try:
+            active_device = str(getattr(self, "device", "cpu")).split(":")[0]
+        except (TypeError, AttributeError):
+            active_device = None
+
+        # Fallback: if device is unset/None, detect by availability
+        if not active_device or active_device in ("cpu", "None"):
+            if torch.cuda.is_available():
+                active_device = "cuda"
+            elif hasattr(torch, "xpu") and torch.xpu.is_available():
+                active_device = "xpu"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                active_device = "mps"
+
         if active_device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
         elif active_device == "xpu" and hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.synchronize()
             torch.xpu.empty_cache()
         elif active_device == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            if hasattr(torch.mps, "synchronize"):
+                torch.mps.synchronize()
             if hasattr(torch.mps, "empty_cache"):
                 torch.mps.empty_cache()
 
@@ -113,11 +137,7 @@ class LLMHandler:
             self.llm_backend = None
             self._mlx_model = None
             self._mlx_model_path = None
-            try:
-                import gc
-                gc.collect()
-            except Exception:
-                pass
+            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
@@ -143,12 +163,11 @@ class LLMHandler:
             logger.warning(f"[LLM vLLM] Failed to clean torch distributed state: {exc}")
 
     def _get_checkpoint_dir(self) -> str:
-        """Get checkpoint directory, prioritizing persistent storage"""
+        """Get checkpoint directory via the shared resolver."""
         if self.persistent_storage_path:
             return os.path.join(self.persistent_storage_path, "checkpoints")
-        current_file = os.path.abspath(__file__)
-        project_root = os.path.dirname(os.path.dirname(current_file))
-        return os.path.join(project_root, "checkpoints")
+        from acestep.model_downloader import get_checkpoints_dir
+        return str(get_checkpoints_dir())
 
     def get_available_5hz_lm_models(self) -> List[str]:
         """Scan and return all model directory names starting with 'acestep-5Hz-lm-'"""
@@ -263,10 +282,17 @@ class LLMHandler:
                 # CoT phase or mixed: add larger buffer for metadata overhead.
                 max_new_tokens = target_codes + 500
         else:
+            # When no target_duration is set, cap the fallback to a safe
+            # upper bound derived from DURATION_MAX so that generation cannot
+            # produce more audio codes than the downstream DiT can handle.
+            duration_cap = DURATION_MAX * 5 + 500  # codes + metadata buffer
             if fallback_max is not None:
-                max_new_tokens = fallback_max
+                max_new_tokens = min(fallback_max, duration_cap)
             else:
-                max_new_tokens = getattr(self, "max_model_len", 4096) - 64
+                max_new_tokens = min(
+                    getattr(self, "max_model_len", 4096) - 64,
+                    duration_cap,
+                )
 
         # Cap at model's max length
         if hasattr(self, "max_model_len"):
@@ -355,15 +381,20 @@ class LLMHandler:
         """Build unconditional prompt for CFG based on generation phase and batch mode"""
         if is_batch or generation_phase == "codes":
             # Codes phase or batch mode: use empty CoT in unconditional prompt
-            return self.build_formatted_prompt_with_cot(
+            prompt = self.build_formatted_prompt_with_cot(
                 caption, lyrics, cot_text, is_negative_prompt=True, negative_prompt=negative_prompt
             )
         else:
             # CoT phase (single mode only): unconditional prompt
             # If negative_prompt is provided, use it as caption; otherwise remove caption and keep only lyrics
-            return self.build_formatted_prompt(
+            prompt = self.build_formatted_prompt(
                 caption, lyrics, is_negative_prompt=True, generation_phase="cot", negative_prompt=negative_prompt
             )
+        logger.info(
+            f"CFG unconditional prompt (phase={generation_phase}, is_batch={is_batch}, "
+            f"negative_prompt={negative_prompt!r}):\n{prompt}"
+        )
+        return prompt
 
     def _load_pytorch_model(self, model_path: str, device: str) -> Tuple[bool, str]:
         """Load PyTorch model from path and return (success, status_message)"""
@@ -560,6 +591,7 @@ class LLMHandler:
 
             # Proactive CUDA cleanup before LM load to reduce fragmentation on mode/model switch
             if device == "cuda" and torch.cuda.is_available():
+                gc.collect()
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
 
@@ -591,7 +623,7 @@ class LLMHandler:
             # Disable CUDA/HIP graph capture on ROCm (unverified on RDNA3 Windows),
             # on Jetson (SDPA paged-cache decode calls .item() during capture),
             # and when flash_attn is not installed (same .item() incompatibility on all CUDA hardware).
-            # When flash_attn is unavailable, customized_vllm falls back to _sdpa_cached_decode
+            # When flash_attn is unavailable, nano-vllm falls back to _sdpa_decode_with_paged_cache
             # which contains a Python loop with .item() calls.  These force CPU-GPU
             # synchronisation that is forbidden inside torch.cuda.CUDAGraph capture,
             # corrupting the CUDA context and causing downstream errors such as:
@@ -603,7 +635,7 @@ class LLMHandler:
                     dev_name = torch.cuda.get_device_name(0).lower()
                     is_jetson = any(k in dev_name for k in ("orin", "xavier", "tegra"))
                     if is_jetson:
-                        logger.info(f"Jetson GPU detected ({dev_name}): disabling CUDA graph capture for customized_vllm")
+                        logger.info(f"Jetson GPU detected ({dev_name}): disabling CUDA graph capture for nano-vllm")
                 except Exception:
                     pass
             _has_flash_attn = False
@@ -614,7 +646,7 @@ class LLMHandler:
                 pass
             if not _has_flash_attn:
                 logger.info(
-                    "flash_attn not installed: disabling CUDA graph capture for customized_vllm "
+                    "flash_attn not installed: disabling CUDA graph capture for nano-vllm "
                     "(SDPA fallback uses .item() calls in paged-cache decode that are "
                     "incompatible with CUDA graph capture)"
                 )
@@ -626,7 +658,7 @@ class LLMHandler:
                 pass
             if not _has_triton:
                 logger.info(
-                    "Triton not available: disabling CUDA graph capture for customized_vllm "
+                    "Triton not available: disabling CUDA graph capture for nano-vllm "
                     "(CUDA graphs require torch.compile which depends on Triton)"
                 )
             enforce_eager_for_vllm = bool(is_rocm or is_jetson or not _has_flash_attn or not _has_triton)
@@ -751,16 +783,17 @@ class LLMHandler:
             logger.error("CUDA/ROCm is not available. Please check your GPU setup.")
             return "❌ CUDA/ROCm is not available. Please check your GPU setup."
         try:
-            from acestep.customized_vllm import LLM, SamplingParams
-        except ImportError as exc:
+            from nanovllm import LLM, SamplingParams
+        except ImportError:
             self.llm_initialized = False
-            logger.error(f"Failed to import customized_vllm engine: {exc}")
-            return f"❌ Failed to import customized_vllm engine: {exc}"
+            logger.error("nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .'")
+            return "❌ nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .'"
 
         try:
             current_device = torch.cuda.current_device()
             device_name = torch.cuda.get_device_name(current_device)
 
+            gc.collect()
             torch.cuda.empty_cache()
             self._cleanup_torch_distributed_state()
 
@@ -857,7 +890,7 @@ class LLMHandler:
         Accepts either a single formatted prompt (str) or a list of formatted prompts (List[str]).
         Returns a single string for single mode, or a list of strings for batch mode.
         """
-        from acestep.customized_vllm import SamplingParams
+        from nanovllm import SamplingParams
 
         # Determine if batch mode
         formatted_prompt_list, is_batch = self._normalize_batch_input(formatted_prompts)
@@ -1384,6 +1417,23 @@ class LLMHandler:
                 logger.info("Phase 1: Using user-provided metadata (skipping generation)")
             metadata = {k: v for k, v in user_metadata.items() if v is not None}
 
+        # When the caller did not supply an explicit target_duration, use the
+        # duration that Phase 1 (CoT) produced so that Phase 2 code generation
+        # is properly constrained.  Without this, a null API duration lets
+        # Phase 2 run unconstrained, potentially producing more audio codes
+        # than the downstream DiT expects and causing a tensor-size mismatch.
+        if (target_duration is None or target_duration <= 0) and metadata.get("duration"):
+            try:
+                cot_duration = float(metadata["duration"])
+                if cot_duration > 0:
+                    target_duration = cot_duration
+                    logger.info(
+                        f"Using CoT-generated duration ({cot_duration}s) as "
+                        f"Phase 2 target_duration (original was None/unset)"
+                    )
+            except (ValueError, TypeError):
+                pass
+
         # If infer_type is 'dit', stop here and return only metadata
         if infer_type == "dit":
             if is_batch:
@@ -1490,11 +1540,8 @@ class LLMHandler:
                         seeds=seeds,
                     )
             except Exception as e:
-                error_detail = traceback.format_exc()
-                logger.error(
-                    f"Error in batch codes generation: {type(e).__name__}: {e}\n{error_detail}"
-                )
-                error_msg = f"Error in batch codes generation: {type(e).__name__}: {e}"
+                error_msg = f"Error in batch codes generation: {str(e)}"
+                logger.error(error_msg)
                 return {
                     "metadata": [],
                     "audio_codes": [],
@@ -1676,45 +1723,69 @@ class LLMHandler:
         if self.llm_tokenizer is None:
             raise ValueError("LLM tokenizer is not initialized. Call initialize() first.")
 
-        if is_negative_prompt:
-            # Unconditional prompt for codes phase
-            # Check if user provided a meaningful negative prompt
-            has_negative_prompt = self._has_meaningful_negative_prompt(negative_prompt)
-
-            # Use empty CoT for unconditional
-            cot_for_prompt = "<think>\n</think>"
-
-            if has_negative_prompt:
-                # If negative prompt provided, use it as caption
-                caption_for_prompt = negative_prompt
+        if self.use_legacy_cfg_prompt:
+            # Isolated-variable A/B path: uncond keeps the `# Caption\n...\n\n#
+            # Lyric\n...\n` wrapper (the pre-fix design choice, where CFG only
+            # amplifies the CoT-metadata direction because caption/lyrics are
+            # identical on both sides). Structural details (open assistant turn,
+            # `<think>\n\n</think>` for empty reasoning, `\n\n` separator before
+            # the first code) match the training-aligned path below so the only
+            # thing that differs between toggle states is the uncond user
+            # content — enabling a clean manual comparison of that single design
+            # decision.
+            if is_negative_prompt:
+                has_negative_prompt = self._has_meaningful_negative_prompt(negative_prompt)
+                cot_for_prompt = "<think>\n\n</think>"
+                caption_for_prompt = negative_prompt if has_negative_prompt else caption
             else:
-                # No negative prompt: use original caption
+                cot_for_prompt = cot_text
                 caption_for_prompt = caption
+            user_prompt = f"# Caption\n{caption_for_prompt}\n\n# Lyric\n{lyrics}\n"
+            formatted = self.llm_tokenizer.apply_chat_template(
+                [
+                    {"role": "system", "content": f"# Instruction\n{DEFAULT_LM_INSTRUCTION}\n\n"},
+                    {"role": "user", "content": user_prompt},
+                ],
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            formatted += cot_for_prompt + "\n\n"
+            return formatted
+
+        if is_negative_prompt:
+            # Match training CFG-dropout format: user message is the raw negative prompt
+            # (the literal "NO USER INPUT" when no override), NOT wrapped in
+            # "# Caption\n...\n\n# Lyric\n...\n".
+            #
+            # Empty reasoning is "<think>\n\n</think>" (not "<think>\n</think>"),
+            # because Qwen's chat template renders assistant messages containing a
+            # </think> tag through the pattern `<think>\n{reasoning.strip('\n')}\n
+            # </think>`, so empty reasoning produces the extra inner newline that the
+            # model actually saw during training.
+            has_negative_prompt = self._has_meaningful_negative_prompt(negative_prompt)
+            cot_for_prompt = "<think>\n\n</think>"
+            user_prompt = negative_prompt if has_negative_prompt else "NO USER INPUT"
         else:
-            # Conditional prompt: use the full CoT and original caption
             cot_for_prompt = cot_text
-            caption_for_prompt = caption
+            user_prompt = f"# Caption\n{caption}\n\n# Lyric\n{lyrics}\n"
 
-        # Build user prompt with caption and lyrics ONLY (no COT)
-        # COT should be in the assistant's message, not user's
-        user_prompt = f"# Caption\n{caption_for_prompt}\n\n# Lyric\n{lyrics}\n"
-
-        # Build the chat with assistant message containing the COT
-        # The model will continue generation after the COT
+        # Keep the assistant turn OPEN so the model continues inside it with audio
+        # codes, matching the training layout `<think>...</think>\n\n{codes}<|im_end|>`.
+        # Qwen's chat template inserts `\n\n` between `</think>` and the content
+        # following it when rendering a full assistant message; reproduce that
+        # separator here so training and inference see the same prefix just before
+        # the first code token. Adding cot as a role="assistant" message would
+        # close the turn with <|im_end|>, which the model treats as end-of-turn
+        # rather than "codes go here".
         formatted = self.llm_tokenizer.apply_chat_template(
             [
                 {"role": "system", "content": f"# Instruction\n{DEFAULT_LM_INSTRUCTION}\n\n"},
                 {"role": "user", "content": user_prompt},
-                {"role": "assistant", "content": cot_for_prompt},
             ],
             tokenize=False,
-            add_generation_prompt=False,  # Don't add generation prompt, COT is already in assistant
+            add_generation_prompt=True,
         )
-
-        # Add a newline after </think> so model generates audio codes on next line
-        if not formatted.endswith('\n'):
-            formatted += '\n'
-
+        formatted += cot_for_prompt + "\n\n"
         return formatted
 
     def build_formatted_prompt_for_understanding(
@@ -2417,11 +2488,11 @@ class LLMHandler:
             import traceback
             error_detail = traceback.format_exc()
             logger.error(f"Error in generate_from_formatted_prompt: {type(e).__name__}: {e}\n{error_detail}")
-            # Reset vllm engine state on error to prevent stale context from causing
+            # Reset nano-vllm state on error to prevent stale context from causing
             # subsequent CUDA illegal memory access errors
             if self.llm_backend == "vllm":
                 try:
-                    from acestep.customized_vllm import reset_context
+                    from nanovllm.utils.context import reset_context
                     reset_context()
                 except ImportError:
                     pass
@@ -2433,6 +2504,7 @@ class LLMHandler:
                 except Exception:
                     pass  # Ignore errors during cleanup
             # Clear accelerator cache to release any corrupted memory
+            gc.collect()
             self._clear_accelerator_cache()
             return "", f"❌ Error generating from formatted prompt: {type(e).__name__}: {e or error_detail.splitlines()[-1]}"
 
@@ -2526,6 +2598,9 @@ class LLMHandler:
 
         if streamer is not None:
             streamer.end()
+
+        # Explicitly free KV cache to reduce memory fragmentation
+        del past_key_values
 
         return generated_ids
 
@@ -2695,6 +2770,9 @@ class LLMHandler:
 
         if streamer is not None:
             streamer.end()
+
+        # Explicitly free KV cache to reduce memory fragmentation
+        del past_key_values
 
         # Return the full batch (both conditional and unconditional)
         # The caller will extract only the conditional output
@@ -4016,7 +4094,7 @@ class LLMHandler:
             yield
             return
 
-        # If using vllm engine or MLX, do not offload (managed differently)
+        # If using nanovllm or MLX, do not offload (managed differently)
         if self.llm_backend in ("vllm", "mlx"):
             yield
             return
@@ -4055,6 +4133,7 @@ class LLMHandler:
             if hasattr(model, "to"):
                 model.to("cpu")
             # Clear accelerator cache after offloading
+            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             elif hasattr(torch, 'xpu') and torch.xpu.is_available():

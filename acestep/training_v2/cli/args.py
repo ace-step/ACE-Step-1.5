@@ -1,8 +1,9 @@
 """
 Argparse construction for ACE-Step Training V2 CLI.
 
-Contains ``build_root_parser`` and all ``_add_*`` argument-group helpers,
-plus shared constants (``_DEFAULT_NUM_WORKERS``, ``VARIANT_DIR_MAP``).
+Contains ``build_root_parser``, ``build_fixed_standalone_parser``, and all
+``_add_*`` argument-group helpers, plus shared constants
+(``_DEFAULT_NUM_WORKERS``, ``VARIANT_DIR_MAP``).
 """
 
 from __future__ import annotations
@@ -24,6 +25,46 @@ VARIANT_DIR_MAP = {
 # ===========================================================================
 # Root parser
 # ===========================================================================
+
+def build_fixed_standalone_parser() -> argparse.ArgumentParser:
+    """Build a standalone argparse parser for the ``fixed`` subcommand.
+
+    Used when invoking ``python -m acestep.training_v2.cli.train_fixed``
+    directly, without requiring a positional ``fixed`` subcommand argument.
+    Equivalent to ``python train.py fixed`` but callable as a module.
+    """
+    formatter_class = argparse.HelpFormatter
+    try:
+        from acestep.training_v2.ui.help_formatter import RichHelpFormatter
+        formatter_class = RichHelpFormatter
+    except ImportError:
+        pass
+
+    parser = argparse.ArgumentParser(
+        prog="python -m acestep.training_v2.cli.train_fixed",
+        description="ACE-Step corrected LoRA training: continuous timesteps + CFG dropout",
+        formatter_class=formatter_class,
+    )
+
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        default=False,
+        help="Disable Rich output; use plain text (also set automatically when stdout is not a TTY)",
+    )
+    parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        default=False,
+        help="Skip the confirmation prompt and start training immediately",
+    )
+
+    _add_common_training_args(parser, require_training_paths=False)
+    _add_fixed_args(parser)
+
+    return parser
+
 
 def build_root_parser() -> argparse.ArgumentParser:
     """Build the top-level argparse parser with all subcommands."""
@@ -130,7 +171,7 @@ def _add_model_args(parser: argparse.ArgumentParser) -> None:
         default="turbo",
         help=(
             "Model variant or subfolder name (default: turbo). "
-            "Official: turbo, base, sft. "
+            "Official: turbo, base, sft (2B) or xl_turbo, xl_base, xl_sft (XL/4B). "
             "For fine-tunes: use the exact folder name under checkpoint-dir."
         ),
     )
@@ -138,16 +179,16 @@ def _add_model_args(parser: argparse.ArgumentParser) -> None:
         "--base-model",
         type=str,
         default=None,
-        choices=["turbo", "base", "sft"],
+        choices=["turbo", "base", "sft", "xl_turbo", "xl_base", "xl_sft"],
         help=(
-            "Base model a fine-tune was trained from (turbo/base/sft). "
+            "Base model a fine-tune was trained from (turbo/base/sft, or xl_turbo/xl_base/xl_sft for XL). "
             "Used to condition timestep sampling. Auto-detected for official models."
         ),
     )
 
 
 def _add_device_args(parser: argparse.ArgumentParser) -> None:
-    """Add --device and --precision."""
+    """Add --device, --precision, --num-devices, and --strategy."""
     g = parser.add_argument_group("Device / platform")
     g.add_argument(
         "--device",
@@ -162,9 +203,26 @@ def _add_device_args(parser: argparse.ArgumentParser) -> None:
         choices=["auto", "bf16", "fp16", "fp32"],
         help="Precision: auto, bf16, fp16, fp32 (default: auto)",
     )
+    g.add_argument(
+        "--num-devices",
+        type=int,
+        default=1,
+        help="Number of GPUs for DDP training (default: 1)",
+    )
+    g.add_argument(
+        "--strategy",
+        type=str,
+        default="auto",
+        choices=["auto", "ddp"],
+        help="Distributed strategy: auto or ddp (default: auto)",
+    )
 
 
-def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
+def _add_common_training_args(
+    parser: argparse.ArgumentParser,
+    *,
+    require_training_paths: bool = True,
+) -> None:
     """Add arguments shared by vanilla / fixed subcommands."""
     _add_model_args(parser)
     _add_device_args(parser)
@@ -174,7 +232,7 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
     g_data.add_argument(
         "--dataset-dir",
         type=str,
-        required=True,
+        required=require_training_paths,
         help="Directory containing preprocessed .pt files",
     )
     g_data.add_argument(
@@ -244,7 +302,7 @@ def _add_common_training_args(parser: argparse.ArgumentParser) -> None:
 
     # -- Checkpointing -------------------------------------------------------
     g_ckpt = parser.add_argument_group("Checkpointing")
-    g_ckpt.add_argument("--output-dir", type=str, required=True, help="Output directory for LoRA weights")
+    g_ckpt.add_argument("--output-dir", type=str, required=require_training_paths, help="Output directory for LoRA weights")
     g_ckpt.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N epochs (default: 10)")
     g_ckpt.add_argument("--resume-from", type=str, default=None, help="Path to checkpoint dir to resume from")
 

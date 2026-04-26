@@ -74,6 +74,35 @@ class BatchManagementBackgroundTests(unittest.TestCase):
         self.assertIn("messages.batch_ready", result[2])
         self.assertTrue(result[3]["interactive"])
 
+    def test_background_generation_forwards_no_fsq(self):
+        """Background AutoGen should preserve the Remix no_fsq option."""
+        module, _state = load_batch_management_module(is_windows=False)
+        seen = {}
+
+        def _gen(*_args, **kwargs):
+            """Capture generation kwargs and yield one synthetic result."""
+            seen["no_fsq"] = kwargs.get("no_fsq")
+            yield build_progress_result(length=48)
+
+        with patch.dict(module.generate_next_batch_background.__globals__, {"generate_with_progress": _gen}):
+            module.generate_next_batch_background(
+                None,
+                None,
+                autogen_enabled=True,
+                generation_params={
+                    "batch_size_input": 2,
+                    "allow_lm_batch": False,
+                    "auto_lrc": False,
+                    "no_fsq": True,
+                },
+                current_batch_index=0,
+                total_batches=1,
+                batch_queue={},
+                is_format_caption=False,
+            )
+
+        self.assertTrue(seen["no_fsq"])
+
     def test_background_auto_lrc_copies_lrc_fields(self):
         """Background Auto-LRC should copy LRC/subtitle lists into queue entry."""
         module, _state = load_batch_management_module(is_windows=False)

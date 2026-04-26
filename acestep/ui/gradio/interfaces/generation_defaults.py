@@ -66,7 +66,9 @@ def compute_init_defaults(
         default_quantization = False
         default_compile = False
 
-    if gpu_config.lm_backend_restriction == "pt_mlx_only":
+    if gpu_config.lm_backend_restriction == "pt_only":
+        available_backends = ["pt"]
+    elif gpu_config.lm_backend_restriction == "pt_mlx_only":
         available_backends = ["pt", "mlx"]
     else:
         available_backends = ["vllm", "pt", "mlx"]
@@ -116,9 +118,13 @@ def resolve_is_pure_base_model(
 
     available_models = dit_handler.get_available_acestep_v15_models()
     default_model = (
-        "acestep-v15-turbo"
-        if "acestep-v15-turbo" in available_models
-        else (available_models[0] if available_models else None)
+        "acestep-v15-xl-turbo"
+        if "acestep-v15-xl-turbo" in available_models
+        else (
+            "acestep-v15-turbo"
+            if "acestep-v15-turbo" in available_models
+            else (available_models[0] if available_models else None)
+        )
     )
     actual_model = init_params.get("config_path", default_model) if init_params else default_model
     return is_pure_base_model((actual_model or "").lower())

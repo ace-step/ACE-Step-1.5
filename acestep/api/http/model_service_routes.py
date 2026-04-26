@@ -3,21 +3,47 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel, Field
 
 from acestep.api.http.model_init_service import initialize_models_for_request
+from acestep.constants import TASK_TYPES_BASE, TASK_TYPES_TURBO
 
 
 class InitModelRequest(BaseModel):
     """Request payload for on-demand DiT/LM model initialization."""
 
     model: Optional[str] = Field(default=None, description="DiT model name to initialize (e.g., 'acestep-v15-base')")
+    slot: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=3,
+        description="Handler slot to initialize (1, 2, or 3). Defaults to 1. "
+        "Slots 2 and 3 require ACESTEP_CONFIG_PATH2 / ACESTEP_CONFIG_PATH3 "
+        "to have been set at startup so that the handler was constructed.",
+    )
     init_llm: bool = Field(default=False, description="Whether to initialize LLM as part of this request")
     lm_model_path: Optional[str] = Field(default=None, description="LLM model path/name (e.g., 'acestep-5Hz-lm-1.7B')")
+
+
+def _read_model_supported_tasks(checkpoint_dir: str, model_name: str) -> List[str]:
+    """Read config.json for a model and return its supported task types."""
+    config_path = os.path.join(checkpoint_dir, model_name, "config.json")
+    if not os.path.isfile(config_path):
+        return list(TASK_TYPES_BASE)
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        is_turbo = config.get("is_turbo", False)
+        if is_turbo:
+            return list(TASK_TYPES_TURBO)
+        return list(TASK_TYPES_BASE)
+    except Exception:
+        return list(TASK_TYPES_BASE)
 
 
 def _collect_model_inventory(
@@ -78,6 +104,7 @@ def _collect_model_inventory(
             "name": name,
             "is_default": bool(name == primary_model and primary_model),
             "is_loaded": name in loaded_dit_models,
+            "supported_task_types": _read_model_supported_tasks(checkpoint_dir, name),
         }
         for name in sorted(available_dit_models)
     ]
@@ -174,6 +201,7 @@ def register_model_service_routes(
                     lambda: initialize_models_for_request(
                         app_state=app.state,
                         model_name=request.model,
+                        slot=request.slot,
                         init_llm=request.init_llm,
                         requested_lm_model_path=request.lm_model_path,
                         get_project_root=get_project_root,
@@ -186,6 +214,7 @@ def register_model_service_routes(
                 return wrap_response(
                     {
                         "message": "Model initialization completed",
+                        "slot": result.get("slot", 1),
                         "loaded_model": result.get("loaded_model"),
                         "loaded_lm_model": result.get("loaded_lm_model"),
                         "models": inventory["models"],
@@ -193,5 +222,10 @@ def register_model_service_routes(
                         "llm_initialized": inventory["llm_initialized"],
                     }
                 )
+            except RuntimeError as exc:
+                msg = str(exc)
+                if "slot" in msg.lower() and "not available" in msg.lower():
+                    return wrap_response(None, code=400, error=msg)
+                return wrap_response(None, code=500, error=f"Model initialization failed: {msg}")
             except Exception as exc:
                 return wrap_response(None, code=500, error=f"Model initialization failed: {str(exc)}")

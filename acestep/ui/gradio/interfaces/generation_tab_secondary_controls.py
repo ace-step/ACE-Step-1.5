@@ -30,6 +30,11 @@ def build_cover_strength_controls() -> dict[str, Any]:
     )
     with gr.Group(visible=False) as remix_help_group:
         create_help_button("generation_remix")
+        no_fsq = gr.Checkbox(
+            label="no_fsq",
+            value=False,
+            info="Use source-audio latents directly instead of FSQ-quantized audio codes.",
+        )
     cover_noise_strength = gr.Slider(
         minimum=0.0,
         maximum=1.0,
@@ -43,6 +48,7 @@ def build_cover_strength_controls() -> dict[str, Any]:
     return {
         "audio_cover_strength": audio_cover_strength,
         "remix_help_group": remix_help_group,
+        "no_fsq": no_fsq,
         "cover_noise_strength": cover_noise_strength,
     }
 

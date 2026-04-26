@@ -47,3 +47,5 @@ peft>=0.18.0
 lightning>=2.0.0
 tensorboard>=2.0.0
 
+# nano-vllm tokenizer dependency (needed even with pt backend)
+xxhash

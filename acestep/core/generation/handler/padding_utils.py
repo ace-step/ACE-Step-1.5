@@ -75,10 +75,17 @@ class PaddingMixin:
                     if audio_duration is not None and float(audio_duration) > 0:
                         batch_target_wavs = self.create_target_wavs(float(audio_duration))
                     else:
-                        import random
-
-                        random_duration = random.uniform(10.0, 120.0)
-                        batch_target_wavs = self.create_target_wavs(random_duration)
+                        # Fall back to a sensible default instead of a random duration.
+                        # Random durations caused garbage output when duration=-1 was
+                        # passed without LM auto-detection (see issue #929).
+                        fallback_duration = 120.0
+                        logger.warning(
+                            "[padding] No valid audio_duration provided (got {}); "
+                            "using fallback duration {:.0f}s.",
+                            audio_duration,
+                            fallback_duration,
+                        )
+                        batch_target_wavs = self.create_target_wavs(fallback_duration)
                 target_wavs_batch.append(batch_target_wavs)
 
             # Stack target_wavs into batch tensor

@@ -26,7 +26,7 @@ PARAM_ALIASES: Dict[str, list[str]] = {
     "guidance_scale": ["guidance_scale", "guidanceScale"],
     "use_random_seed": ["use_random_seed", "useRandomSeed"],
     "seed": ["seed"],
-    "audio_cover_strength": ["audio_cover_strength", "audioCoverStrength"],
+    "audio_cover_strength": ["audio_cover_strength", "audioCoverStrength", "cover_strength", "coverStrength"],
     "cover_noise_strength": ["cover_noise_strength", "coverNoiseStrength"],
     "audio_code_string": ["audio_code_string", "audioCodeString", "audio_codes"],
     "reference_audio_path": ["reference_audio_path", "ref_audio_path", "referenceAudioPath", "refAudioPath"],
@@ -40,6 +40,7 @@ PARAM_ALIASES: Dict[str, list[str]] = {
     "use_cot_language": ["use_cot_language", "cot_language", "cot-language"],
     "is_format_caption": ["is_format_caption", "isFormatCaption"],
     "allow_lm_batch": ["allow_lm_batch", "allowLmBatch", "parallel_thinking"],
+    "instruction": ["instruction"],
     "track_name": ["track_name", "trackName"],
     "track_classes": ["track_classes", "trackClasses", "instruments"],
 }

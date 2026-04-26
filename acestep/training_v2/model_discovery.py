@@ -104,10 +104,17 @@ def scan_models(checkpoint_dir: str | Path) -> List[ModelInfo]:
 # ---------------------------------------------------------------------------
 
 def detect_base_model(config: Dict, dir_name: str = "") -> str:
-    """Infer which base variant a model descends from.
+    """Infer which **training-schedule** base variant a model descends from.
 
     Uses ``is_turbo`` flag and directory name heuristics.  Returns one
     of ``"turbo"``, ``"base"``, ``"sft"``, or ``"unknown"``.
+
+    For XL (4B) models, the training-schedule variant is the same as the
+    2B counterpart (e.g., xl-turbo → ``"turbo"``, xl-base → ``"base"``).
+    This is correct for timestep/shift defaults but does **not** reflect
+    model size.  Callers that need the full variant string (including
+    ``"xl_"`` prefix) for VRAM estimation should use the user-supplied
+    ``model_variant`` from config, not this function's return value.
     """
     # Explicit is_turbo flag
     if config.get("is_turbo", False):

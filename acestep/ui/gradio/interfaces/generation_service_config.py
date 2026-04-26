@@ -96,6 +96,7 @@ def create_service_config_content(
         {
             "config_path": model_device_controls["config_path"],
             "device": model_device_controls["device"],
+            "vae_checkpoint": model_device_controls["vae_checkpoint"],
         }
     )
     result.update(lm_backend_controls)

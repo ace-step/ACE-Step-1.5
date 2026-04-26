@@ -65,12 +65,20 @@ class GenerateMusicDecodeMixin:
         logger.debug(f"[generate_music] time_costs: {time_costs}")
 
         if torch.isnan(pred_latents).any() or torch.isinf(pred_latents).any():
-            raise RuntimeError(
-                "Generation produced NaN or Inf latents. "
-                "This usually indicates a checkpoint/config mismatch "
-                "or unsupported quantization/backend combination. "
-                "Try running with --backend pt or verify your model checkpoints match this release."
-            )
+            nan_count = torch.isnan(pred_latents).sum().item()
+            inf_count = torch.isinf(pred_latents).sum().item()
+            hints = [
+                f"Generation produced NaN or Inf latents "
+                f"(shape={list(pred_latents.shape)}, dtype={pred_latents.dtype}, "
+                f"device={pred_latents.device}, nan={nan_count}, inf={inf_count}).",
+                "Common causes and fixes:",
+                "  1. LoRA/adapter trained on an older model version — retrain or update the adapter.",
+                "  2. Checkpoint/config mismatch — verify model checkpoints match this release.",
+                "  3. Unsupported quantization/backend — try running with --backend pt.",
+                "  4. CPU offload left parameters on wrong device — restart and regenerate.",
+                "  5. Float16 overflow on pre-Ampere GPU — set ACESTEP_DTYPE=float32.",
+            ]
+            raise RuntimeError("\n".join(hints))
         if pred_latents.numel() > 0 and pred_latents.abs().sum() == 0:
             raise RuntimeError(
                 "Generation produced zero latents. "

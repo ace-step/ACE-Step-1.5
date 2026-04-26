@@ -4,16 +4,18 @@ ACE-Step 1.5 automatically adapts to your GPU's available VRAM, adjusting genera
 
 ## GPU Tier Configuration
 
-| VRAM | Tier | LM Models | Recommended LM | Backend | Max Duration (LM / No LM) | Max Batch (LM / No LM) | Offload | Quantization |
-|------|------|-----------|-----------------|---------|----------------------------|-------------------------|---------|--------------|
-| ≤4GB | Tier 1 | None | — | pt | 4 min / 6 min | 1 / 1 | CPU + DiT | INT8 |
-| 4-6GB | Tier 2 | None | — | pt | 8 min / 10 min | 1 / 1 | CPU + DiT | INT8 |
-| 6-8GB | Tier 3 | 0.6B | 0.6B | pt | 8 min / 10 min | 2 / 2 | CPU + DiT | INT8 |
-| 8-12GB | Tier 4 | 0.6B | 0.6B | vllm | 8 min / 10 min | 2 / 4 | CPU + DiT | INT8 |
-| 12-16GB | Tier 5 | 0.6B, 1.7B | 1.7B | vllm | 8 min / 10 min | 4 / 4 | CPU | INT8 |
-| 16-20GB | Tier 6a | 0.6B, 1.7B | 1.7B | vllm | 8 min / 10 min | 4 / 8 | CPU | INT8 |
-| 20-24GB | Tier 6b | 0.6B, 1.7B, 4B | 1.7B | vllm | 8 min / 8 min | 8 / 8 | None | None |
-| ≥24GB | Unlimited | All (0.6B, 1.7B, 4B) | 4B | vllm | 10 min / 10 min | 8 / 8 | None | None |
+| VRAM | Tier | XL (4B) DiT | LM Models | Recommended LM | Backend | Max Duration (LM / No LM) | Max Batch (LM / No LM) | Offload | Quantization |
+|------|------|:-----------:|-----------|-----------------|---------|----------------------------|-------------------------|---------|--------------|
+| ≤4GB | Tier 1 | ❌ | None | — | pt | 4 min / 6 min | 1 / 1 | CPU + DiT | INT8 |
+| 4-6GB | Tier 2 | ❌ | None | — | pt | 8 min / 10 min | 1 / 1 | CPU + DiT | INT8 |
+| 6-8GB | Tier 3 | ❌ | 0.6B | 0.6B | pt | 8 min / 10 min | 2 / 2 | CPU + DiT | INT8 |
+| 8-12GB | Tier 4 | ❌ | 0.6B | 0.6B | vllm | 8 min / 10 min | 2 / 4 | CPU + DiT | INT8 |
+| 12-16GB | Tier 5 | ⚠️ | 0.6B, 1.7B | 1.7B | vllm | 8 min / 10 min | 4 / 4 | CPU | INT8 |
+| 16-20GB | Tier 6a | ✅ (offload) | 0.6B, 1.7B | 1.7B | vllm | 8 min / 10 min | 4 / 8 | CPU | INT8 |
+| 20-24GB | Tier 6b | ✅ | 0.6B, 1.7B, 4B | 1.7B | vllm | 8 min / 8 min | 8 / 8 | None | None |
+| ≥24GB | Unlimited | ✅ | All (0.6B, 1.7B, 4B) | 4B | vllm | 10 min / 10 min | 8 / 8 | None | None |
+
+> **XL (4B) DiT column**: ❌ = not supported, ⚠️ = marginal (offload + quantization required, reduced batch; works on 12-16GB with aggressive offload), ✅ (offload) = supported with CPU offload, ✅ = fully supported. XL models use ~9GB VRAM for weights (vs ~4.7GB for 2B). All LM models are compatible with XL.
 
 ### Column Descriptions
 
@@ -46,6 +48,19 @@ If you manually select an incompatible option (e.g., trying to use vllm on a 6GB
 - **Auto Chunk Size**: VAE decode chunk size adapts to available free VRAM (64/128/256/512/1024/1536)
 - **Duration/Batch Clamping**: If you request values exceeding your tier's limits, they are clamped with a warning
 
+## Legacy CUDA GPU Backend Selection
+
+GPUs with a CUDA compute capability below 7.0 (pre-Volta architecture) automatically use the PyTorch (`pt`) backend for the 5Hz Language Model instead of vLLM. This affects cards such as the GTX 1080, GTX 1080 Ti, TITAN Xp, Tesla P100, and all older NVIDIA GPUs.
+
+The detection happens at startup in `acestep/gpu_config.py` (`is_legacy_cuda_gpu` at line 135). When `torch.cuda.get_device_capability()` returns a major version less than 7, the system sets `lm_backend_restriction` to `"pt_only"` and `recommended_backend` to `"pt"`, overriding the tier-level default regardless of VRAM tier.
+
+**Key points:**
+
+- **No user action required** -- the fallback is fully automatic and transparent.
+- **Which GPUs**: Any NVIDIA CUDA GPU with compute capability < 7.0 (Maxwell, Pascal, and earlier architectures). Volta (7.0) and newer GPUs are unaffected.
+- **Why**: vLLM's nano-vllm engine relies on Triton kernels and features that require Volta-class hardware or later. The PyTorch backend provides full compatibility at the cost of somewhat slower LM inference.
+- **ROCm GPUs are excluded** from this check -- the legacy detection only applies to CUDA devices.
+
 ## Notes
 
 - **Default settings** are automatically configured based on detected GPU memory
@@ -62,8 +77,8 @@ If you manually select an incompatible option (e.g., trying to use vllm on a 6GB
 1. **Very Low VRAM (≤6GB)**: Use DiT-only mode without LM initialization. INT8 quantization and full CPU offload are mandatory. VAE decode may fall back to CPU automatically.
 2. **Low VRAM (6-8GB)**: The 0.6B LM model can be used with `pt` backend. Keep offload enabled.
 3. **Medium VRAM (8-16GB)**: Use the 0.6B or 1.7B LM model. `vllm` backend works well on Tier 4+.
-4. **High VRAM (16-24GB)**: Enable larger LM models (1.7B recommended). Quantization becomes optional on 20GB+.
-5. **Very High VRAM (≥24GB)**: All models fit without offloading or quantization. Use 4B LM for best quality.
+4. **High VRAM (16-24GB)**: Enable larger LM models (1.7B recommended). Quantization becomes optional on 20GB+. XL (4B) DiT models are supported — with offload on 16GB, without offload on 20GB+.
+5. **Very High VRAM (≥24GB)**: All models fit without offloading or quantization. Use XL DiT + 4B LM for best quality.
 
 ## Debug Mode: Simulating Different GPU Configurations
 

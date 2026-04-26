@@ -141,7 +141,37 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
    ```
 
-### Issue 4: WSL2 GPU Access Issues
+### Issue 4: vLLM Errors or Crashes on Older NVIDIA GPUs
+
+**Symptoms:**
+- You have a pre-Volta NVIDIA GPU (GTX 1080, GTX 1080 Ti, TITAN Xp, Tesla P100, or older)
+- vLLM / Triton errors appear in the log
+- LM inference crashes or produces garbage output
+
+**Explanation:**
+
+ACE-Step automatically detects GPUs with CUDA compute capability < 7.0 and forces the PyTorch (`pt`) backend for the Language Model. If you see vLLM-related errors on these GPUs, the automatic detection may not have triggered (e.g., when using `--backend vllm` explicitly).
+
+**Solution:**
+
+1. **Let the auto-detection handle it** -- do not pass `--backend vllm` on legacy hardware. The system will select `pt` automatically.
+2. **Force the PyTorch backend explicitly** if needed:
+   ```bash
+   # Via command-line flag
+   uv run acestep --backend pt
+
+   # Or via environment variable
+   ACESTEP_LM_BACKEND=pt uv run acestep
+   ```
+3. **Verify your GPU's compute capability:**
+   ```bash
+   python -c "import torch; print(torch.cuda.get_device_capability())"
+   ```
+   If the first number is less than 7 (e.g., `(6, 1)` for Pascal), your GPU is in the legacy category.
+
+The PyTorch backend is fully functional but may be slightly slower for LM inference compared to vLLM on newer GPUs.
+
+### Issue 5: WSL2 GPU Access Issues
 
 **Symptoms:**
 - Running in WSL2 (Windows Subsystem for Linux)

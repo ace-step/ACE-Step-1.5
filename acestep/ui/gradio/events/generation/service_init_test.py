@@ -251,6 +251,51 @@ class InitServiceWrapperDeviceResolutionTests(unittest.TestCase):
             "initialize() must receive 'auto' so it can resolve to the best device",
         )
 
+    @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
+    def test_legacy_cuda_config_forces_pt_backend(self, mock_gpu_config):
+        """Legacy CUDA restrictions should override a requested vllm backend."""
+        module = self._import_module()
+
+        mock_gpu_config.return_value = MagicMock(
+            available_lm_models=["acestep-5Hz-lm-0.6B"],
+            lm_backend_restriction="pt_only",
+            recommended_backend="pt",
+            tier="tier5",
+            gpu_memory_gb=12.0,
+            max_duration_with_lm=480,
+            max_duration_without_lm=600,
+            max_batch_size_with_lm=4,
+            max_batch_size_without_lm=4,
+        )
+
+        dit_handler = MagicMock()
+        dit_handler.initialize_service.return_value = ("ok", True)
+        dit_handler.model = MagicMock()
+        dit_handler.is_turbo_model.return_value = True
+
+        llm_handler = MagicMock()
+        llm_handler.llm_initialized = False
+        llm_handler.initialize.return_value = ("ok", True)
+
+        module.init_service_wrapper(
+            dit_handler,
+            llm_handler,
+            "/some/project/checkpoints",
+            "acestep-v15-turbo",
+            "cuda",
+            True,
+            "acestep-5Hz-lm-0.6B",
+            "vllm",
+            use_flash_attention=False,
+            offload_to_cpu=False,
+            offload_dit_to_cpu=False,
+            compile_model=False,
+            quantization=False,
+        )
+
+        _, call_kwargs = llm_handler.initialize.call_args
+        self.assertEqual("pt", call_kwargs.get("backend"))
+
 
 
 class QuantizationSelectionTests(unittest.TestCase):

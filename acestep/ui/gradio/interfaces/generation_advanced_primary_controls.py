@@ -144,6 +144,14 @@ def build_lm_controls(service_mode: bool) -> dict[str, Any]:
                 scale=1,
                 interactive=not service_mode,
             )
+            lm_use_legacy_cfg_prompt = gr.Checkbox(
+                label=t("generation.lm_use_legacy_cfg_prompt_label"),
+                value=False,
+                info=t("generation.lm_use_legacy_cfg_prompt_info"),
+                scale=1,
+                interactive=not service_mode,
+                elem_classes=["has-info-container"],
+            )
         with gr.Row():
             allow_lm_batch = gr.Checkbox(
                 label=t("generation.parallel_thinking_label"),
@@ -171,4 +179,5 @@ def build_lm_controls(service_mode: bool) -> dict[str, Any]:
         "constrained_decoding_debug": constrained_decoding_debug,
         "allow_lm_batch": allow_lm_batch,
         "use_cot_caption": use_cot_caption,
+        "lm_use_legacy_cfg_prompt": lm_use_legacy_cfg_prompt,
     }

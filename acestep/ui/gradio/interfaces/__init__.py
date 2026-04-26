@@ -31,6 +31,10 @@ from acestep.ui.gradio.interfaces.generation import (
 from acestep.ui.gradio.interfaces.audio_player_preferences import (
     get_audio_player_preferences_head,
 )
+from acestep.ui.gradio.interfaces.user_preferences import (
+    get_user_preferences_head,
+    wire_preference_restore,
+)
 from acestep.ui.gradio.interfaces.result import create_results_section
 from acestep.ui.gradio.interfaces.training import create_training_section
 from acestep.ui.gradio.events import setup_event_handlers, setup_training_event_handlers
@@ -61,7 +65,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
     with gr.Blocks(
         title=t("app.title"),
         theme=gr.themes.Soft(),
-        head=get_audio_player_preferences_head() + """
+        head=get_audio_player_preferences_head() + ("" if service_mode else get_user_preferences_head()) + """
         <script>
         /* Flip tooltips upward when they would overflow the viewport bottom.
            Handles both .has-info-container and .checkbox-container elements. */
@@ -364,5 +368,10 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
         
         # Connect training event handlers
         setup_training_event_handlers(demo, dit_handler, llm_handler, training_section)
-    
+
+        # Restore user preferences from browser localStorage on page load.
+        # In service mode, skip restore so localStorage cannot override
+        # server-configured init_params or locked controls.
+        wire_preference_restore(demo, generation_section, service_mode=service_mode)
+
     return demo

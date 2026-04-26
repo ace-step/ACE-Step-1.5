@@ -102,7 +102,7 @@ if [[ -z "$REMOTE_COMMIT" ]]; then
     echo
 
     read -rp "  Switch to main branch? (Y/N): " SWITCH_BRANCH
-    if [[ "${SWITCH_BRANCH^^}" == "Y" ]]; then
+    if [[ "$SWITCH_BRANCH" == "Y" || "$SWITCH_BRANCH" == "y" ]]; then
         echo
         echo "  Switching to main branch..."
         if "$GIT_PATH" checkout main; then
@@ -145,7 +145,7 @@ if "$GIT_PATH" merge-base --is-ancestor HEAD "origin/$CURRENT_BRANCH" 2>/dev/nul
     echo
 
     read -rp "Do you want to update now? (Y/N): " UPDATE_CHOICE
-    if [[ "${UPDATE_CHOICE^^}" != "Y" ]]; then
+    if [[ "$UPDATE_CHOICE" != "Y" && "$UPDATE_CHOICE" != "y" ]]; then
         echo
         echo "Update skipped."
         exit 0
@@ -204,7 +204,7 @@ if "$GIT_PATH" merge-base --is-ancestor HEAD "origin/$CURRENT_BRANCH" 2>/dev/nul
             echo
 
             read -rp "Continue with update? (Y/N): " CONFLICT_CHOICE
-            if [[ "${CONFLICT_CHOICE^^}" != "Y" ]]; then
+            if [[ "$CONFLICT_CHOICE" != "Y" && "$CONFLICT_CHOICE" != "y" ]]; then
                 echo
                 echo "Update cancelled. Your backup remains at: $BACKUP_DIR"
                 exit 0
@@ -217,7 +217,7 @@ if "$GIT_PATH" merge-base --is-ancestor HEAD "origin/$CURRENT_BRANCH" 2>/dev/nul
             echo
 
             read -rp "Stash your changes and continue? (Y/N): " STASH_CHOICE
-            if [[ "${STASH_CHOICE^^}" == "Y" ]]; then
+            if [[ "$STASH_CHOICE" == "Y" || "$STASH_CHOICE" == "y" ]]; then
                 echo "Stashing changes..."
                 "$GIT_PATH" stash push -m "Auto-stash before update - $(date)"
             else
@@ -255,7 +255,7 @@ if "$GIT_PATH" merge-base --is-ancestor HEAD "origin/$CURRENT_BRANCH" 2>/dev/nul
             echo
 
             read -rp "Stash untracked files before updating? (Y/N): " STASH_UNTRACKED_CHOICE
-            if [[ "${STASH_UNTRACKED_CHOICE^^}" != "Y" ]]; then
+            if [[ "$STASH_UNTRACKED_CHOICE" != "Y" && "$STASH_UNTRACKED_CHOICE" != "y" ]]; then
                 echo
                 echo "Update cancelled. Please move or remove the conflicting files manually."
                 exit 1

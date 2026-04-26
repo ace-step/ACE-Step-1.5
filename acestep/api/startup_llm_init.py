@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Callable
 
+from acestep.core.generation.device_mapping import ComponentDeviceMap
 from acestep.gpu_config import get_recommended_lm_model, is_lm_model_supported
 
 
@@ -14,6 +15,7 @@ def initialize_llm_at_startup(
     llm_handler: Any,
     gpu_config: Any,
     device: str,
+    component_device_map: ComponentDeviceMap,
     offload_to_cpu: bool,
     checkpoint_dir: str,
     get_model_name: Callable[[str], str],
@@ -70,7 +72,8 @@ def initialize_llm_at_startup(
         lm_backend = os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower()
         if lm_backend not in {"vllm", "pt", "mlx"}:
             lm_backend = "vllm"
-        lm_device = os.getenv("ACESTEP_LM_DEVICE", device)
+        mapped_lm_device = component_device_map.lm if component_device_map else None
+        lm_device = os.getenv("ACESTEP_LM_DEVICE", mapped_lm_device or device)
         lm_offload_env = os.getenv("ACESTEP_LM_OFFLOAD_TO_CPU")
         lm_offload = env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False) if lm_offload_env is not None else offload_to_cpu
 

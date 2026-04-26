@@ -7,6 +7,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from acestep.core.generation.device_mapping import ComponentDeviceMap
 from acestep.api.startup_llm_init import initialize_llm_at_startup
 
 
@@ -32,6 +33,7 @@ class StartupLlmInitTests(unittest.TestCase):
                 llm_handler=llm_handler,
                 gpu_config=gpu_config,
                 device="cuda",
+                component_device_map=ComponentDeviceMap(),
                 offload_to_cpu=False,
                 checkpoint_dir="k:/repo/checkpoints",
                 get_model_name=MagicMock(return_value="acestep-5Hz-lm-0.6B"),
@@ -72,6 +74,7 @@ class StartupLlmInitTests(unittest.TestCase):
                 llm_handler=llm_handler,
                 gpu_config=gpu_config,
                 device="cuda",
+                component_device_map=ComponentDeviceMap(),
                 offload_to_cpu=False,
                 checkpoint_dir="k:/repo/checkpoints",
                 get_model_name=MagicMock(return_value="acestep-5Hz-lm-1.1B"),

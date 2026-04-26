@@ -5,13 +5,16 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Optional
 
+from acestep.core.generation.device_mapping import (
+    resolve_component_device_map,
+    validate_component_device_map,
+)
 from acestep.gpu_config import (
     VRAM_AUTO_OFFLOAD_THRESHOLD_GB,
     get_gpu_config,
     set_global_gpu_config,
 )
 from acestep.api.startup_llm_init import initialize_llm_at_startup
-
 
 def initialize_models_at_startup(
     *,
@@ -67,6 +70,15 @@ def initialize_models_at_startup(
     project_root = get_project_root()
     config_path = os.getenv("ACESTEP_CONFIG_PATH", "acestep-v15-turbo")
     device = os.getenv("ACESTEP_DEVICE", "auto")
+    component_device_map = resolve_component_device_map()
+    validate_component_device_map(component_device_map)
+    service_device = component_device_map.dit or device
+    print(
+        "[API Server] Resolved component GPU map: "
+        f"DiT={component_device_map.dit or service_device}, "
+        f"VAE={component_device_map.vae or service_device}, "
+        f"LM={component_device_map.lm or device}"
+    )
     use_flash_attention = env_bool("ACESTEP_USE_FLASH_ATTENTION", True)
 
     offload_to_cpu_env = os.getenv("ACESTEP_OFFLOAD_TO_CPU")
@@ -99,7 +111,7 @@ def initialize_models_at_startup(
     status_msg, ok = handler.initialize_service(
         project_root=project_root,
         config_path=config_path,
-        device=device,
+        device=service_device,
         use_flash_attention=use_flash_attention,
         compile_model=compile_model,
         offload_to_cpu=offload_to_cpu,
@@ -124,7 +136,7 @@ def initialize_models_at_startup(
             status_msg2, ok2 = handler2.initialize_service(
                 project_root=project_root,
                 config_path=config_path2,
-                device=device,
+                device=service_device,
                 use_flash_attention=use_flash_attention,
                 compile_model=compile_model,
                 offload_to_cpu=offload_to_cpu,
@@ -151,7 +163,7 @@ def initialize_models_at_startup(
             status_msg3, ok3 = handler3.initialize_service(
                 project_root=project_root,
                 config_path=config_path3,
-                device=device,
+                device=service_device,
                 use_flash_attention=use_flash_attention,
                 compile_model=compile_model,
                 offload_to_cpu=offload_to_cpu,
@@ -171,6 +183,7 @@ def initialize_models_at_startup(
         llm_handler=llm_handler,
         gpu_config=gpu_config,
         device=device,
+        component_device_map=component_device_map,
         offload_to_cpu=offload_to_cpu,
         checkpoint_dir=checkpoint_dir,
         get_model_name=get_model_name,

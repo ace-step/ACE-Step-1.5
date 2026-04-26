@@ -288,6 +288,18 @@ def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
         self.lora_loaded = True
         self.use_lora = True
         self._active_loras[effective_name] = 1.0
+        # FIX: Drop stale entries from peft_config that may have been left over
+        # by previous unload_lora() calls. These ghosts get resurrected by
+        # _rebuild_lora_registry() if not removed first.
+        if PeftModel is not None and isinstance(self.model.decoder, PeftModel):
+            decoder_pc = getattr(self.model.decoder, "peft_config", {}) or {}
+            for ghost_name in list(decoder_pc.keys()):
+                if ghost_name not in self._active_loras:
+                    try:
+                        self.model.decoder.delete_adapter(ghost_name)
+                        logger.info(f"Removed stale adapter from peft_config: {ghost_name}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove stale adapter {ghost_name}: {e}")        
         self._ensure_lora_registry()
         self._lora_active_adapter = None
         target_count, adapters = self._rebuild_lora_registry(lora_path=lora_path)

@@ -39,7 +39,6 @@ def build_variation_morph_controls() -> dict[str, Any]:
                 with gr.Row():
                     retake_enabled = gr.Checkbox(
                         label="Retake", value=False, scale=8,
-                        info="Mix in extra noise for controllable variation.",
                     )
                     create_help_button("generation_retake")
                 with gr.Group(visible=False) as retake_panel:
@@ -58,7 +57,6 @@ def build_variation_morph_controls() -> dict[str, Any]:
                 with gr.Row():
                     flow_edit_morph = gr.Checkbox(
                         label="Edit", value=False, scale=8,
-                        info="Morph the source toward a new prompt via V_delta integration.",
                     )
                     create_help_button("generation_edit")
                 with gr.Group(visible=False) as morph_panel:

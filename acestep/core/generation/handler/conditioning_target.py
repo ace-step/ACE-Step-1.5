@@ -45,8 +45,7 @@ class ConditioningTargetMixin:
             target_latents_list = []
             latent_lengths = []
             target_wavs_list = [target_wavs[i].clone() for i in range(batch_size)]
-            if target_wavs.device != self.device:
-                target_wavs = target_wavs.to(self.device)
+            # NOTE: target_wavs is rebuilt from target_wavs_list at line 98 — no need to move it to device here
 
             with self._load_model_context("vae"):
                 _cached_wav_ref: Optional[torch.Tensor] = None

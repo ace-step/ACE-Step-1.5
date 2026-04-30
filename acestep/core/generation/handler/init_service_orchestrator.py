@@ -92,10 +92,17 @@ class InitServiceOrchestratorMixin:
                 if gpu_config.cuda_supports_bfloat16():
                     self.dtype = torch.bfloat16
                 else:
-                    self.dtype = torch.float16
+                    # Pre-Ampere (Pascal): bfloat16 has same exponent range as float32,
+                    # avoids float16 overflow/NaN during DiT diffusion. Slower but stable.
+                    # ACESTEP_DTYPE=float32 for max stability (2x VRAM, may not fit 6GB).
+                    dtype_override = os.environ.get("ACESTEP_DTYPE", "").strip().lower()
+                    if dtype_override == "float32":
+                        self.dtype = torch.float32
+                    else:
+                        self.dtype = torch.bfloat16
                     logger.info(
-                        "[initialize_service] Pre-Ampere CUDA detected: "
-                        "using float16 instead of bfloat16."
+                        f"[initialize_service] Pre-Ampere CUDA detected: "
+                        f"using {self.dtype} to prevent float16 overflow."
                     )
             else:
                 self.dtype = torch.bfloat16 if resolved_device == "xpu" else torch.float32

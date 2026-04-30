@@ -67,18 +67,30 @@ class GenerateMusicDecodeMixin:
         if torch.isnan(pred_latents).any() or torch.isinf(pred_latents).any():
             nan_count = torch.isnan(pred_latents).sum().item()
             inf_count = torch.isinf(pred_latents).sum().item()
-            hints = [
-                f"Generation produced NaN or Inf latents "
-                f"(shape={list(pred_latents.shape)}, dtype={pred_latents.dtype}, "
-                f"device={pred_latents.device}, nan={nan_count}, inf={inf_count}).",
-                "Common causes and fixes:",
-                "  1. LoRA/adapter trained on an older model version — retrain or update the adapter.",
-                "  2. Checkpoint/config mismatch — verify model checkpoints match this release.",
-                "  3. Unsupported quantization/backend — try running with --backend pt.",
-                "  4. CPU offload left parameters on wrong device — restart and regenerate.",
-                "  5. Float16 overflow on pre-Ampere GPU — set ACESTEP_DTYPE=float32.",
-            ]
-            raise RuntimeError("\n".join(hints))
+            total = pred_latents.numel()
+            bad_ratio = (nan_count + inf_count) / max(total, 1)
+            if bad_ratio > 0.5:
+                # >50% corrupt — raise as before, result would be unusable
+                hints = [
+                    f"Generation produced NaN or Inf latents "
+                    f"(shape={list(pred_latents.shape)}, dtype={pred_latents.dtype}, "
+                    f"device={pred_latents.device}, nan={nan_count}, inf={inf_count}).",
+                    "Common causes and fixes:",
+                    "  1. LoRA/adapter trained on an older model version — retrain or update the adapter.",
+                    "  2. Checkpoint/config mismatch — verify model checkpoints match this release.",
+                    "  3. Unsupported quantization/backend — try running with --backend pt.",
+                    "  4. CPU offload left parameters on wrong device — restart and regenerate.",
+                    "  5. Float16 overflow on pre-Ampere GPU — set ACESTEP_DTYPE=float32.",
+                ]
+                raise RuntimeError("\n".join(hints))
+            else:
+                # Partial NaN: pre-Ampere float16 overflow recovery — clamp to finite values
+                logger.warning(
+                    f"[generate_music] Detected {nan_count} NaN and {inf_count} Inf values "
+                    f"({bad_ratio:.1%} of {total} elements). "
+                    "Clamping to finite range (pre-Ampere float16 overflow recovery)."
+                )
+                pred_latents = torch.nan_to_num(pred_latents, nan=0.0, posinf=1.0, neginf=-1.0)
         if pred_latents.numel() > 0 and pred_latents.abs().sum() == 0:
             raise RuntimeError(
                 "Generation produced zero latents. "

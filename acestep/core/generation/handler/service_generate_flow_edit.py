@@ -85,12 +85,17 @@ def dispatch_flow_edit_overlay(
 
     # Build a silence-tiled tensor matching real_src_latents in shape so
     # ``prepare_condition`` produces text2music-style context (no LM-hints
-    # self-loop on the user's audio).  ``handler.silence_latent`` is the
-    # canonical (1,1,ch) latent — tile it to (bsz, seq, ch).
-    silence = handler.silence_latent
-    while silence.dim() < 3:
-        silence = silence.unsqueeze(0)
-    silence = silence.to(device=device, dtype=dtype).expand(bsz, seq, ch).contiguous()
+    # self-loop on the user's audio).  ``handler.silence_latent`` is
+    # shape (1, available, ch); slice/tile to (bsz, seq, ch) the same way
+    # ``conditioning_target._get_silence_latent_slice`` does.
+    sil = handler.silence_latent.to(device=device, dtype=dtype)
+    available = sil.shape[1]
+    if seq <= available:
+        sil_slice = sil[0, :seq, :]
+    else:
+        repeats = (seq + available - 1) // available
+        sil_slice = sil[0].repeat(repeats, 1)[:seq, :]
+    silence = sil_slice.unsqueeze(0).expand(bsz, seq, ch).contiguous()
     is_covers_zero = torch.zeros(bsz, dtype=torch.long, device=device)
 
     with torch.inference_mode():

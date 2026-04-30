@@ -458,7 +458,19 @@ def generate_music(
         # For extract tasks, LLM-generated captions can conflict with the extract instruction
         # and cause the DiT model to reconstruct input audio instead of extracting stems.
         skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract"}
-        
+        # Flow-edit overlay on text2music must NOT trigger LM Phase 1.
+        # Even if Think is on, the LM-generated codes would be routed
+        # into ``conditioning_target`` which replaces target_wavs with
+        # zeros and uses ``_decode_audio_codes_to_latents(codes)`` for
+        # target_latents — flow-edit's ``zt_edit = src_latents.clone()``
+        # then starts at a codes-decoded latent (different distribution
+        # than VAE encode) and the V_delta integration collapses to a
+        # near-silent latent.  Treat morph-on-text2music like a skip
+        # task so Think / CoT both no-op.
+        morph_on_text2music = (
+            params.task_type == "text2music" and params.flow_edit_morph
+        )
+
         # Determine if we should use LLM
         # LLM is needed for:
         # 1. thinking=True: generate audio codes via LM
@@ -466,11 +478,13 @@ def generate_music(
         # 3. use_cot_language=True: detect vocal language via CoT
         # 4. use_cot_metas=True: fill missing metadata via CoT
         need_lm_for_cot = params.use_cot_caption or params.use_cot_language or params.use_cot_metas
-        use_lm = (params.thinking or need_lm_for_cot) and llm_handler is not None and llm_handler.llm_initialized and params.task_type not in skip_lm_tasks
+        skip_lm = params.task_type in skip_lm_tasks or morph_on_text2music
+        use_lm = (params.thinking or need_lm_for_cot) and llm_handler is not None and llm_handler.llm_initialized and not skip_lm
         lm_status = []
-        
-        if params.task_type in skip_lm_tasks:
-            logger.info(f"Skipping LM for task_type='{params.task_type}' - using DiT directly")
+
+        if skip_lm:
+            reason = params.task_type if params.task_type in skip_lm_tasks else f"{params.task_type}+flow_edit_morph"
+            logger.info(f"Skipping LM for task_type='{reason}' - using DiT directly")
         
         logger.info(f"[generate_music] LLM usage decision: thinking={params.thinking}, "
                    f"use_cot_caption={params.use_cot_caption}, use_cot_language={params.use_cot_language}, "

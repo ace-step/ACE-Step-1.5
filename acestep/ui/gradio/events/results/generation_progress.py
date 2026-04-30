@@ -61,6 +61,14 @@ def generate_with_progress(
     latent_rescale,
     repaint_mode,
     repaint_strength,
+    retake_variance=0.0,
+    retake_seed="",
+    flow_edit_morph=False,
+    flow_edit_source_caption="",
+    flow_edit_source_lyrics="",
+    flow_edit_n_min=0.0,
+    flow_edit_n_max=1.0,
+    flow_edit_n_avg=1,
     progress=gr.Progress(track_tqdm=True),
 ):
     """Generate audio with progress tracking.
@@ -108,7 +116,12 @@ def generate_with_progress(
 
     task_type = resolve_no_fsq_task_type(task_type, bool(no_fsq))
 
-    if task_type == "text2music":
+    # text2music never uses src_audio EXCEPT when flow_edit_morph is on:
+    # the morph overlay needs the source audio for ``zt_src``/``zt_tar``
+    # formation in the V_delta integration.  Without this guard the UI
+    # silently zeroed src_audio for Custom mode and the backend's morph
+    # check then errored with "Flow-edit morph requires a source audio".
+    if task_type == "text2music" and not flow_edit_morph:
         src_audio = None
 
     # Defensive guard: cover/repaint/extract/lego tasks should never use
@@ -169,6 +182,15 @@ def generate_with_progress(
         latent_rescale=latent_rescale,
         repaint_mode=repaint_mode if repaint_mode else "balanced",
         repaint_strength=float(repaint_strength) if repaint_strength is not None else 0.5,
+        retake_variance=float(retake_variance) if retake_variance is not None else 0.0,
+        # Empty textbox -> None; otherwise a string is fine (handler.prepare_seeds parses it).
+        retake_seed=(retake_seed.strip() or None) if isinstance(retake_seed, str) else retake_seed,
+        flow_edit_morph=bool(flow_edit_morph),
+        flow_edit_source_caption=flow_edit_source_caption or "",
+        flow_edit_source_lyrics=flow_edit_source_lyrics or "",
+        flow_edit_n_min=float(flow_edit_n_min) if flow_edit_n_min is not None else 0.0,
+        flow_edit_n_max=float(flow_edit_n_max) if flow_edit_n_max is not None else 1.0,
+        flow_edit_n_avg=int(flow_edit_n_avg) if flow_edit_n_avg is not None else 1,
     )
 
     if isinstance(seed, str) and seed.strip():

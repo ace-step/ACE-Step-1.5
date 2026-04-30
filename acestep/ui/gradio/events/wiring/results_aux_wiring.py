@@ -56,6 +56,8 @@ def register_results_aux_handlers(
                 generation_section["generation_mode"],
                 generation_section["lyrics"],
                 generation_section["captions"],
+                generation_section["flow_edit_source_caption"],
+                generation_section["flow_edit_source_lyrics"],
             ]
             + list(mode_ui_outputs),
         )
@@ -75,6 +77,8 @@ def register_results_aux_handlers(
                 generation_section["generation_mode"],
                 generation_section["lyrics"],
                 generation_section["captions"],
+                generation_section["flow_edit_source_caption"],
+                generation_section["flow_edit_source_lyrics"],
             ]
             + list(mode_ui_outputs),
         )

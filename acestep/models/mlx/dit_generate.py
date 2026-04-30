@@ -18,6 +18,7 @@
 #   trajectory.
 
 import logging
+import math
 import time
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -149,6 +150,8 @@ def mlx_generate_diffusion(
     audio_cover_strength: float = 1.0,
     encoder_hidden_states_non_cover_np: Optional[np.ndarray] = None,
     context_latents_non_cover_np: Optional[np.ndarray] = None,
+    retake_seed: Optional[Union[int, List[int]]] = None,
+    retake_variance: float = 0.0,
     compile_model: bool = False,
     disable_tqdm: bool = False,
     sampler_mode: str = "euler",
@@ -248,20 +251,28 @@ def mlx_generate_diffusion(
     momentum_state: Optional[Dict] = {} if do_cfg else None
 
     # ---- Noise preparation ----
-    if seed is None:
-        noise = mx.random.normal((bsz, T, C))
-    elif isinstance(seed, list):
-        parts = []
-        for s in seed:
-            if s is None or s < 0:
-                parts.append(mx.random.normal((1, T, C)))
-            else:
-                key = mx.random.key(int(s))
-                parts.append(mx.random.normal((1, T, C), key=key))
-        noise = mx.concatenate(parts, axis=0)
-    else:
-        key = mx.random.key(int(seed))
-        noise = mx.random.normal((bsz, T, C), key=key)
+    def _draw_noise(_seed):
+        if _seed is None:
+            return mx.random.normal((bsz, T, C))
+        if isinstance(_seed, list):
+            parts = []
+            for s in _seed:
+                if s is None or s < 0:
+                    parts.append(mx.random.normal((1, T, C)))
+                else:
+                    key = mx.random.key(int(s))
+                    parts.append(mx.random.normal((1, T, C), key=key))
+            return mx.concatenate(parts, axis=0)
+        key = mx.random.key(int(_seed))
+        return mx.random.normal((bsz, T, C), key=key)
+
+    noise = _draw_noise(seed)
+    # Retake mixing: variance-preserving blend with an independent noise draw.
+    # v=0 -> noise unchanged; v=1 -> equivalent to using retake_seed as the main seed.
+    if retake_variance > 0.0:
+        retake_noise = _draw_noise(retake_seed)
+        v_rad = retake_variance * (math.pi / 2.0)
+        noise = math.cos(v_rad) * noise + math.sin(v_rad) * retake_noise
 
     # ---- Timestep schedule ----
     t_schedule_list = get_timestep_schedule(shift, timesteps, infer_steps=infer_steps)

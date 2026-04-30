@@ -18,6 +18,8 @@ class GenerateMusicPayloadMixin:
         seed_value_for_ui: int,
         actual_batch_size: int,
         progress: Any,
+        retake_seed_value_for_ui: str = "",
+        retake_variance: float = 0.0,
     ) -> Dict[str, Any]:
         """Assemble final success response from decoded tensors and model outputs.
 
@@ -56,6 +58,8 @@ class GenerateMusicPayloadMixin:
                 "spans": outputs.get("spans", []),
                 "time_costs": time_costs,
                 "seed_value": seed_value_for_ui,
+                "retake_seed_value": retake_seed_value_for_ui,
+                "retake_variance": retake_variance,
             }
         else:
             src_latents = outputs.get("src_latents")
@@ -78,6 +82,8 @@ class GenerateMusicPayloadMixin:
                 "spans": spans,
                 "time_costs": time_costs,
                 "seed_value": seed_value_for_ui,
+                "retake_seed_value": retake_seed_value_for_ui,
+                "retake_variance": retake_variance,
                 "encoder_hidden_states": (
                     encoder_hidden_states.detach().cpu()
                     if encoder_hidden_states is not None

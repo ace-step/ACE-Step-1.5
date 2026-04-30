@@ -8,6 +8,9 @@ Folder.jpg
 data/
 *.mp3
 *.wav
+*.pkf
+flow_edit_test_outputs/
+retake_test_outputs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -246,6 +249,8 @@ lokr_output/
 .claude/skills/acestep/scripts/config.json
 .claude/skills/acestep/scripts/.first_gen_done
 .claude/skills/acestep-simplemv/scripts/public/
+.claude/scheduled_tasks.lock
+.claude/worktrees/
 config.json
 
 acestep_output/

@@ -26,7 +26,7 @@ def load_metadata(file_obj, llm_handler=None):
     """
     if file_obj is None:
         gr.Warning(t("messages.no_file_selected"))
-        return [None] * 40 + [False]
+        return [None] * 42 + [False]
 
     try:
         if hasattr(file_obj, 'name'):
@@ -116,6 +116,12 @@ def load_metadata(file_obj, llm_handler=None):
         if custom_timesteps is None:
             custom_timesteps = ''
         instrumental = metadata.get('instrumental', False)
+        try:
+            retake_variance = float(metadata.get('retake_variance', 0.0) or 0.0)
+        except (TypeError, ValueError):
+            retake_variance = 0.0
+        retake_seed_value = metadata.get('retake_seed_value', metadata.get('retake_seed', ''))
+        retake_seed = "" if retake_seed_value is None else str(retake_seed_value)
 
         is_mp3 = audio_format == "mp3"
 
@@ -136,15 +142,16 @@ def load_metadata(file_obj, llm_handler=None):
             use_cot_metas, use_cot_caption, use_cot_language, audio_cover_strength,
             cover_noise_strength, think, audio_codes, repainting_start, repainting_end,
             track_name, complete_track_classes, instrumental,
+            retake_variance, retake_seed,
             True  # is_format_caption
         )
 
     except json.JSONDecodeError as e:
         gr.Warning(t("messages.invalid_json", error=str(e)))
-        return [None] * 40 + [False]
+        return [None] * 42 + [False]
     except Exception as e:
         gr.Warning(t("messages.load_error", error=str(e)))
-        return [None] * 40 + [False]
+        return [None] * 42 + [False]
 
 
 def _get_project_root() -> str:

@@ -116,6 +116,8 @@ class _Host(GenerateMusicMixin):
             "actual_batch_size": 1,
             "actual_seed_list": [77],
             "seed_value_for_ui": 77,
+            "actual_retake_seed_list": None,
+            "retake_seed_value_for_ui": "",
             "audio_duration": kwargs["audio_duration"],
             "repainting_end": kwargs["repainting_end"],
         }

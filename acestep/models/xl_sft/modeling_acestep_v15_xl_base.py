@@ -1859,6 +1859,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         silence_latent: Optional[torch.FloatTensor] = None,
         attention_mask: torch.Tensor = None,
         seed: int = None,
+        retake_seed: Optional[Union[int, List[int]]] = None,
+        retake_variance: float = 0.0,
         infer_method: str = "ode",
         use_cache: bool = True,
         infer_steps: int = 30,
@@ -1968,6 +1970,12 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             iterator = zip(t[:-1], t[1:])
 
         noise = self.prepare_noise(context_latents, seed)
+        # Retake mixing: variance-preserving blend with an independent noise draw.
+        # v=0 -> noise unchanged; v=1 -> equivalent to using retake_seed as the main seed.
+        if retake_variance > 0.0:
+            retake_noise = self.prepare_noise(context_latents, retake_seed)
+            v_rad = retake_variance * (math.pi / 2.0)
+            noise = math.cos(v_rad) * noise + math.sin(v_rad) * retake_noise
         bsz, device, dtype = context_latents.shape[0], context_latents.device, context_latents.dtype
         past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
         momentum_buffer = MomentumBuffer()
@@ -2200,6 +2208,19 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             "target_latents": x_gen,
             "time_costs": time_costs,
         }
+
+    def flowedit_generate_audio(self, **kwargs):
+        """Flow-edit (#1156): morph src toward a target prompt/lyrics.
+
+        Thin delegate to ``models.common.flow_edit_pipeline`` so all four
+        base variants share the same implementation.  See that module's
+        docstring for the algorithm and v1 sampler-trick exclusions.
+        """
+        from acestep.models.common.flow_edit_pipeline import (
+            flowedit_generate_audio as _flowedit_impl,
+        )
+
+        return _flowedit_impl(self, **kwargs)
 
 
 def test_forward(model, seed=42):

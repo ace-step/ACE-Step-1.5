@@ -170,3 +170,5 @@ def build_repainting_controls() -> dict[str, Any]:
         "repaint_strength": repaint_strength,
         "repaint_strength_memory": repaint_strength_memory,
     }
+
+

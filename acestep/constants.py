@@ -70,12 +70,14 @@ VALID_TIME_SIGNATURES = [2, 3, 4, 6]
 # Task Type Constants  
 # ==============================================================================
 
-# All supported generation tasks across different model variants
+# All supported generation tasks across different model variants.
+# Flow-edit is NOT a task — it's a sampler overlay that can be enabled
+# on top of cover/cover-nofsq via ``GenerationParams.flow_edit_morph``.
 TASK_TYPES = ["text2music", "repaint", "cover", "cover-nofsq", "extract", "lego", "complete"]
 
 # Task types available for turbo models (optimized subset for speed)
 # - text2music: Generate from text descriptions
-# - repaint: Selective audio editing/regeneration  
+# - repaint: Selective audio editing/regeneration
 # - cover: Style transfer using reference audio
 TASK_TYPES_TURBO = ["text2music", "repaint", "cover", "cover-nofsq"]
 

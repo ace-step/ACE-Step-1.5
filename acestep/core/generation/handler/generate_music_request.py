@@ -132,12 +132,6 @@ class GenerateMusicRequestMixin:
             if src_audio is not None:
                 logger.info("[generate_music] text2music task does not use src_audio, ignoring")
         elif task_type == "text2music" and flow_edit_morph:
-            logger.info(
-                "[generate_music] flow_edit_morph guard: src_audio={!r} (type={}), audio_code_string={!r} (type={})",
-                src_audio, type(src_audio).__name__,
-                audio_code_string if not isinstance(audio_code_string, str) else (audio_code_string[:60] + "..." if len(audio_code_string) > 60 else audio_code_string),
-                type(audio_code_string).__name__,
-            )
             # Treat empty string / empty list as missing too — gradio
             # occasionally hands ``""`` instead of ``None`` for cleared
             # components.

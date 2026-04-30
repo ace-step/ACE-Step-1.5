@@ -84,25 +84,15 @@ def dispatch_flow_edit_overlay(
     src_text_am = src_text_am.to(device=device, dtype=dtype)
     src_lyric_am = src_lyric_am.to(device=device, dtype=dtype)
 
-    # Pick the audio-context input for ``prepare_condition`` per task:
-    #   * text2music — silence-tiled tensor (clean text-driven V_delta)
-    #   * cover / cover-nofsq — payload's real src_latents (cover's
-    #     natural LM-codes flow through prepare_condition's
-    #     ``is_covers > 0`` branch); both branches share the same
-    #     codes so V_delta is still text-driven.
-    if task_type == "text2music":
-        sil = handler.silence_latent.to(device=device, dtype=dtype)
-        available = sil.shape[1]
-        if seq <= available:
-            sil_slice = sil[0, :seq, :]
-        else:
-            repeats = (seq + available - 1) // available
-            sil_slice = sil[0].repeat(repeats, 1)[:seq, :]
-        ctx_input = sil_slice.unsqueeze(0).expand(bsz, seq, ch).contiguous()
-        is_covers_arg = torch.zeros(bsz, dtype=torch.long, device=device)
-    else:
-        ctx_input = real_src_latents
-        is_covers_arg = payload["is_covers"]
+    # Audio context for ``prepare_condition``: pass the payload's real
+    # src_latents and is_covers through unchanged.  Both branches share
+    # the SAME context (whichever the task naturally built — LM-codes
+    # hints for Think / cover; src-latents auto-tokenized otherwise),
+    # so V_delta is still purely text-driven, but the velocity head
+    # stays in distribution (no silence-context OOD on short turbo
+    # schedules).
+    ctx_input = real_src_latents
+    is_covers_arg = payload["is_covers"]
 
     with torch.inference_mode():
         with handler._load_model_context("model"):

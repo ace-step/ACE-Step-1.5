@@ -53,6 +53,21 @@ def register_generation_text_format_handlers(
         outputs=list(auto_checkbox_outputs),
     )
 
+    # ========== Edit: Copy Current Caption/Lyrics into Source Fields ==========
+    # Quick way to bootstrap V_src with the user-level prompt before they
+    # edit the top-level fields to define V_tar.
+    generation_section["flow_edit_copy_from_current_btn"].click(
+        fn=lambda caption, lyrics: (caption or "", lyrics or ""),
+        inputs=[
+            generation_section["captions"],
+            generation_section["lyrics"],
+        ],
+        outputs=[
+            generation_section["flow_edit_source_caption"],
+            generation_section["flow_edit_source_lyrics"],
+        ],
+    )
+
     # ========== Format Lyrics Button ==========
     generation_section["format_lyrics_btn"].click(
         fn=lambda caption, lyrics, bpm, duration, key_scale, time_sig, temp, top_k, top_p, debug: gen_h.handle_format_lyrics(

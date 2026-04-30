@@ -3,37 +3,45 @@
 Two columns inside one ``gr.Accordion`` so each subsystem's panel sits
 directly under its own checkbox.  Both available in Custom / Remix /
 Repaint modes; outer accordion visibility is controlled by ``mode_ui``.
+The ``Copy from current`` button click handler is wired in
+``generation_run_wiring.py`` (kept out of this builder so the captions /
+lyrics components only exist in the wiring scope).
 """
 
 from typing import Any
 
 import gradio as gr
 
+from acestep.ui.gradio.help_content import create_help_button
+
 
 def build_variation_morph_controls() -> dict[str, Any]:
-    """Build the Retake + Edit accordion (two side-by-side panels).
+    """Build the Retake + Edit accordion.
 
     Layout (collapsed by default)::
 
       > Retake & Edit
-          | [ ] Retake                     | [ ] Edit                          |
-          |   variance ── seed ──          |   source caption ──               |
-          |                                |   source lyrics  ──               |
-          |                                |   n_min  n_max  n_avg             |
+          | [ ] Retake (?)                | [ ] Edit (?)                      |
+          |   variance ── seed ──         |   [Copy from current]             |
+          |                               |   source caption ──               |
+          |                               |   source lyrics  ──               |
+          |                               |   n_min  n_max  n_avg             |
 
     Each checkbox toggles the visibility of the panel directly below it,
-    so the two columns can be expanded independently.
+    so the two columns can be expanded independently.  The (?) buttons
+    open modal tutorials for each subsystem.
     """
 
     with gr.Accordion("Retake & Edit", open=False) as variation_accordion:
         with gr.Row(equal_height=False):
             # ---- LEFT column: Retake ----
             with gr.Column(scale=1, min_width=200):
-                retake_enabled = gr.Checkbox(
-                    label="Retake",
-                    value=False,
-                    info="Mix in extra noise for controllable variation.",
-                )
+                with gr.Row():
+                    retake_enabled = gr.Checkbox(
+                        label="Retake", value=False, scale=8,
+                        info="Mix in extra noise for controllable variation.",
+                    )
+                    create_help_button("generation_retake")
                 with gr.Group(visible=False) as retake_panel:
                     with gr.Row():
                         retake_variance = gr.Slider(
@@ -47,12 +55,18 @@ def build_variation_morph_controls() -> dict[str, Any]:
                         )
             # ---- RIGHT column: Edit ----
             with gr.Column(scale=1, min_width=200):
-                flow_edit_morph = gr.Checkbox(
-                    label="Edit",
-                    value=False,
-                    info="Morph the source toward a new prompt via V_delta integration.",
-                )
+                with gr.Row():
+                    flow_edit_morph = gr.Checkbox(
+                        label="Edit", value=False, scale=8,
+                        info="Morph the source toward a new prompt via V_delta integration.",
+                    )
+                    create_help_button("generation_edit")
                 with gr.Group(visible=False) as morph_panel:
+                    flow_edit_copy_from_current_btn = gr.Button(
+                        "📋 Copy from current",
+                        size="sm",
+                        variant="secondary",
+                    )
                     flow_edit_source_caption = gr.Textbox(
                         label="source caption",
                         placeholder="Describe the ORIGINAL audio.",
@@ -76,13 +90,6 @@ def build_variation_morph_controls() -> dict[str, Any]:
                             minimum=1, maximum=8, value=1, step=1,
                             label="n_avg",
                         )
-                    gr.HTML(
-                        "<small style='opacity:0.65; line-height:1.3;'>"
-                        "v1 backend honours Edit only in <b>Custom</b> mode "
-                        "(Remix / Repaint will be ignored). Recommended: "
-                        "shift=3.0, n_min=0, n_max=1, n_avg=1."
-                        "</small>"
-                    )
         # Visibility chains.
         retake_enabled.change(
             lambda v: gr.update(visible=bool(v)),
@@ -100,6 +107,7 @@ def build_variation_morph_controls() -> dict[str, Any]:
         "retake_seed": retake_seed,
         "flow_edit_morph": flow_edit_morph,
         "morph_panel": morph_panel,
+        "flow_edit_copy_from_current_btn": flow_edit_copy_from_current_btn,
         "flow_edit_source_caption": flow_edit_source_caption,
         "flow_edit_source_lyrics": flow_edit_source_lyrics,
         "flow_edit_n_min": flow_edit_n_min,

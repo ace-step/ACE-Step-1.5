@@ -72,7 +72,7 @@ _MODE_UI_OUTPUT_KEYS = (
     "retake_seed",
     "previous_generation_mode",
     "remix_help_group",
-    "variation_accordion",
+    "variation_group",
     "extract_help_group",
     "complete_help_group",
     "bpm_auto",

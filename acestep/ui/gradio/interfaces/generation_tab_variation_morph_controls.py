@@ -32,7 +32,7 @@ def build_variation_morph_controls() -> dict[str, Any]:
     open modal tutorials for each subsystem.
     """
 
-    with gr.Accordion("Retake & Edit", open=False) as variation_accordion:
+    with gr.Group() as variation_group:
         with gr.Row(equal_height=False):
             # ---- LEFT column: Retake ----
             with gr.Column(scale=1, min_width=200):
@@ -99,7 +99,7 @@ def build_variation_morph_controls() -> dict[str, Any]:
             inputs=[flow_edit_morph], outputs=[morph_panel],
         )
     return {
-        "variation_accordion": variation_accordion,
+        "variation_group": variation_group,
         "retake_enabled": retake_enabled,
         "retake_panel": retake_panel,
         "retake_variance": retake_variance,

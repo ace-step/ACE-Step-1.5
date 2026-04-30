@@ -339,14 +339,14 @@ class GenerateMusicMixin:
             ):
                 audio_duration = processed_src_audio.shape[-1] / self.sample_rate
 
-            # Flow-edit overlay v1 layers on text2music only — the cleanest
-            # text→audio conditioning path (silence-derived context, no
-            # LM-hints self-loop).  Layering on cover/repaint is left for
-            # follow-up (each task brings its own audio prior to disentangle).
-            if flow_edit_morph and task_type != "text2music":
+            # Flow-edit overlay v1: text2music (silence-context) and
+            # cover / cover-nofsq (shared LM-codes context).  Repaint /
+            # extract / lego need paired-CFG derivation per task shape
+            # and are left for follow-up.
+            if flow_edit_morph and task_type not in ("text2music", "cover", "cover-nofsq"):
                 logger.warning(
                     "[generate_music] flow_edit_morph=True but task_type={!r}; "
-                    "v1 overlay only applies to text2music, ignoring.",
+                    "v1 overlay only applies to text2music / cover / cover-nofsq, ignoring.",
                     task_type,
                 )
 

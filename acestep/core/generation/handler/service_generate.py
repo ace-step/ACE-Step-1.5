@@ -143,14 +143,15 @@ class ServiceGenerateMixin:
             retake_seed=retake_seed,
             retake_variance=retake_variance,
         )
-        # flow_edit_ctx activates the V_delta overlay on text2music.  Both
-        # branches share text2music's silence-derived context (the cleanest
-        # condition shape, no LM-hints self-loop); only the encoder
-        # text/lyric embeddings differ between source and target.  The
-        # user's caption/lyrics are the TARGET; ``flow_edit_source_caption/
-        # lyrics`` describe the original audio.
+        # flow_edit_ctx activates the V_delta overlay.  Supported on
+        # text2music (silence-derived context, clean text-driven V_delta)
+        # and cover / cover-nofsq (cover's LM-codes context shared by both
+        # branches, V_delta still text-driven because the codes are the
+        # same on both sides).  Repaint / extract / lego have task-shape-
+        # specific conditioning that needs paired-CFG derivation — left
+        # for follow-up.
         flow_edit_ctx = {
-            "morph": flow_edit_morph and task_type == "text2music",
+            "morph": flow_edit_morph and task_type in ("text2music", "cover", "cover-nofsq"),
             "task_type": task_type,
             "source_caption": flow_edit_source_caption,
             "source_lyrics": flow_edit_source_lyrics,

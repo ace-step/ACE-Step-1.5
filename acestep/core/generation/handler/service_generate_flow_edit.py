@@ -52,6 +52,7 @@ def dispatch_flow_edit_overlay(
         )
     real_src_latents = payload["src_latents"]
     bsz, seq, ch = real_src_latents.shape
+    task_type = flow_edit_ctx.get("task_type") or "text2music"
     n_min = float(flow_edit_ctx.get("n_min", 0.0))
     n_max = float(flow_edit_ctx.get("n_max", 1.0))
     n_avg = int(flow_edit_ctx.get("n_avg", 1))
@@ -63,8 +64,8 @@ def dispatch_flow_edit_overlay(
             "empty — V_src ≈ V_tar so the overlay will be a near no-op.",
         )
     logger.info(
-        "[flow_edit_overlay] dispatch — task=text2music, bsz={}, n_min={}, n_max={}, n_avg={}",
-        bsz, n_min, n_max, n_avg,
+        "[flow_edit_overlay] dispatch — task={}, bsz={}, n_min={}, n_max={}, n_avg={}",
+        task_type, bsz, n_min, n_max, n_avg,
     )
 
     # Source side text/lyric embeddings (target side is already in payload).
@@ -83,20 +84,25 @@ def dispatch_flow_edit_overlay(
     src_text_am = src_text_am.to(device=device, dtype=dtype)
     src_lyric_am = src_lyric_am.to(device=device, dtype=dtype)
 
-    # Build a silence-tiled tensor matching real_src_latents in shape so
-    # ``prepare_condition`` produces text2music-style context (no LM-hints
-    # self-loop on the user's audio).  ``handler.silence_latent`` is
-    # shape (1, available, ch); slice/tile to (bsz, seq, ch) the same way
-    # ``conditioning_target._get_silence_latent_slice`` does.
-    sil = handler.silence_latent.to(device=device, dtype=dtype)
-    available = sil.shape[1]
-    if seq <= available:
-        sil_slice = sil[0, :seq, :]
+    # Pick the audio-context input for ``prepare_condition`` per task:
+    #   * text2music — silence-tiled tensor (clean text-driven V_delta)
+    #   * cover / cover-nofsq — payload's real src_latents (cover's
+    #     natural LM-codes flow through prepare_condition's
+    #     ``is_covers > 0`` branch); both branches share the same
+    #     codes so V_delta is still text-driven.
+    if task_type == "text2music":
+        sil = handler.silence_latent.to(device=device, dtype=dtype)
+        available = sil.shape[1]
+        if seq <= available:
+            sil_slice = sil[0, :seq, :]
+        else:
+            repeats = (seq + available - 1) // available
+            sil_slice = sil[0].repeat(repeats, 1)[:seq, :]
+        ctx_input = sil_slice.unsqueeze(0).expand(bsz, seq, ch).contiguous()
+        is_covers_arg = torch.zeros(bsz, dtype=torch.long, device=device)
     else:
-        repeats = (seq + available - 1) // available
-        sil_slice = sil[0].repeat(repeats, 1)[:seq, :]
-    silence = sil_slice.unsqueeze(0).expand(bsz, seq, ch).contiguous()
-    is_covers_zero = torch.zeros(bsz, dtype=torch.long, device=device)
+        ctx_input = real_src_latents
+        is_covers_arg = payload["is_covers"]
 
     with torch.inference_mode():
         with handler._load_model_context("model"):
@@ -115,9 +121,9 @@ def dispatch_flow_edit_overlay(
                 refer_audio_acoustic_hidden_states_packed=payload["refer_audio_acoustic_hidden_states_packed"],
                 refer_audio_order_mask=payload["refer_audio_order_mask"],
                 src_latents=real_src_latents,        # for zt_src/zt_tar formation
-                ctx_src_latents=silence,             # for prepare_condition
+                ctx_src_latents=ctx_input,           # silence (text2music) or real (cover)
                 chunk_masks=payload["chunk_mask"],
-                is_covers=is_covers_zero,            # text2music — no LM-hints
+                is_covers=is_covers_arg,             # 0 (text2music) or payload (cover)
                 silence_latent=handler.silence_latent,
                 seed=seed_param,
                 retake_seed=generate_kwargs.get("retake_seed"),
@@ -148,12 +154,12 @@ def dispatch_flow_edit_overlay(
         lyric_attention_mask=payload["lyric_attention_mask"],
         refer_audio_acoustic_hidden_states_packed=payload["refer_audio_acoustic_hidden_states_packed"],
         refer_audio_order_mask=payload["refer_audio_order_mask"],
-        hidden_states=silence,
+        hidden_states=ctx_input,
         attention_mask=attn,
         silence_latent=handler.silence_latent,
-        src_latents=silence,
+        src_latents=ctx_input,
         chunk_masks=payload["chunk_mask"],
-        is_covers=is_covers_zero,
+        is_covers=is_covers_arg,
         precomputed_lm_hints_25Hz=payload.get("precomputed_lm_hints_25Hz"),
     )
     return outputs, enc_hs, enc_am, ctx

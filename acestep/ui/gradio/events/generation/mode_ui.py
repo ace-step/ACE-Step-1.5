@@ -176,7 +176,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         gr.skip(),                                         # 36: retake_seed
         mode,                                              # 37: previous_generation_mode
         gr.update(visible=is_cover),                       # 34: remix_help_group
-        gr.update(visible=(is_custom or is_cover or is_repaint)),  # 35: variation_group
+        gr.update(visible=(is_custom or is_cover or is_repaint)),  # 35: variation_group (Retake all 3; Edit honoured in Custom/Remix)
         gr.update(visible=(is_extract or is_lego)),        # 36: extract_help_group
         gr.update(visible=is_complete),                    # 36: complete_help_group
         auto_bpm_update,                                   # 37: bpm_auto

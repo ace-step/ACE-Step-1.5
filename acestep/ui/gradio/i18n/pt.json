@@ -90,6 +90,7 @@
     "analyze_btn": "🔍 Analisar",
     "sample_btn": "🎲 Clique Aqui",
     "lm_codes_hints": "🎼 Dicas de Códigos LM",
+    "lm_codes_audio_upload_label": "Áudio → Códigos (utilitário)",
     "lm_codes_label": "Dicas de Códigos LM",
     "lm_codes_placeholder": "<|audio_code_10695|><|audio_code_54246|>.",
     "lm_codes_info": "Cole dicas de códigos LM para geração de text2music.",

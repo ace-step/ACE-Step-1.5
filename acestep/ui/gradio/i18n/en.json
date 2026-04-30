@@ -92,6 +92,7 @@
     "analyze_btn": "🔍 Analyze",
     "sample_btn": "🎲 Click Me",
     "lm_codes_hints": "🎼 LM Codes Hints",
+    "lm_codes_audio_upload_label": "Audio → Codes (utility)",
     "lm_codes_label": "LM Codes Hints",
     "lm_codes_placeholder": "<|audio_code_10695|><|audio_code_54246|>.",
     "lm_codes_info": "Paste LM codes hints for text2music generation.",

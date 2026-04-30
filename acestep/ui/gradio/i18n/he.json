@@ -90,6 +90,7 @@
     "analyze_btn": "🔍 ניתוח",
     "sample_btn": "🎲 לחץ עליי",
     "lm_codes_hints": "🎼 רמזי קודי LM",
+    "lm_codes_audio_upload_label": "אודיו → קודים (כלי עזר)",
     "lm_codes_label": "רמזי קודי LM",
     "lm_codes_placeholder": "<|audio_code_10695|><|audio_code_54246|>.",
     "lm_codes_info": "הדבק רמזי קודי LM עבור יצירת text2music.",

@@ -90,6 +90,7 @@
     "analyze_btn": "🔍 分析",
     "sample_btn": "🎲 お試し",
     "lm_codes_hints": "🎼 LM コードヒント",
+    "lm_codes_audio_upload_label": "音声 → コード（ユーティリティ）",
     "lm_codes_label": "LM コードヒント",
     "lm_codes_placeholder": "<|audio_code_10695|><|audio_code_54246|>.",
     "lm_codes_info": "text2music生成用のLMコードヒントを貼り付け。",

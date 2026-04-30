@@ -90,6 +90,7 @@
     "analyze_btn": "🔍 分析",
     "sample_btn": "🎲 试试看",
     "lm_codes_hints": "🎼 LM 代码提示",
+    "lm_codes_audio_upload_label": "音频 → Codes（工具）",
     "lm_codes_label": "LM 代码提示",
     "lm_codes_placeholder": "<|audio_code_10695|><|audio_code_54246|>.",
     "lm_codes_info": "粘贴用于text2music生成的LM代码提示。",

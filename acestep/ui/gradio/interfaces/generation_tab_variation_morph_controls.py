@@ -62,21 +62,22 @@ def build_variation_morph_controls() -> dict[str, Any]:
                     )
                     create_help_button("generation_edit")
                 with gr.Group(visible=False) as morph_panel:
-                    flow_edit_copy_from_current_btn = gr.Button(
-                        "📋 Copy from current",
-                        size="sm",
-                        variant="secondary",
-                    )
-                    flow_edit_source_caption = gr.Textbox(
-                        label="source caption",
-                        placeholder="Describe the ORIGINAL audio.",
-                        lines=1, max_lines=2,
-                    )
-                    flow_edit_source_lyrics = gr.Textbox(
-                        label="source lyrics",
-                        placeholder="Original lyrics; top-level lyrics is the target.",
-                        lines=2, max_lines=4,
-                    )
+                    with gr.Row():
+                        flow_edit_copy_from_current_btn = gr.Button(
+                            "Copy current → source",
+                            size="sm", scale=0, min_width=180,
+                        )
+                    with gr.Row(equal_height=False):
+                        flow_edit_source_caption = gr.Textbox(
+                            label="source caption",
+                            placeholder="Describe the ORIGINAL audio.",
+                            lines=4, max_lines=8, scale=1,
+                        )
+                        flow_edit_source_lyrics = gr.Textbox(
+                            label="source lyrics",
+                            placeholder="Original lyrics; top-level lyrics is the target.",
+                            lines=4, max_lines=8, scale=1,
+                        )
                     with gr.Row():
                         flow_edit_n_min = gr.Slider(
                             minimum=0.0, maximum=1.0, value=0.0, step=0.05,

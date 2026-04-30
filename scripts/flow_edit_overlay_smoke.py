@@ -70,7 +70,7 @@ assert ok
 llm = LLMHandler()
 
 
-def run(label, n_min, n_max, n_avg, infer_steps=60):
+def run(label, n_min, n_max, n_avg, infer_steps=60, shift=3.0, guidance_scale=15.0):
     p = GenerationParams(
         # text2music task — silence-derived context for prepare_condition,
         # real src_latents only used for zt formation in the sampling loop.
@@ -93,7 +93,8 @@ def run(label, n_min, n_max, n_avg, infer_steps=60):
         duration=float(ex.get("duration", 120)),
         inference_steps=infer_steps,
         seed=SEED,
-        guidance_scale=15.0,
+        guidance_scale=guidance_scale,
+        shift=shift,
         thinking=False,
     )
     cfg = GenerationConfig(batch_size=1, use_random_seed=False, seeds=[SEED])
@@ -112,5 +113,8 @@ def run(label, n_min, n_max, n_avg, infer_steps=60):
     logger.info(f"[{label}] {dt:.1f}s -> {out_path}")
 
 
-# ACE-Step 1.0 default flow-edit superset: n_min=0, n_max=1, n_avg=1, infer_steps=60.
-run("v10_default", 0.0, 1.0, 1, infer_steps=60)
+# Match ACE-Step 1.0 defaults exactly: shift=3.0 (FlowMatchEulerDiscreteScheduler
+# default), guidance=15, infer=60, n_min=0, n_max=1, n_avg=1.
+run("v10_shift3", 0.0, 1.0, 1, infer_steps=60, shift=3.0)
+# Sanity: shift=1.0 (uniform schedule) for comparison.
+run("v10_shift1", 0.0, 1.0, 1, infer_steps=60, shift=1.0)

@@ -385,7 +385,19 @@ def generate_music(
     """
     try:
         # Phase 1: LM-based metadata and code generation (if enabled)
-        audio_code_string_to_use = params.audio_codes
+        # Flow-edit overlay on text2music must use the *VAE encoding* of
+        # ``src_audio`` as the V_delta integration's starting latent, not
+        # codes-decoded latents.  ``conditioning_target._prepare_target_latents_and_wavs``
+        # otherwise replaces target_wavs with zeros and drops in
+        # ``_decode_audio_codes_to_latents(codes)`` whose output sits at a
+        # different distribution than the VAE encoder produces — zt_edit
+        # starts OOD and the integration collapses to a near-silent latent
+        # (peak ~0.007 in the user's repro).  Drop the codes here so the
+        # downstream pipeline VAE-encodes the user's mp3 cleanly.
+        if params.task_type == "text2music" and params.flow_edit_morph:
+            audio_code_string_to_use = ""
+        else:
+            audio_code_string_to_use = params.audio_codes
         lm_generated_metadata = None
         lm_generated_audio_codes_list = []
         lm_total_time_costs = {

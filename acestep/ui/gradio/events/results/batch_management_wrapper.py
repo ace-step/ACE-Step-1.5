@@ -68,6 +68,18 @@ def generate_with_batch_management(
 ):
     """Wrap ``generate_with_progress`` with batch queue management state."""
     _ = generation_params_state  # reserved for API compatibility with wiring/state outputs
+    logger.info(
+        "[wrapper] inputs at click time: captions={!r}, lyrics_len={}, "
+        "reference_audio={!r}, src_audio={!r}, "
+        "text2music_audio_code_string_len={}, task_type={!r}, "
+        "flow_edit_morph={!r}, flow_edit_source_caption={!r}",
+        (captions[:40] + "...") if isinstance(captions, str) and len(captions) > 40 else captions,
+        len(lyrics) if isinstance(lyrics, str) else type(lyrics).__name__,
+        reference_audio, src_audio,
+        len(text2music_audio_code_string) if isinstance(text2music_audio_code_string, str) else type(text2music_audio_code_string).__name__,
+        task_type, flow_edit_morph,
+        (flow_edit_source_caption[:40] + "...") if isinstance(flow_edit_source_caption, str) and len(flow_edit_source_caption) > 40 else flow_edit_source_caption,
+    )
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

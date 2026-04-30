@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from acestep.core.generation.device_mapping import (
     ComponentDeviceMap,
+    format_component_gpu_hint_text,
     resolve_component_device_map,
     validate_component_device_map,
 )
@@ -39,6 +40,29 @@ class DeviceMappingTests(unittest.TestCase):
         self.assertEqual("cuda:0", mapping.dit)
         self.assertEqual("cuda:0", mapping.vae)
         self.assertEqual("cuda:0", mapping.lm)
+
+    @patch("torch.cuda.is_available", return_value=False)
+    def test_format_component_gpu_hint_text_hides_hint_without_multi_device(self, *_mocks) -> None:
+        """Hint text should be hidden when all components collapse to one device."""
+        self.assertEqual("", format_component_gpu_hint_text())
+
+    @patch("torch.cuda.is_available", return_value=True)
+    @patch("torch.cuda.device_count", return_value=3)
+    @patch("torch.cuda.mem_get_info")
+    def test_format_component_gpu_hint_text_includes_mapping_for_multi_gpu(
+        self, mock_mem_get_info, *_mocks
+    ) -> None:
+        """Hint text should show per-component mapping when devices differ."""
+        mock_mem_get_info.side_effect = [
+            (8 * 1024**3, 8 * 1024**3),  # cuda:0
+            (6 * 1024**3, 8 * 1024**3),  # cuda:1
+            (4 * 1024**3, 8 * 1024**3),  # cuda:2
+        ]
+        hint = format_component_gpu_hint_text(label="Mapped GPUs")
+        self.assertIn("Mapped GPUs:", hint)
+        self.assertIn("DiT=cuda:0", hint)
+        self.assertIn("VAE=cuda:1", hint)
+        self.assertIn("LM=cuda:2", hint)
 
     @patch("torch.cuda.is_available", return_value=True)
     @patch("torch.cuda.device_count", return_value=2)
@@ -73,6 +97,13 @@ class DeviceMappingTests(unittest.TestCase):
         """Out-of-range CUDA mappings should fail fast with a ValueError."""
         with self.assertRaises(ValueError):
             validate_component_device_map(ComponentDeviceMap(lm="cuda:1"))
+
+    @patch("torch.cuda.is_available", return_value=True)
+    @patch("torch.cuda.device_count", return_value=2)
+    def test_validate_component_device_map_raises_for_non_integer_index(self, *_mocks) -> None:
+        """Malformed CUDA mapping should raise contextual ValueError."""
+        with self.assertRaises(ValueError):
+            validate_component_device_map(ComponentDeviceMap(lm="cuda:abc"))
 
 
 if __name__ == "__main__":

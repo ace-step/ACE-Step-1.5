@@ -9,7 +9,7 @@ from loguru import logger  # type: ignore[reportMissingImports]
 
 try:
     import torch  # type: ignore[reportMissingImports]
-except Exception:  # pragma: no cover - fallback for minimal environments
+except ImportError:  # pragma: no cover - fallback for minimal environments
     torch = None  # type: ignore[assignment]
 
 
@@ -73,6 +73,33 @@ def resolve_component_device_map() -> ComponentDeviceMap:
     )
 
 
+def format_component_gpu_hint_text(
+    *,
+    default_device: str = "auto",
+    label: str = "Component GPU hint",
+) -> str:
+    """Format component placement hint for UI display.
+
+    Returns an empty string when all components resolve to the same final device,
+    which avoids noisy UI on non-CUDA and single-device hosts.
+    """
+    mapping = resolve_component_device_map()
+    resolved_devices = [
+        mapping.dit or default_device,
+        mapping.vae or default_device,
+        mapping.lm or default_device,
+    ]
+    if len(set(resolved_devices)) == 1:
+        return ""
+
+    return (
+        f"{label}: "
+        f"DiT={resolved_devices[0]}, "
+        f"VAE={resolved_devices[1]}, "
+        f"LM={resolved_devices[2]}"
+    )
+
+
 def validate_component_device_map(mapping: ComponentDeviceMap) -> None:
     """Validate that mapped CUDA indices exist on the current host.
 
@@ -91,7 +118,13 @@ def validate_component_device_map(mapping: ComponentDeviceMap) -> None:
     ):
         if not device or not device.startswith("cuda:"):
             continue
-        idx = int(device.split(":", 1)[1])
+        try:
+            idx = int(device.split(":", 1)[1])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid {component} device '{device}': expected 'cuda:<int>' with "
+                f"0 <= idx < {cuda_count}."
+            ) from exc
         if idx < 0 or idx >= cuda_count:
             raise ValueError(
                 f"Invalid {component} device '{device}': only {cuda_count} CUDA device(s) available."

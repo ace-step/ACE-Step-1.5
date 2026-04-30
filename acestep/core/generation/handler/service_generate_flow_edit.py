@@ -84,15 +84,35 @@ def dispatch_flow_edit_overlay(
     src_text_am = src_text_am.to(device=device, dtype=dtype)
     src_lyric_am = src_lyric_am.to(device=device, dtype=dtype)
 
-    # Audio context for ``prepare_condition``: pass the payload's real
-    # src_latents and is_covers through unchanged.  Both branches share
-    # the SAME context (whichever the task naturally built — LM-codes
-    # hints for Think / cover; src-latents auto-tokenized otherwise),
-    # so V_delta is still purely text-driven, but the velocity head
-    # stays in distribution (no silence-context OOD on short turbo
-    # schedules).
-    ctx_input = real_src_latents
-    is_covers_arg = payload["is_covers"]
+    # Audio context for ``prepare_condition``: choose by task.
+    #
+    # text2music — force silence-context.  text2music's training
+    # distribution is (clean target, silence audio context).  Sharing
+    # the source audio's encoded latents (or LM codes derived from one
+    # prompt) as the context is OOD: the velocity head produces unstable
+    # predictions, V_delta integration accumulates into a near-zero
+    # latent, and VAE decode + auto-normalization amplifies the residual
+    # noise to full scale.  Verified empirically by a 4-way sweep
+    # (sft60, tb60, tb8w05, tb8s1) — every variant collapsed to peak
+    # ≈ 0.007 the moment the natural context was used.
+    #
+    # cover / cover-nofsq — keep payload's natural context.  The cover
+    # task IS trained on (clean target, LM-codes-derived audio context),
+    # so both branches share an in-distribution context and V_delta
+    # captures the text-only delta cleanly.
+    if task_type == "text2music":
+        sil = handler.silence_latent.to(device=device, dtype=dtype)
+        available = sil.shape[1]
+        if seq <= available:
+            sil_slice = sil[0, :seq, :]
+        else:
+            repeats = (seq + available - 1) // available
+            sil_slice = sil[0].repeat(repeats, 1)[:seq, :]
+        ctx_input = sil_slice.unsqueeze(0).expand(bsz, seq, ch).contiguous()
+        is_covers_arg = torch.zeros(bsz, dtype=torch.long, device=device)
+    else:
+        ctx_input = real_src_latents
+        is_covers_arg = payload["is_covers"]
 
     with torch.inference_mode():
         with handler._load_model_context("model"):

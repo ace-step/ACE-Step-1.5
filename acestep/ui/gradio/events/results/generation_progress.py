@@ -116,7 +116,12 @@ def generate_with_progress(
 
     task_type = resolve_no_fsq_task_type(task_type, bool(no_fsq))
 
-    if task_type == "text2music":
+    # text2music never uses src_audio EXCEPT when flow_edit_morph is on:
+    # the morph overlay needs the source audio for ``zt_src``/``zt_tar``
+    # formation in the V_delta integration.  Without this guard the UI
+    # silently zeroed src_audio for Custom mode and the backend's morph
+    # check then errored with "Flow-edit morph requires a source audio".
+    if task_type == "text2music" and not flow_edit_morph:
         src_audio = None
 
     # Defensive guard: cover/repaint/extract/lego tasks should never use

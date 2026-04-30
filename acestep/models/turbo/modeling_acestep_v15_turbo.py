@@ -1826,7 +1826,29 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             t = t.unsqueeze(-1).unsqueeze(-1)
         xt = t * noise + (1 - t) * x
         return xt
-    
+
+    def flowedit_generate_audio(self, **kwargs):
+        """Flow-edit overlay (#1156) on the CFG-distilled turbo variant.
+
+        Force ``diffusion_guidance_scale=1.0`` because turbo bakes CFG
+        into the velocity head — paired-CFG would amplify a delta the
+        model wasn't trained to produce.  Otherwise delegate to the
+        shared pipeline.
+        """
+        from acestep.models.common.flow_edit_pipeline import (
+            flowedit_generate_audio as _flowedit_impl,
+        )
+
+        gs = kwargs.get("diffusion_guidance_scale", 1.0)
+        if gs != 1.0:
+            from loguru import logger
+            logger.info(
+                "[turbo flowedit] turbo is CFG-distilled; forcing "
+                "diffusion_guidance_scale=1.0 (was {:.2f}).", gs,
+            )
+            kwargs["diffusion_guidance_scale"] = 1.0
+        return _flowedit_impl(self, **kwargs)
+
     def generate_audio(
         self,
         text_hidden_states: torch.FloatTensor,

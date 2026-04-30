@@ -70,10 +70,12 @@ def create_generation_tab_section(
         hidden_state_controls = build_hidden_generation_state()
         simple_mode_controls = build_simple_mode_controls()
         source_track_code_controls = build_source_track_and_code_controls()
+        # Retake + Edit accordion sits right under LM codes Hints so the
+        # variation knobs are next to the source-audio inputs they apply to.
+        variation_morph_controls = build_variation_morph_controls()
         cover_controls = build_cover_strength_controls()
         custom_mode_controls = build_custom_mode_controls()
         repainting_controls = build_repainting_controls()
-        variation_morph_controls = build_variation_morph_controls()
         optional_controls = build_optional_parameter_controls(
             max_duration=max_duration,
             max_batch_size=max_batch_size,
@@ -92,10 +94,10 @@ def create_generation_tab_section(
     result.update(hidden_state_controls)
     result.update(simple_mode_controls)
     result.update(source_track_code_controls)
+    result.update(variation_morph_controls)
     result.update(cover_controls)
     result.update(custom_mode_controls)
     result.update(repainting_controls)
-    result.update(variation_morph_controls)
     result.update(optional_controls)
     result.update(generate_controls)
     result.update(

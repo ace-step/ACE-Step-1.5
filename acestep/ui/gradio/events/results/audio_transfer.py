@@ -77,14 +77,21 @@ def send_audio_to_remix(audio_file, lm_metadata, current_lyrics, current_caption
     """
     if audio_file is None:
         mode_updates = compute_mode_ui_updates("Remix", llm_handler, previous_mode=current_mode)
-        return (gr.skip(), gr.skip(), gr.skip(), gr.skip()) + (gr.skip(),) * len(mode_updates)
+        return (gr.skip(),) * 6 + (gr.skip(),) * len(mode_updates)
 
     lyrics, caption = _extract_metadata_for_editing(lm_metadata, current_lyrics, current_caption)
     mode_updates = list(compute_mode_ui_updates("Remix", llm_handler, previous_mode=current_mode))
     mode_updates[19] = gr.update(value=caption, visible=True, interactive=True)
     mode_updates[20] = gr.update(value=lyrics, visible=True, interactive=True)
 
-    return (audio_file, gr.update(value="Remix"), lyrics, caption, *mode_updates)
+    # Pre-fill flow-edit source fields with the prior conditions so the
+    # user can use the morph overlay against the previous prompt as V_src
+    # and edit the top-level caption / lyrics as V_tar.
+    return (
+        audio_file, gr.update(value="Remix"), lyrics, caption,
+        gr.update(value=caption), gr.update(value=lyrics),
+        *mode_updates,
+    )
 
 
 def send_audio_to_repaint(audio_file, lm_metadata, current_lyrics, current_caption,
@@ -107,14 +114,18 @@ def send_audio_to_repaint(audio_file, lm_metadata, current_lyrics, current_capti
     """
     if audio_file is None:
         mode_updates = compute_mode_ui_updates("Repaint", llm_handler, previous_mode=current_mode)
-        return (gr.skip(), gr.skip(), gr.skip(), gr.skip()) + (gr.skip(),) * len(mode_updates)
+        return (gr.skip(),) * 6 + (gr.skip(),) * len(mode_updates)
 
     lyrics, caption = _extract_metadata_for_editing(lm_metadata, current_lyrics, current_caption)
     mode_updates = list(compute_mode_ui_updates("Repaint", llm_handler, previous_mode=current_mode))
     mode_updates[19] = gr.update(value=caption, visible=True, interactive=True)
     mode_updates[20] = gr.update(value=lyrics, visible=True, interactive=True)
 
-    return (audio_file, gr.update(value="Repaint"), lyrics, caption, *mode_updates)
+    return (
+        audio_file, gr.update(value="Repaint"), lyrics, caption,
+        gr.update(value=caption), gr.update(value=lyrics),
+        *mode_updates,
+    )
 
 
 def convert_result_audio_to_codes(dit_handler, generated_audio):

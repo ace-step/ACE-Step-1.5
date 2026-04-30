@@ -26,10 +26,9 @@ from .generation_tab_optional_controls import (
 from .generation_tab_secondary_controls import (
     build_cover_strength_controls,
     build_custom_mode_controls,
-    build_flow_edit_morph_controls,
     build_repainting_controls,
 )
-from .generation_tab_retake_controls import build_retake_controls
+from .generation_tab_variation_morph_controls import build_variation_morph_controls
 
 
 def create_generation_tab_section(
@@ -73,9 +72,8 @@ def create_generation_tab_section(
         source_track_code_controls = build_source_track_and_code_controls()
         cover_controls = build_cover_strength_controls()
         custom_mode_controls = build_custom_mode_controls()
-        flow_edit_controls = build_flow_edit_morph_controls()
         repainting_controls = build_repainting_controls()
-        retake_controls = build_retake_controls()
+        variation_morph_controls = build_variation_morph_controls()
         optional_controls = build_optional_parameter_controls(
             max_duration=max_duration,
             max_batch_size=max_batch_size,
@@ -96,9 +94,8 @@ def create_generation_tab_section(
     result.update(source_track_code_controls)
     result.update(cover_controls)
     result.update(custom_mode_controls)
-    result.update(flow_edit_controls)
     result.update(repainting_controls)
-    result.update(retake_controls)
+    result.update(variation_morph_controls)
     result.update(optional_controls)
     result.update(generate_controls)
     result.update(

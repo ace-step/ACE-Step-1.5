@@ -66,7 +66,7 @@ MODE_OUTPUT_EXPECTED = [
     "retake_seed",
     "previous_generation_mode",
     "remix_help_group",
-    "flow_edit_morph_group",
+    "variation_accordion",
     "extract_help_group",
     "complete_help_group",
     "bpm_auto",

@@ -133,12 +133,12 @@ def build_flow_edit_morph_controls() -> dict[str, Any]:
     with gr.Group(visible=False) as flow_edit_morph_group:
         create_help_button("generation_flow_edit_morph")
         flow_edit_morph = gr.Checkbox(
-            label="Smooth morph (flow-edit) — API preview",
+            label="Smooth morph (flow-edit)",
             value=False,
             info=(
-                "Layer V_delta integration on top of remix.  v1 wiring is "
-                "Python-API only (see scripts/flow_edit_overlay_smoke.py); "
-                "UI run-handler threading lands in the follow-up PR."
+                "Layer V_delta integration on top of text2music.  Upload a "
+                "source audio and provide source caption/lyrics; the model "
+                "will smoothly morph it toward your target caption/lyrics."
             ),
         )
         with gr.Group(visible=False) as flow_edit_inner:

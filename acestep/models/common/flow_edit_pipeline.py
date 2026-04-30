@@ -66,7 +66,7 @@ def _warn_about_disabled_v1_tricks(
         disabled.append("dcw_enabled=True")
     if disabled:
         logger.info(
-            "[flowedit] task_type='edit' v1 ignores {}; forcing euler + plain "
+            "[flowedit] overlay v1 ignores {}; forcing euler + plain "
             "CFG/APG.  See issue #1156 for the per-feature follow-up plan.",
             ", ".join(disabled),
         )

@@ -131,13 +131,20 @@ class GenerateMusicRequestMixin:
         if task_type == "text2music" and not flow_edit_morph:
             if src_audio is not None:
                 logger.info("[generate_music] text2music task does not use src_audio, ignoring")
-        elif task_type == "text2music" and flow_edit_morph and src_audio is not None:
+        elif task_type == "text2music" and flow_edit_morph:
+            if src_audio is None:
+                return None, None, {
+                    "audios": [],
+                    "status_message": "Flow-edit morph requires a source audio. Please upload one or disable Smooth morph.",
+                    "extra_outputs": {}, "success": False,
+                    "error": "flow_edit_morph=True requires src_audio",
+                }
             logger.info("[generate_music] text2music + flow_edit_morph: encoding src_audio for V_delta integration")
             processed_src_audio = self.process_src_audio(src_audio)
             if processed_src_audio is None:
                 return None, None, {
                     "audios": [],
-                    "status_message": "flow-edit morph requires a valid source audio.",
+                    "status_message": "Flow-edit morph: source audio is invalid, unreadable, or silent.",
                     "extra_outputs": {}, "success": False,
                     "error": "Invalid source audio for flow_edit_morph",
                 }

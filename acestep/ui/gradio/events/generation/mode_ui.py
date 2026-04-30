@@ -32,7 +32,9 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     show_custom_group = not_simple and not is_extract
     show_generate_row = not_simple
     generate_interactive = not_simple
-    show_src_audio = is_cover or is_repaint or is_extract or is_lego or is_complete
+    # Custom mode shows src_audio so the flow-edit morph overlay can use
+    # it; the row is harmless when morph is off (just an unused upload).
+    show_src_audio = is_cover or is_repaint or is_extract or is_lego or is_complete or is_custom
     show_optional = not_simple and not is_extract and not is_lego
     show_repainting = is_repaint or is_lego
     show_audio_codes = is_custom
@@ -174,7 +176,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         gr.skip(),                                         # 36: retake_seed
         mode,                                              # 37: previous_generation_mode
         gr.update(visible=is_cover),                       # 34: remix_help_group
-        gr.update(visible=is_cover),                       # 35: flow_edit_morph_group
+        gr.update(visible=is_custom),                      # 35: flow_edit_morph_group (text2music task)
         gr.update(visible=(is_extract or is_lego)),        # 36: extract_help_group
         gr.update(visible=is_complete),                    # 36: complete_help_group
         auto_bpm_update,                                   # 37: bpm_auto

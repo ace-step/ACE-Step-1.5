@@ -53,6 +53,12 @@ def generate_with_batch_management(
     repaint_strength,
     retake_variance,
     retake_seed,
+    flow_edit_morph,
+    flow_edit_source_caption,
+    flow_edit_source_lyrics,
+    flow_edit_n_min,
+    flow_edit_n_max,
+    flow_edit_n_avg,
     autogen_checkbox,
     current_batch_index,
     total_batches,
@@ -88,6 +94,8 @@ def generate_with_batch_management(
         latent_shift, latent_rescale,
         repaint_mode, repaint_strength,
         retake_variance, retake_seed,
+        flow_edit_morph, flow_edit_source_caption, flow_edit_source_lyrics,
+        flow_edit_n_min, flow_edit_n_max, flow_edit_n_avg,
         progress,
     )
 

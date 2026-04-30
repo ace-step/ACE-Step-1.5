@@ -110,9 +110,18 @@ def dispatch_flow_edit_overlay(
             sil_slice = sil[0].repeat(repeats, 1)[:seq, :]
         ctx_input = sil_slice.unsqueeze(0).expand(bsz, seq, ch).contiguous()
         is_covers_arg = torch.zeros(bsz, dtype=torch.long, device=device)
+        # Drop the precomputed LM hints — they were generated from the
+        # user's caption/lyrics, not silence; even though is_covers=0
+        # leaves them unused in the where-clause, the tensor lingers in
+        # downstream paths and empirically collapses the latent (peak
+        # 0.007 in the user's repro).  Force ``prepare_condition`` to
+        # tokenize silence afresh, matching the no-codes case that
+        # produced peak 0.92.
+        precomputed_lm_hints_arg = None
     else:
         ctx_input = real_src_latents
         is_covers_arg = payload["is_covers"]
+        precomputed_lm_hints_arg = payload.get("precomputed_lm_hints_25Hz")
 
     with torch.inference_mode():
         with handler._load_model_context("model"):
@@ -148,7 +157,7 @@ def dispatch_flow_edit_overlay(
                 edit_n_min=n_min,
                 edit_n_max=n_max,
                 edit_n_avg=n_avg,
-                precomputed_lm_hints_25Hz=payload.get("precomputed_lm_hints_25Hz"),
+                precomputed_lm_hints_25Hz=precomputed_lm_hints_arg,
                 # v1-disabled tricks — pipeline logs them and bypasses.
                 sampler_mode=generate_kwargs.get("sampler_mode", "euler"),
                 use_adg=generate_kwargs.get("use_adg", False),
@@ -170,6 +179,6 @@ def dispatch_flow_edit_overlay(
         src_latents=ctx_input,
         chunk_masks=payload["chunk_mask"],
         is_covers=is_covers_arg,
-        precomputed_lm_hints_25Hz=payload.get("precomputed_lm_hints_25Hz"),
+        precomputed_lm_hints_25Hz=precomputed_lm_hints_arg,
     )
     return outputs, enc_hs, enc_am, ctx

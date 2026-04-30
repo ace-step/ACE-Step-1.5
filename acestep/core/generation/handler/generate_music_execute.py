@@ -46,11 +46,12 @@ class GenerateMusicExecuteMixin:
         task_type: str = "",
         actual_retake_seed_list: Optional[List[int]] = None,
         retake_variance: float = 0.0,
-        edit_target_caption: str = "",
-        edit_target_lyrics: str = "",
-        edit_n_min: float = 0.0,
-        edit_n_max: float = 1.0,
-        edit_n_avg: int = 1,
+        flow_edit_morph: bool = False,
+        flow_edit_source_caption: str = "",
+        flow_edit_source_lyrics: str = "",
+        flow_edit_n_min: float = 0.0,
+        flow_edit_n_max: float = 1.0,
+        flow_edit_n_avg: int = 1,
     ) -> Dict[str, Any]:
         """Invoke ``service_generate`` while maintaining background progress estimation.
 
@@ -112,11 +113,12 @@ class GenerateMusicExecuteMixin:
                     task_type=task_type,
                     retake_seed=actual_retake_seed_list,
                     retake_variance=retake_variance,
-                    edit_target_caption=edit_target_caption,
-                    edit_target_lyrics=edit_target_lyrics,
-                    edit_n_min=edit_n_min,
-                    edit_n_max=edit_n_max,
-                    edit_n_avg=edit_n_avg,
+                    flow_edit_morph=flow_edit_morph,
+                    flow_edit_source_caption=flow_edit_source_caption,
+                    flow_edit_source_lyrics=flow_edit_source_lyrics,
+                    flow_edit_n_min=flow_edit_n_min,
+                    flow_edit_n_max=flow_edit_n_max,
+                    flow_edit_n_avg=flow_edit_n_avg,
                 )
             except Exception as exc:
                 _error["exc"] = exc

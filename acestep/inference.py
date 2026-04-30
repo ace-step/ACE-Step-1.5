@@ -165,16 +165,22 @@ class GenerationParams:
     # retake_variance=0 is a no-op; the retake_seed is only consumed when variance>0.
     retake_seed: Optional[Union[str, int]] = None
     retake_variance: float = 0.0
-    # Flow-edit (issue #1156): morph the source toward a new prompt/lyrics by
-    # integrating V_delta = V_tar - V_src over [edit_n_min, edit_n_max].
-    # Activated only when ``task_type == "edit"``; supported on the four
-    # base DiT variants (xl_base / xl_sft / sft / base).  v1 disables
-    # DCW / heun / ADG inside the loop — see #1156 for the follow-up plan.
-    edit_target_caption: str = ""
-    edit_target_lyrics: str = ""
-    edit_n_min: float = 0.0
-    edit_n_max: float = 1.0
-    edit_n_avg: int = 1
+    # Flow-edit overlay (issue #1156): when True on a cover/cover-nofsq
+    # task, paint the source audio toward the user's caption/lyrics by
+    # integrating V_delta = V_tar(caption, lyrics) - V_src(source_caption,
+    # source_lyrics) over [n_min, n_max].  The overlay layers on top of
+    # the existing cover dispatch — there is no standalone "edit" task
+    # type.  ``flow_edit_source_caption`` / ``flow_edit_source_lyrics``
+    # describe the *original* audio (what V_src is conditioned on);
+    # ``caption`` / ``lyrics`` are the *target* (what V_tar morphs toward).
+    # v1 disables DCW / heun / ADG inside the loop; see #1156 for the
+    # follow-up plan.
+    flow_edit_morph: bool = False
+    flow_edit_source_caption: str = ""
+    flow_edit_source_lyrics: str = ""
+    flow_edit_n_min: float = 0.0
+    flow_edit_n_max: float = 1.0
+    flow_edit_n_avg: int = 1
     audio_cover_strength: float = 1.0
     cover_noise_strength: float = 0.0  # 0=pure noise (no cover), 1=closest to src audio
 
@@ -439,11 +445,7 @@ def generate_music(
         # and don't need LM to generate audio codes or metadata.
         # For extract tasks, LLM-generated captions can conflict with the extract instruction
         # and cause the DiT model to reconstruct input audio instead of extracting stems.
-        # Flow-edit (#1156) needs the user's source audio verbatim; running
-        # LM Phase 1 would replace ``audio_code_string_to_use`` and the
-        # handler would feed the LM-generated codes as source instead of
-        # ``src_audio``.  Add ``edit`` here to keep the source path clean.
-        skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract", "edit"}
+        skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract"}
         
         # Determine if we should use LLM
         # LLM is needed for:
@@ -669,11 +671,12 @@ def generate_music(
             "repaint_strength": params.repaint_strength,
             "retake_seed": params.retake_seed,
             "retake_variance": params.retake_variance,
-            "edit_target_caption": params.edit_target_caption,
-            "edit_target_lyrics": params.edit_target_lyrics,
-            "edit_n_min": params.edit_n_min,
-            "edit_n_max": params.edit_n_max,
-            "edit_n_avg": params.edit_n_avg,
+            "flow_edit_morph": params.flow_edit_morph,
+            "flow_edit_source_caption": params.flow_edit_source_caption,
+            "flow_edit_source_lyrics": params.flow_edit_source_lyrics,
+            "flow_edit_n_min": params.flow_edit_n_min,
+            "flow_edit_n_max": params.flow_edit_n_max,
+            "flow_edit_n_avg": params.flow_edit_n_avg,
             "instruction": params.instruction,
             "audio_cover_strength": params.audio_cover_strength,
             "cover_noise_strength": params.cover_noise_strength,

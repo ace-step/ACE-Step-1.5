@@ -225,11 +225,12 @@ class GenerateMusicMixin:
         repaint_strength: float = 0.5,
         retake_seed: Optional[Union[str, float, int]] = None,
         retake_variance: float = 0.0,
-        edit_target_caption: str = "",
-        edit_target_lyrics: str = "",
-        edit_n_min: float = 0.0,
-        edit_n_max: float = 1.0,
-        edit_n_avg: int = 1,
+        flow_edit_morph: bool = False,
+        flow_edit_source_caption: str = "",
+        flow_edit_source_lyrics: str = "",
+        flow_edit_n_min: float = 0.0,
+        flow_edit_n_max: float = 1.0,
+        flow_edit_n_avg: int = 1,
         progress=None,
     ) -> Dict[str, Any]:
         """Generate audio from text/reference inputs and return response payload.
@@ -330,26 +331,20 @@ class GenerateMusicMixin:
             if audio_error is not None:
                 return audio_error
 
-            # Cover/repaint/lego/extract/edit: lock duration to source audio.
+            # Cover/repaint/lego/extract: lock duration to source audio.
             if processed_src_audio is not None and task_type in (
-                "cover", "cover-nofsq", "repaint", "lego", "extract", "edit",
+                "cover", "cover-nofsq", "repaint", "lego", "extract",
             ):
                 audio_duration = processed_src_audio.shape[-1] / self.sample_rate
 
-            # Flow-edit guards: paired CFG ≈ 4× decoder forwards/step, so
-            # warn when a user combines edit with knobs that don't apply.
-            if task_type == "edit":
-                if repainting_start or (repainting_end is not None and repainting_end >= 0):
-                    logger.info(
-                        "[generate_music] task_type='edit' is whole-song; ignoring "
-                        "repainting_start={} / repainting_end={}.",
-                        repainting_start, repainting_end,
-                    )
-                if not edit_target_caption and not edit_target_lyrics:
-                    logger.warning(
-                        "[generate_music] task_type='edit' with empty edit_target_caption "
-                        "and edit_target_lyrics — output will closely match the source.",
-                    )
+            # Flow-edit overlay only fires on cover-family tasks; warn the
+            # user if they enabled morph on something that won't honor it.
+            if flow_edit_morph and task_type not in ("cover", "cover-nofsq"):
+                logger.warning(
+                    "[generate_music] flow_edit_morph=True but task_type={!r}; "
+                    "overlay only applies to cover/cover-nofsq, ignoring.",
+                    task_type,
+                )
 
             service_inputs = self._prepare_generate_music_service_inputs(
                 actual_batch_size=actual_batch_size,
@@ -411,11 +406,12 @@ class GenerateMusicMixin:
                 task_type=task_type,
                 actual_retake_seed_list=actual_retake_seed_list,
                 retake_variance=retake_variance,
-                edit_target_caption=edit_target_caption,
-                edit_target_lyrics=edit_target_lyrics,
-                edit_n_min=edit_n_min,
-                edit_n_max=edit_n_max,
-                edit_n_avg=edit_n_avg,
+                flow_edit_morph=flow_edit_morph,
+                flow_edit_source_caption=flow_edit_source_caption,
+                flow_edit_source_lyrics=flow_edit_source_lyrics,
+                flow_edit_n_min=flow_edit_n_min,
+                flow_edit_n_max=flow_edit_n_max,
+                flow_edit_n_avg=flow_edit_n_avg,
             )
             outputs = service_run["outputs"]
             infer_steps_for_progress = service_run["infer_steps_for_progress"]

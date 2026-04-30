@@ -174,7 +174,8 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         gr.skip(),                                         # 36: retake_seed
         mode,                                              # 37: previous_generation_mode
         gr.update(visible=is_cover),                       # 34: remix_help_group
-        gr.update(visible=(is_extract or is_lego)),        # 35: extract_help_group
+        gr.update(visible=is_cover),                       # 35: flow_edit_morph_group
+        gr.update(visible=(is_extract or is_lego)),        # 36: extract_help_group
         gr.update(visible=is_complete),                    # 36: complete_help_group
         auto_bpm_update,                                   # 37: bpm_auto
         auto_key_update,                                   # 38: key_auto

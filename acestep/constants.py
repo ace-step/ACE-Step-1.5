@@ -70,8 +70,10 @@ VALID_TIME_SIGNATURES = [2, 3, 4, 6]
 # Task Type Constants  
 # ==============================================================================
 
-# All supported generation tasks across different model variants
-TASK_TYPES = ["text2music", "repaint", "cover", "cover-nofsq", "extract", "lego", "complete", "edit"]
+# All supported generation tasks across different model variants.
+# Flow-edit is NOT a task — it's a sampler overlay that can be enabled
+# on top of cover/cover-nofsq via ``GenerationParams.flow_edit_morph``.
+TASK_TYPES = ["text2music", "repaint", "cover", "cover-nofsq", "extract", "lego", "complete"]
 
 # Task types available for turbo models (optimized subset for speed)
 # - text2music: Generate from text descriptions
@@ -84,15 +86,6 @@ TASK_TYPES_TURBO = ["text2music", "repaint", "cover", "cover-nofsq"]
 # - extract: Separate individual tracks/stems from audio
 # - lego: Multi-track generation (add layers)
 # - complete: Automatic completion of partial audio
-# Note: ``edit`` is a base-only task (#1156) but intentionally NOT
-# advertised here — the HTTP /release_task surface and Gradio dropdowns
-# both read TASK_TYPES_BASE.  Until PR-C wires the API/UI fields
-# (edit_target_caption / lyrics / window) through, keep edit out of
-# discovery so clients aren't told "edit is supported" while still
-# unable to pass the required target params.  Python callers using
-# ``GenerationParams(task_type="edit")`` directly are unaffected — the
-# dispatch only checks TASK_TYPES (which does include edit) for
-# validation.
 TASK_TYPES_BASE = ["text2music", "repaint", "cover", "cover-nofsq", "extract", "lego", "complete"]
 
 
@@ -143,7 +136,6 @@ TASK_INSTRUCTIONS = {
     "lego_default": "Generate the track based on the audio context:",
     "complete": "Complete the input track with {TRACK_CLASSES}:",
     "complete_default": "Complete the input track:",
-    "edit": "Edit the audio toward the target conditions:",
 }
 
 

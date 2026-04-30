@@ -1,13 +1,13 @@
-"""Build the *target* text/lyric conditioning for flow-edit (#1156 PR-B).
+"""Build the *source* text/lyric conditioning for flow-edit overlay (#1156).
 
-Source-side conditioning is already in the payload built by
-``preprocess_batch``.  Flow-edit needs a paired *target* condition
-(``edit_target_caption`` / ``edit_target_lyrics``); we tokenize and
-encode it here using the handler's existing helpers so SFT prompt
-formatting, lyric language handling, and padding stay consistent with
-the source side.
-
-Split out from ``service_generate_flow_edit.py`` per the 200 LOC cap.
+The user's ``caption`` / ``lyrics`` go through the regular cover dispatch
+and become the *target* condition.  Flow-edit overlay also needs a
+*source* condition (``flow_edit_source_caption`` /
+``flow_edit_source_lyrics``) describing the original audio so we can
+compute V_delta = V_tar - V_src.  We tokenize and encode that source
+side here using the handler's existing helpers so SFT prompt formatting,
+lyric-language handling, and padding stay consistent with the target
+side.
 """
 
 from __future__ import annotations
@@ -27,32 +27,25 @@ def _pad_to_batch(values: Optional[List[Any]], default: Any, batch_size: int) ->
     return out
 
 
-def tokenize_target(
+def tokenize_source(
     handler,
     *,
-    target_caption: str,
-    target_lyrics: str,
+    source_caption: str,
+    source_lyrics: str,
     vocal_languages: Optional[List[str]],
     metas: Optional[List[Any]],
     instructions: Optional[List[str]],
     batch_size: int,
 ):
-    """Build padded target text/lyric token tensors via handler helpers.
+    """Build padded source text/lyric token tensors via handler helpers.
 
     Reuses ``_prepare_text_conditioning_inputs`` so the SFT prompt format,
-    lyric language formatting, and padding stay consistent with the
-    source-side preparation.
+    lyric-language formatting, and padding stay consistent with the
+    target-side preparation already done by the regular cover dispatch.
     """
-    captions = [target_caption] * batch_size
-    lyrics = [target_lyrics] * batch_size
+    captions = [source_caption] * batch_size
+    lyrics = [source_lyrics] * batch_size
     langs = _pad_to_batch(vocal_languages, "unknown", batch_size)
-    # ``metas`` arrives here in whatever shape ``service_generate``'s
-    # ``_normalize_inputs`` left it — usually a list of dicts when the
-    # request flows through ``generate_music`` ->
-    # ``prepare_batch_data``.  The source path normalises with
-    # ``_parse_metas`` before tokenizing; if we skip it the target
-    # prompt gets a raw ``{'bpm': ...}`` repr instead of the proper
-    # ``- bpm: ...`` block, so conditioning silently drifts.
     raw_metas = _pad_to_batch(metas, "", batch_size)
     parsed_metas_list = handler._parse_metas(raw_metas)
     instr_list = _pad_to_batch(instructions, DEFAULT_DIT_INSTRUCTION, batch_size)
@@ -72,22 +65,21 @@ def tokenize_target(
         lyrics=lyrics,
         parsed_metas=parsed_metas_list,
         vocal_languages=langs,
-        audio_cover_strength=1.0,  # disable non-cover branch — not needed for edit
+        audio_cover_strength=1.0,
     )
     return text_token_idss, text_attention_masks, lyric_token_idss, lyric_attention_masks
 
 
-def embed_target(
+def embed_source(
     handler,
     text_token_idss: torch.Tensor,
     lyric_token_idss: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Run text + lyric encoders on the target tokens, return embedding tensors.
+    """Run text + lyric encoders on the source tokens.
 
     Tokens come back from the tokenizer on CPU; the regular batch path
     moves them to ``handler.device`` before encoding (see
-    ``preprocess_batch``), so we mirror that here.  Without the move
-    text-encoder runs on CUDA / MPS / XPU would hit a device mismatch.
+    ``preprocess_batch``), so we mirror that here.
     """
     device = handler.device
     text_token_idss = text_token_idss.to(device=device)

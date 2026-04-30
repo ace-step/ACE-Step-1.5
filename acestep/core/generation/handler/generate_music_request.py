@@ -126,8 +126,7 @@ class GenerateMusicRequestMixin:
             refer_audios = [[torch.zeros(2, 30 * self.sample_rate)] for _ in range(actual_batch_size)]
 
         processed_src_audio = None
-        # Flow-edit (#1156) needs the source audio just like cover/repaint/etc.
-        _src_audio_required_tasks = {"cover", "cover-nofsq", "repaint", "lego", "extract", "edit"}
+        _src_audio_required_tasks = {"cover", "cover-nofsq", "repaint", "lego", "extract"}
         if task_type == "text2music":
             if src_audio is not None:
                 logger.info("[generate_music] text2music task does not use src_audio, ignoring")

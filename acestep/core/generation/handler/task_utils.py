@@ -96,8 +96,6 @@ class TaskUtilsMixin:
                     TRACK_CLASSES=" | ".join(track_classes_upper)
                 )
             return TASK_INSTRUCTIONS["complete_default"]
-        if task_type == "edit":
-            return TASK_INSTRUCTIONS["edit"]
         return TASK_INSTRUCTIONS["text2music"]
 
     def determine_task_type(self, task_type, audio_code_string):

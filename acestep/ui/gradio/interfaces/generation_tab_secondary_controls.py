@@ -120,6 +120,73 @@ def build_custom_mode_controls() -> dict[str, Any]:
     }
 
 
+def build_flow_edit_morph_controls() -> dict[str, Any]:
+    """Create flow-edit morph controls (visible only in Remix mode).
+
+    Layered as an overlay on cover/cover-nofsq dispatch: when ``flow_edit_morph``
+    is checked, the V_delta = V_tar - V_src integration kicks in.  The
+    user's existing caption/lyrics serve as the *target*; the source
+    fields below describe the *original* audio so V_src has meaningful
+    paired conditioning.
+    """
+
+    with gr.Group(visible=False) as flow_edit_morph_group:
+        create_help_button("generation_flow_edit_morph")
+        flow_edit_morph = gr.Checkbox(
+            label="Smooth morph (flow-edit) — API preview",
+            value=False,
+            info=(
+                "Layer V_delta integration on top of remix.  v1 wiring is "
+                "Python-API only (see scripts/flow_edit_overlay_smoke.py); "
+                "UI run-handler threading lands in the follow-up PR."
+            ),
+        )
+        with gr.Group(visible=False) as flow_edit_inner:
+            flow_edit_source_caption = gr.Textbox(
+                label="Source caption",
+                placeholder="Describe the ORIGINAL audio (what V_src is conditioned on).",
+                lines=2,
+                max_lines=4,
+            )
+            flow_edit_source_lyrics = gr.Textbox(
+                label="Source lyrics",
+                placeholder="Original lyrics — leave the user's lyrics field for the target.",
+                lines=4,
+                max_lines=8,
+            )
+            with gr.Row():
+                flow_edit_n_min = gr.Slider(
+                    minimum=0.0, maximum=1.0, value=0.0, step=0.05,
+                    label="n_min",
+                    info="Edit window start (0=full schedule).",
+                )
+                flow_edit_n_max = gr.Slider(
+                    minimum=0.0, maximum=1.0, value=1.0, step=0.05,
+                    label="n_max",
+                    info="Edit window end (1=full schedule).",
+                )
+                flow_edit_n_avg = gr.Slider(
+                    minimum=1, maximum=8, value=1, step=1,
+                    label="n_avg",
+                    info="Monte-Carlo samples per step (higher = more stable, slower).",
+                )
+        flow_edit_morph.change(
+            lambda v: gr.update(visible=bool(v)),
+            inputs=[flow_edit_morph],
+            outputs=[flow_edit_inner],
+        )
+    return {
+        "flow_edit_morph_group": flow_edit_morph_group,
+        "flow_edit_morph": flow_edit_morph,
+        "flow_edit_inner": flow_edit_inner,
+        "flow_edit_source_caption": flow_edit_source_caption,
+        "flow_edit_source_lyrics": flow_edit_source_lyrics,
+        "flow_edit_n_min": flow_edit_n_min,
+        "flow_edit_n_max": flow_edit_n_max,
+        "flow_edit_n_avg": flow_edit_n_avg,
+    }
+
+
 def build_repainting_controls() -> dict[str, Any]:
     """Create repainting range controls used by repaint/lego flows.
 

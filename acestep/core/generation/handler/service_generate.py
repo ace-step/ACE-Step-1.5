@@ -58,11 +58,12 @@ class ServiceGenerateMixin:
         task_type: str = "",
         retake_seed: Optional[Union[int, List[int]]] = None,
         retake_variance: float = 0.0,
-        edit_target_caption: str = "",
-        edit_target_lyrics: str = "",
-        edit_n_min: float = 0.0,
-        edit_n_max: float = 1.0,
-        edit_n_avg: int = 1,
+        flow_edit_morph: bool = False,
+        flow_edit_source_caption: str = "",
+        flow_edit_source_lyrics: str = "",
+        flow_edit_n_min: float = 0.0,
+        flow_edit_n_max: float = 1.0,
+        flow_edit_n_avg: int = 1,
     ) -> Dict[str, Any]:
         """Generate music latents and metadata from text/audio conditioning inputs.
 
@@ -70,9 +71,8 @@ class ServiceGenerateMixin:
         the contract on each input.  Notable groups:
         ``captions``/``lyrics``/``metas``/``vocal_languages`` are per-sample
         conditioning; ``cfg_interval_*`` / ``sampler_mode`` /
-        ``velocity_*`` / ``dcw_*`` are sampler tweaks; ``task_type`` selects
-        the generation branch (``"edit"`` activates the flow-edit dispatch
-        via ``edit_ctx`` in :func:`_execute_service_generate_diffusion`).
+        ``velocity_*`` / ``dcw_*`` are sampler tweaks; ``flow_edit_morph``
+        layers the V_delta overlay on top of cover/cover-nofsq dispatch.
 
         Returns:
             Dict[str, Any]: Service output payload containing generated latents,
@@ -143,18 +143,27 @@ class ServiceGenerateMixin:
             retake_seed=retake_seed,
             retake_variance=retake_variance,
         )
-        # edit_ctx activates the flow-edit branch when task_type=="edit".
-        edit_ctx = {
-            "task_type": task_type, "edit_target_caption": edit_target_caption,
-            "edit_target_lyrics": edit_target_lyrics, "vocal_languages": normalized.get("vocal_languages"),
-            "metas": normalized.get("metas"), "instructions": normalized.get("instructions"),
-            "edit_n_min": edit_n_min, "edit_n_max": edit_n_max, "edit_n_avg": edit_n_avg,
+        # flow_edit_ctx activates the V_delta overlay on cover/cover-nofsq.
+        # The user's caption/lyrics are the TARGET (what we morph toward);
+        # ``flow_edit_source_caption/lyrics`` describe the original.
+        flow_edit_ctx = {
+            "morph": flow_edit_morph and task_type in ("cover", "cover-nofsq"),
+            "task_type": task_type,
+            "source_caption": flow_edit_source_caption,
+            "source_lyrics": flow_edit_source_lyrics,
+            "n_min": flow_edit_n_min,
+            "n_max": flow_edit_n_max,
+            "n_avg": flow_edit_n_avg,
+            "vocal_languages": normalized.get("vocal_languages"),
+            "metas": normalized.get("metas"),
+            "instructions": normalized.get("instructions"),
         }
         outputs, encoder_hidden_states, encoder_attention_mask, context_latents = (
             self._execute_service_generate_diffusion(
                 payload=payload, generate_kwargs=generate_kwargs, seed_param=seed_param,
                 infer_method=infer_method, shift=shift, audio_cover_strength=audio_cover_strength,
-                retake_seed=retake_seed, retake_variance=retake_variance, edit_ctx=edit_ctx,
+                retake_seed=retake_seed, retake_variance=retake_variance,
+                flow_edit_ctx=flow_edit_ctx,
             )
         )
         return self._attach_service_generate_outputs(

@@ -138,5 +138,10 @@ class RewardScoreTests(unittest.TestCase):
         self.assertAlmostEqual(total, 0.75, places=2)
 
 
+# Regression tests for ``_load_scoring_model_context`` (issue #1081) live in
+# ``acestep/core/scoring/lm_score_context_test.py`` to keep this file under
+# the project's 200 LOC hard cap.
+
+
 if __name__ == "__main__":
     unittest.main()

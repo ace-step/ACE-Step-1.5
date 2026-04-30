@@ -1,10 +1,17 @@
-"""Flow-edit overlay dispatch for cover/cover-nofsq (issue #1156).
+"""Flow-edit overlay dispatch on text2music task (issue #1156).
 
-The user's ``caption`` / ``lyrics`` already flowed through the cover
-preprocessing pipeline and ended up in ``payload`` as the *target* text
-+ lyric embeddings.  Flow-edit overlay adds a *source* branch (encoded
-from ``flow_edit_source_caption`` / ``flow_edit_source_lyrics``), then
-runs paired V_delta integration via :func:`flow_edit_pipeline.flowedit_generate_audio`.
+The user's ``caption`` / ``lyrics`` already flowed through the regular
+text2music preprocessing pipeline and ended up in ``payload`` as the
+*target* text + lyric embeddings.  Flow-edit overlay adds:
+
+  * a *source* branch encoded from ``flow_edit_source_caption`` /
+    ``flow_edit_source_lyrics`` — describes the original audio;
+  * paired ``prepare_condition`` calls fed ``silence_latent`` for the
+    audio context (the text2music shape, identical for both branches),
+    so V_src and V_tar differ only in encoder text/lyric;
+  * the user's encoded ``src_audio`` (already in ``payload['src_latents']``
+    because we let it through for ``flow_edit_morph=True``) drives the
+    sampling-loop ``zt_src`` / ``zt_tar`` formation.
 
 Source tokenization + embedding helpers live in
 ``service_generate_flow_edit_source.py`` (split per the 200 LOC cap).
@@ -28,13 +35,14 @@ def dispatch_flow_edit_overlay(
     seed_param: Any,
     flow_edit_ctx: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Run paired flow-edit on top of cover dispatch.
+    """Run paired flow-edit on top of text2music dispatch.
 
     Builds source text/lyric embeddings from
     ``flow_edit_ctx['source_caption']`` / ``['source_lyrics']``, then
     calls :func:`flow_edit_pipeline.flowedit_generate_audio` which
-    handles the two ``prepare_condition`` calls (one per branch) and the
-    sampling-loop V_delta integration.
+    handles the two ``prepare_condition`` calls (one per branch, both
+    fed silence-context like text2music) and the sampling-loop V_delta
+    integration.
     """
     if not hasattr(handler.model, "flowedit_generate_audio"):
         raise RuntimeError(
@@ -42,8 +50,8 @@ def dispatch_flow_edit_overlay(
             "model does not expose flowedit_generate_audio.  Supported "
             "variants: xl_base, xl_sft, sft, base."
         )
-    src_latents = payload["src_latents"]
-    bsz = src_latents.shape[0]
+    real_src_latents = payload["src_latents"]
+    bsz, seq, ch = real_src_latents.shape
     n_min = float(flow_edit_ctx.get("n_min", 0.0))
     n_max = float(flow_edit_ctx.get("n_max", 1.0))
     n_avg = int(flow_edit_ctx.get("n_avg", 1))
@@ -55,8 +63,8 @@ def dispatch_flow_edit_overlay(
             "empty — V_src ≈ V_tar so the overlay will be a near no-op.",
         )
     logger.info(
-        "[flow_edit_overlay] dispatch — task={}, bsz={}, n_min={}, n_max={}, n_avg={}",
-        flow_edit_ctx.get("task_type"), bsz, n_min, n_max, n_avg,
+        "[flow_edit_overlay] dispatch — task=text2music, bsz={}, n_min={}, n_max={}, n_avg={}",
+        bsz, n_min, n_max, n_avg,
     )
 
     # Source side text/lyric embeddings (target side is already in payload).
@@ -71,9 +79,19 @@ def dispatch_flow_edit_overlay(
     )
     src_text_hs, src_lyric_hs = embed_source(handler, src_text_ids, src_lyric_ids)
 
-    device, dtype = src_latents.device, src_latents.dtype
+    device, dtype = real_src_latents.device, real_src_latents.dtype
     src_text_am = src_text_am.to(device=device, dtype=dtype)
     src_lyric_am = src_lyric_am.to(device=device, dtype=dtype)
+
+    # Build a silence-tiled tensor matching real_src_latents in shape so
+    # ``prepare_condition`` produces text2music-style context (no LM-hints
+    # self-loop on the user's audio).  ``handler.silence_latent`` is the
+    # canonical (1,1,ch) latent — tile it to (bsz, seq, ch).
+    silence = handler.silence_latent
+    while silence.dim() < 3:
+        silence = silence.unsqueeze(0)
+    silence = silence.to(device=device, dtype=dtype).expand(bsz, seq, ch).contiguous()
+    is_covers_zero = torch.zeros(bsz, dtype=torch.long, device=device)
 
     with torch.inference_mode():
         with handler._load_model_context("model"):
@@ -88,12 +106,13 @@ def dispatch_flow_edit_overlay(
                 text_attention_mask=src_text_am,
                 lyric_hidden_states=src_lyric_hs,
                 lyric_attention_mask=src_lyric_am,
-                # Shared inputs (audio context applies to both branches).
+                # Audio context: silence for both branches (text2music shape).
                 refer_audio_acoustic_hidden_states_packed=payload["refer_audio_acoustic_hidden_states_packed"],
                 refer_audio_order_mask=payload["refer_audio_order_mask"],
-                src_latents=src_latents,
+                src_latents=real_src_latents,        # for zt_src/zt_tar formation
+                ctx_src_latents=silence,             # for prepare_condition
                 chunk_masks=payload["chunk_mask"],
-                is_covers=payload["is_covers"],
+                is_covers=is_covers_zero,            # text2music — no LM-hints
                 silence_latent=handler.silence_latent,
                 seed=seed_param,
                 retake_seed=generate_kwargs.get("retake_seed"),
@@ -115,33 +134,21 @@ def dispatch_flow_edit_overlay(
                 dcw_enabled=generate_kwargs.get("dcw_enabled", False),
             )
 
-    # Return tar-side encoder/context for downstream auto-LRC + scoring.
-    # The cover dispatch already populated payload with these values.
-    enc_hs = payload.get("encoder_hidden_states")
-    enc_am = payload.get("encoder_attention_mask")
-    ctx = payload.get("context_latents")
-    if enc_hs is None or enc_am is None or ctx is None:
-        # Fallback: run prepare_condition once on the target side so
-        # downstream scoring/LRC has the right tensor shapes.  This
-        # mirrors the original dispatch's behaviour when payload didn't
-        # already carry these fields.
-        attn = torch.ones(
-            src_latents.shape[0], src_latents.shape[1],
-            device=device, dtype=dtype,
-        )
-        enc_hs, enc_am, ctx = handler.model.prepare_condition(
-            text_hidden_states=payload["text_hidden_states"],
-            text_attention_mask=payload["text_attention_mask"],
-            lyric_hidden_states=payload["lyric_hidden_states"],
-            lyric_attention_mask=payload["lyric_attention_mask"],
-            refer_audio_acoustic_hidden_states_packed=payload["refer_audio_acoustic_hidden_states_packed"],
-            refer_audio_order_mask=payload["refer_audio_order_mask"],
-            hidden_states=src_latents,
-            attention_mask=attn,
-            silence_latent=handler.silence_latent,
-            src_latents=src_latents,
-            chunk_masks=payload["chunk_mask"],
-            is_covers=payload["is_covers"],
-            precomputed_lm_hints_25Hz=payload.get("precomputed_lm_hints_25Hz"),
-        )
+    # Return target-side encoder/context for downstream auto-LRC + scoring.
+    attn = torch.ones(bsz, seq, device=device, dtype=dtype)
+    enc_hs, enc_am, ctx = handler.model.prepare_condition(
+        text_hidden_states=payload["text_hidden_states"],
+        text_attention_mask=payload["text_attention_mask"],
+        lyric_hidden_states=payload["lyric_hidden_states"],
+        lyric_attention_mask=payload["lyric_attention_mask"],
+        refer_audio_acoustic_hidden_states_packed=payload["refer_audio_acoustic_hidden_states_packed"],
+        refer_audio_order_mask=payload["refer_audio_order_mask"],
+        hidden_states=silence,
+        attention_mask=attn,
+        silence_latent=handler.silence_latent,
+        src_latents=silence,
+        chunk_masks=payload["chunk_mask"],
+        is_covers=is_covers_zero,
+        precomputed_lm_hints_25Hz=payload.get("precomputed_lm_hints_25Hz"),
+    )
     return outputs, enc_hs, enc_am, ctx

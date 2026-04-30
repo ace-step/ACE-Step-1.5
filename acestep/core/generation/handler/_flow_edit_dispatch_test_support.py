@@ -79,7 +79,7 @@ def make_payload(bsz: int = 1, seq: int = 8, ch: int = 16):
         "refer_audio_acoustic_hidden_states_packed": torch.zeros(0, 4, ch),
         "refer_audio_order_mask": torch.zeros(0, dtype=torch.long),
         "chunk_mask": torch.ones(bsz, seq, ch),
-        "is_covers": torch.ones(bsz, dtype=torch.long),  # cover task
+        "is_covers": torch.zeros(bsz, dtype=torch.long),  # text2music
         "precomputed_lm_hints_25Hz": None,
     }
 
@@ -87,7 +87,7 @@ def make_payload(bsz: int = 1, seq: int = 8, ch: int = 16):
 def make_flow_edit_ctx(source_caption="anime pop", source_lyrics="original"):
     return {
         "morph": True,
-        "task_type": "cover",
+        "task_type": "text2music",
         "source_caption": source_caption,
         "source_lyrics": source_lyrics,
         "vocal_languages": ["en"],

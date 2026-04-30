@@ -98,7 +98,7 @@ class FlowEditOverlayDispatchTests(unittest.TestCase):
         handler = FakeHandler()
         dispatch_flow_edit_overlay(
             handler, payload=make_payload(), generate_kwargs={"infer_steps": 4},
-            seed_param=None, flow_edit_ctx={"morph": True, "task_type": "cover"},
+            seed_param=None, flow_edit_ctx={"morph": True, "task_type": "text2music"},
         )
         kwargs = handler.model.flowedit_generate_audio.call_args.kwargs
         self.assertEqual(kwargs["edit_n_min"], 0.0)

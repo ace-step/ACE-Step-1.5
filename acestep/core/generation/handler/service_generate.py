@@ -143,11 +143,14 @@ class ServiceGenerateMixin:
             retake_seed=retake_seed,
             retake_variance=retake_variance,
         )
-        # flow_edit_ctx activates the V_delta overlay on cover/cover-nofsq.
-        # The user's caption/lyrics are the TARGET (what we morph toward);
-        # ``flow_edit_source_caption/lyrics`` describe the original.
+        # flow_edit_ctx activates the V_delta overlay on text2music.  Both
+        # branches share text2music's silence-derived context (the cleanest
+        # condition shape, no LM-hints self-loop); only the encoder
+        # text/lyric embeddings differ between source and target.  The
+        # user's caption/lyrics are the TARGET; ``flow_edit_source_caption/
+        # lyrics`` describe the original audio.
         flow_edit_ctx = {
-            "morph": flow_edit_morph and task_type in ("cover", "cover-nofsq"),
+            "morph": flow_edit_morph and task_type == "text2music",
             "task_type": task_type,
             "source_caption": flow_edit_source_caption,
             "source_lyrics": flow_edit_source_lyrics,

@@ -327,22 +327,26 @@ class GenerateMusicMixin:
                 audio_code_string=audio_code_string,
                 actual_batch_size=actual_batch_size,
                 task_type=task_type,
+                flow_edit_morph=flow_edit_morph,
             )
             if audio_error is not None:
                 return audio_error
 
-            # Cover/repaint/lego/extract: lock duration to source audio.
-            if processed_src_audio is not None and task_type in (
-                "cover", "cover-nofsq", "repaint", "lego", "extract",
+            # Cover/repaint/lego/extract + text2music+morph: lock duration to source audio.
+            if processed_src_audio is not None and (
+                task_type in ("cover", "cover-nofsq", "repaint", "lego", "extract")
+                or (task_type == "text2music" and flow_edit_morph)
             ):
                 audio_duration = processed_src_audio.shape[-1] / self.sample_rate
 
-            # Flow-edit overlay only fires on cover-family tasks; warn the
-            # user if they enabled morph on something that won't honor it.
-            if flow_edit_morph and task_type not in ("cover", "cover-nofsq"):
+            # Flow-edit overlay v1 layers on text2music only — the cleanest
+            # text→audio conditioning path (silence-derived context, no
+            # LM-hints self-loop).  Layering on cover/repaint is left for
+            # follow-up (each task brings its own audio prior to disentangle).
+            if flow_edit_morph and task_type != "text2music":
                 logger.warning(
                     "[generate_music] flow_edit_morph=True but task_type={!r}; "
-                    "overlay only applies to cover/cover-nofsq, ignoring.",
+                    "v1 overlay only applies to text2music, ignoring.",
                     task_type,
                 )
 

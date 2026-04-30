@@ -70,10 +70,11 @@ assert ok
 llm = LLMHandler()
 
 
-def run(label, n_min, n_max, n_avg):
+def run(label, n_min, n_max, n_avg, infer_steps=60):
     p = GenerationParams(
-        # Cover task — ref audio is the source, caption/lyrics are the target.
-        task_type="cover",
+        # text2music task — silence-derived context for prepare_condition,
+        # real src_latents only used for zt formation in the sampling loop.
+        task_type="text2music",
         src_audio=str(src_path),
         caption=ex["caption"],          # target = original style (keep melody)
         lyrics=TGT_LYRICS,              # target = NEW lyrics
@@ -90,7 +91,7 @@ def run(label, n_min, n_max, n_avg):
         keyscale=ex.get("keyscale", ""),
         timesignature=str(ex.get("timesignature", "")),
         duration=float(ex.get("duration", 120)),
-        inference_steps=27,
+        inference_steps=infer_steps,
         seed=SEED,
         guidance_scale=15.0,
         thinking=False,
@@ -111,6 +112,5 @@ def run(label, n_min, n_max, n_avg):
     logger.info(f"[{label}] {dt:.1f}s -> {out_path}")
 
 
-run("late_n1", 0.6, 1.0, 1)
-run("wide_n2", 0.0, 1.0, 2)
-run("mid_n4",  0.3, 1.0, 4)
+# ACE-Step 1.0 default flow-edit superset: n_min=0, n_max=1, n_avg=1, infer_steps=60.
+run("v10_default", 0.0, 1.0, 1, infer_steps=60)

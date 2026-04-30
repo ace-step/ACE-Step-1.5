@@ -658,9 +658,14 @@ def generate_music(
             "reference_audio": params.reference_audio,
             "audio_duration": audio_duration,
             "batch_size": config.batch_size if config.batch_size is not None else 1,
-            # text2music (Custom mode) never uses src_audio; force None to
-            # prevent stale UI values from leaking into generation.
-            "src_audio": None if params.task_type == "text2music" else params.src_audio,
+            # text2music (Custom mode) never uses src_audio EXCEPT when
+            # flow_edit_morph=True — the overlay needs ``src_audio`` for
+            # zt_src/zt_tar formation in the V_delta integration.
+            "src_audio": (
+                params.src_audio
+                if params.task_type != "text2music" or params.flow_edit_morph
+                else None
+            ),
             "audio_code_string": audio_code_string_to_use,
             "repainting_start": params.repainting_start,
             "repainting_end": params.repainting_end,

@@ -113,6 +113,10 @@ def flowedit_generate_audio(
     # describe the *source audio*, which is shared across src and tar).
     precomputed_lm_hints_25Hz: Optional[torch.Tensor] = None,
     audio_codes: Optional[torch.Tensor] = None,
+    # Override for the audio-context input to ``prepare_condition``.
+    # text2music callers pass ``silence`` here so V_delta is purely
+    # text-driven; defaults to ``src_latents`` for back-compat.
+    ctx_src_latents: Optional[torch.Tensor] = None,
     # Accepted-but-disabled v1 sampler tricks (logged + bypassed)
     sampler_mode: str = "euler",
     use_adg: bool = False,
@@ -133,37 +137,26 @@ def flowedit_generate_audio(
             device=src_latents.device, dtype=src_latents.dtype,
         )
 
-    src_enc_hs, src_enc_am, src_ctx = model.prepare_condition(
-        text_hidden_states=text_hidden_states,
-        text_attention_mask=text_attention_mask,
-        lyric_hidden_states=lyric_hidden_states,
-        lyric_attention_mask=lyric_attention_mask,
-        refer_audio_acoustic_hidden_states_packed=refer_audio_acoustic_hidden_states_packed,
-        refer_audio_order_mask=refer_audio_order_mask,
-        hidden_states=src_latents,
-        attention_mask=attention_mask,
-        silence_latent=silence_latent,
-        src_latents=src_latents,
-        chunk_masks=chunk_masks,
-        is_covers=is_covers,
-        precomputed_lm_hints_25Hz=precomputed_lm_hints_25Hz,
-        audio_codes=audio_codes,
+    ctx_input = ctx_src_latents if ctx_src_latents is not None else src_latents
+    def _prep(text_hs, text_am, lyric_hs, lyric_am):
+        return model.prepare_condition(
+            text_hidden_states=text_hs, text_attention_mask=text_am,
+            lyric_hidden_states=lyric_hs, lyric_attention_mask=lyric_am,
+            refer_audio_acoustic_hidden_states_packed=refer_audio_acoustic_hidden_states_packed,
+            refer_audio_order_mask=refer_audio_order_mask,
+            hidden_states=ctx_input, attention_mask=attention_mask,
+            silence_latent=silence_latent, src_latents=ctx_input,
+            chunk_masks=chunk_masks, is_covers=is_covers,
+            precomputed_lm_hints_25Hz=precomputed_lm_hints_25Hz,
+            audio_codes=audio_codes,
+        )
+    src_enc_hs, src_enc_am, src_ctx = _prep(
+        text_hidden_states, text_attention_mask,
+        lyric_hidden_states, lyric_attention_mask,
     )
-    tar_enc_hs, tar_enc_am, tar_ctx = model.prepare_condition(
-        text_hidden_states=target_text_hidden_states,
-        text_attention_mask=target_text_attention_mask,
-        lyric_hidden_states=target_lyric_hidden_states,
-        lyric_attention_mask=target_lyric_attention_mask,
-        refer_audio_acoustic_hidden_states_packed=refer_audio_acoustic_hidden_states_packed,
-        refer_audio_order_mask=refer_audio_order_mask,
-        hidden_states=src_latents,
-        attention_mask=attention_mask,
-        silence_latent=silence_latent,
-        src_latents=src_latents,
-        chunk_masks=chunk_masks,
-        is_covers=is_covers,
-        precomputed_lm_hints_25Hz=precomputed_lm_hints_25Hz,
-        audio_codes=audio_codes,
+    tar_enc_hs, tar_enc_am, tar_ctx = _prep(
+        target_text_hidden_states, target_text_attention_mask,
+        target_lyric_hidden_states, target_lyric_attention_mask,
     )
 
     # Forward-noise generators: prefer retake_seed (independent draws), else

@@ -68,6 +68,29 @@ def register_generation_text_format_handlers(
         ],
     )
 
+    # ========== Retake × Think interaction warning ==========
+    # Retake's variation is only meaningful if every other condition (LM
+    # codes included) matches the baseline.  When Think is on the LM
+    # regenerates codes per call, so Retake's noise blend layers on top
+    # of an already-different starting point.  Surface a one-line warning
+    # in the Retake panel whenever both checkboxes are simultaneously on.
+    def _retake_think_warn(retake_on: bool, think_on: bool):
+        import gradio as _gr  # local import — module top reserved for typing
+        return _gr.update(visible=bool(retake_on and think_on))
+
+    for trigger in (
+        generation_section["retake_enabled"],
+        generation_section["think_checkbox"],
+    ):
+        trigger.change(
+            fn=_retake_think_warn,
+            inputs=[
+                generation_section["retake_enabled"],
+                generation_section["think_checkbox"],
+            ],
+            outputs=[generation_section["retake_think_warning"]],
+        )
+
     # ========== Format Lyrics Button ==========
     generation_section["format_lyrics_btn"].click(
         fn=lambda caption, lyrics, bpm, duration, key_scale, time_sig, temp, top_k, top_p, debug: gen_h.handle_format_lyrics(

@@ -52,6 +52,14 @@ def build_variation_morph_controls() -> dict[str, Any]:
                             label="seed", value="", scale=1,
                             placeholder="empty=random",
                         )
+                    retake_think_warning = gr.Markdown(
+                        "⚠️ **Think is on** — the LM regenerates audio codes "
+                        "every call, so Retake's variation gets mixed with "
+                        "LM-codes drift.  For clean A/B variation, turn Think "
+                        "off (or reuse the same LM seed) before adjusting "
+                        "variance.  See the (?) help for details.",
+                        visible=False,
+                    )
             # ---- RIGHT column: Edit ----
             with gr.Column(scale=1, min_width=200):
                 with gr.Row():
@@ -104,6 +112,7 @@ def build_variation_morph_controls() -> dict[str, Any]:
         "retake_panel": retake_panel,
         "retake_variance": retake_variance,
         "retake_seed": retake_seed,
+        "retake_think_warning": retake_think_warning,
         "flow_edit_morph": flow_edit_morph,
         "morph_panel": morph_panel,
         "flow_edit_copy_from_current_btn": flow_edit_copy_from_current_btn,

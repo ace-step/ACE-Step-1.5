@@ -115,6 +115,7 @@ def register_generation_run_handlers(context: GenerationWiringContext) -> None:
             generation_section["auto_lrc"],
             generation_section["score_scale"],
             generation_section["lm_batch_chunk_size"],
+            generation_section["song_name"],
             generation_section["track_name"],
             generation_section["complete_track_classes"],
             generation_section["enable_normalization"],

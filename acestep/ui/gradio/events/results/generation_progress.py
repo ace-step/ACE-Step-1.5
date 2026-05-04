@@ -6,6 +6,7 @@ pipeline, saves audio files, and optionally runs auto-scoring and
 auto-LRC in a single streaming pass.
 """
 import os
+import re
 import json
 import time as time_module
 
@@ -15,7 +16,7 @@ import torch
 from loguru import logger
 
 from acestep.inference import generate_music, GenerationParams, GenerationConfig
-from acestep.audio_utils import save_audio
+from acestep.audio_utils import save_audio, write_audio_tags
 from acestep.gpu_config import (
     get_global_gpu_config,
     check_duration_limit,
@@ -34,6 +35,13 @@ from acestep.ui.gradio.events.results.audio_playback_updates import (
 from acestep.ui.gradio.events.results.scoring import calculate_score_handler
 from acestep.ui.gradio.events.results.lrc_utils import lrc_to_vtt_file
 from acestep.ui.gradio.events.results.session_artifacts import persist_sample_session_artifacts
+
+
+def _sanitize_filename(name: str) -> str:
+    """Allow only safe characters and cap at 80 chars."""
+    sanitized = re.sub(r'[^A-Za-z0-9 _-]', "_", name)
+    sanitized = sanitized.strip("_. ")
+    return sanitized[:80]
 
 
 def generate_with_progress(
@@ -72,6 +80,7 @@ def generate_with_progress(
     flow_edit_n_max=1.0,
     flow_edit_n_avg=1,
     progress=gr.Progress(track_tqdm=True),
+    song_name="",
 ):
     """Generate audio with progress tracking.
 
@@ -279,13 +288,26 @@ def generate_with_progress(
         audio_params = audios[i]["params"]
 
         timestamp = int(time_module.time())
-        temp_dir = os.path.join(DEFAULT_RESULTS_DIR, f"batch_{timestamp}")
+        temp_dir = os.path.join(DEFAULT_RESULTS_DIR, f"batch_{timestamp}_{key[:8]}")
         temp_dir = os.path.abspath(temp_dir).replace("\\", "/")
         os.makedirs(temp_dir, exist_ok=True)
-        json_path = os.path.join(temp_dir, f"{key}.json").replace("\\", "/")
+
+        # Determine filename stem: use song_name when provided, else fall back to UUID key.
+        # The directory name already incorporates the key UUID so collisions across batches
+        # are impossible even when multiple batches start within the same second.
+        if song_name and song_name.strip():
+            base = _sanitize_filename(song_name.strip())
+            if base:
+                dt_tag = time_module.strftime("%Y%m%d_%H%M%S", time_module.localtime(timestamp))
+                filename_stem = f"{base} - {dt_tag}"
+            else:
+                filename_stem = key
+        else:
+            filename_stem = key
 
         ext = "wav" if audio_format == "wav32" else audio_format
-        audio_path = os.path.join(temp_dir, f"{key}.{ext}").replace("\\", "/")
+        json_path = os.path.join(temp_dir, f"{filename_stem}.json").replace("\\", "/")
+        audio_path = os.path.join(temp_dir, f"{filename_stem}.{ext}").replace("\\", "/")
 
         saved_path = save_audio(
             audio_data=audio_tensor, output_path=audio_path,
@@ -309,6 +331,24 @@ def generate_with_progress(
 
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(audio_params, f, indent=2, ensure_ascii=False)
+
+        # Embed metadata tags directly into the audio file
+        try:
+            _title = filename_stem.rsplit(" - ", 1)[0] if " - " in filename_stem else filename_stem
+            _key = audio_params.get("cot_keyscale") or audio_params.get("keyscale") or ""
+            _dur_secs = audio_params.get("cot_duration") or audio_params.get("duration")
+            _dur = "" if (not _dur_secs or _dur_secs == -1) else str(int(_dur_secs * 1000))
+            write_audio_tags(audio_path, {
+                "title":   _title,
+                "artist":  "ACE-Step",
+                "comment": audio_params.get("caption", ""),
+                "lyrics":  audio_params.get("lyrics", ""),
+                "key":     _key,
+                "TLEN":    _dur,   # track length in milliseconds (ID3 TLEN / Vorbis LENGTH)
+                "seed":    str(audio_params.get("seed", "")),
+            })
+        except (OSError, ValueError, RuntimeError) as _tag_exc:
+            logger.warning(f"[Tags] Skipped tag write for {audio_path}: {_tag_exc}")
 
         audio_outputs[i] = audio_path
         all_audio_paths.append(audio_path)

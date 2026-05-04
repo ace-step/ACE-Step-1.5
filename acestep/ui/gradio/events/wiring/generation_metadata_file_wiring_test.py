@@ -53,6 +53,7 @@ _EXPECTED_METADATA_KEYS = [
     "track_name",
     "complete_track_classes",
     "instrumental_checkbox",
+    "song_name",
     "retake_variance",
     "retake_seed",
 ]

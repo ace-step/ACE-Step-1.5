@@ -12,13 +12,14 @@ from .generation_tab_source_controls import build_source_track_and_code_controls
 
 
 def build_mode_selector_controls(initial_mode_choices: list[str]) -> dict[str, Any]:
-    """Create generation mode selector and load-metadata upload controls.
+    """Create generation mode selector and load/save metadata controls.
 
     Args:
         initial_mode_choices: Mode labels available for the currently selected model family.
 
     Returns:
-        A component map containing ``generation_mode``, ``load_file``, and ``load_file_col``.
+        A component map containing ``generation_mode``, ``load_file``, ``load_file_col``,
+        ``save_btn``, and ``save_output``.
     """
 
     with gr.Row(equal_height=True):
@@ -30,7 +31,7 @@ def build_mode_selector_controls(initial_mode_choices: list[str]) -> dict[str, A
             elem_classes=["has-info-container"],
             scale=10,
         )
-        with gr.Column(scale=1, min_width=80, elem_classes="icon-btn-wrap") as load_file_col:
+        with gr.Column(scale=1, min_width=160, elem_classes="icon-btn-wrap") as load_file_col:
             load_file = gr.UploadButton(
                 t("generation.load_btn"),
                 file_types=[".json"],
@@ -38,10 +39,22 @@ def build_mode_selector_controls(initial_mode_choices: list[str]) -> dict[str, A
                 variant="secondary",
                 size="lg",
             )
+            save_btn = gr.Button(
+                t("generation.save_btn"),
+                variant="secondary",
+                size="lg",
+            )
+    save_output = gr.File(
+        label=t("generation.save_output_label"),
+        visible=False,
+        interactive=False,
+    )
     return {
         "generation_mode": generation_mode,
         "load_file": load_file,
         "load_file_col": load_file_col,
+        "save_btn": save_btn,
+        "save_output": save_output,
     }
 
 

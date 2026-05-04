@@ -127,6 +127,7 @@ def generate_next_batch_background(
             retake_variance=params.get("retake_variance", 0.0),
             retake_seed=params.get("retake_seed", ""),
             progress=progress,
+            song_name=params.get("song_name", ""),
         )
 
         final_result = None

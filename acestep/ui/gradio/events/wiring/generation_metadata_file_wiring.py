@@ -1,9 +1,85 @@
-"""Generation metadata file-load wiring helpers."""
+"""Generation metadata file-load/save wiring helpers."""
 
 from typing import Any, Sequence
 
 from .. import generation_handlers as gen_h
 from .context import GenerationWiringContext
+
+
+_AUTO_DOWNLOAD_SAVE_JS = """(file_obj) => {
+    if (!file_obj) return;
+
+    let url = "";
+    let filename = "project.json";
+
+    if (typeof file_obj === "string") {
+        url = file_obj;
+    } else if (typeof file_obj === "object") {
+        url = file_obj.url || file_obj.data || "";
+        filename = file_obj.orig_name || file_obj.name || filename;
+    }
+
+    if (!url) {
+        console.warn("[Save] Could not extract URL from save output:", file_obj);
+        return;
+    }
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    console.log("[Save] Auto-downloaded project file:", filename);
+}
+"""
+
+
+_SAVE_PROJECT_INPUT_KEYS = (
+    "task_type",
+    "captions",
+    "lyrics",
+    "vocal_language",
+    "bpm",
+    "key_scale",
+    "time_signature",
+    "audio_duration",
+    "batch_size_input",
+    "inference_steps",
+    "guidance_scale",
+    "seed",
+    "random_seed_checkbox",
+    "use_adg",
+    "cfg_interval_start",
+    "cfg_interval_end",
+    "shift",
+    "infer_method",
+    "custom_timesteps",
+    "audio_format",
+    "mp3_bitrate",
+    "mp3_sample_rate",
+    "lm_temperature",
+    "lm_cfg_scale",
+    "lm_top_k",
+    "lm_top_p",
+    "lm_negative_prompt",
+    "use_cot_metas",
+    "use_cot_caption",
+    "use_cot_language",
+    "audio_cover_strength",
+    "cover_noise_strength",
+    "think_checkbox",
+    "text2music_audio_code_string",
+    "repainting_start",
+    "repainting_end",
+    "track_name",
+    "complete_track_classes",
+    "instrumental_checkbox",
+    "song_name",
+    "retake_variance",
+    "retake_seed",
+)
 
 
 _LOAD_METADATA_GENERATION_OUTPUT_KEYS = (
@@ -47,6 +123,7 @@ _LOAD_METADATA_GENERATION_OUTPUT_KEYS = (
     "track_name",
     "complete_track_classes",
     "instrumental_checkbox",
+    "song_name",
     "retake_variance",
     "retake_seed",
 )
@@ -70,7 +147,7 @@ def register_generation_metadata_file_handlers(
     auto_checkbox_inputs: Sequence[Any],
     auto_checkbox_outputs: Sequence[Any],
 ) -> None:
-    """Register metadata load-file upload and auto-checkbox sync handlers."""
+    """Register metadata load-file upload, auto-checkbox sync, and save handlers."""
 
     generation_section = context.generation_section
     llm_handler = context.llm_handler
@@ -83,4 +160,15 @@ def register_generation_metadata_file_handlers(
         fn=gen_h.uncheck_auto_for_populated_fields,
         inputs=list(auto_checkbox_inputs),
         outputs=list(auto_checkbox_outputs),
+    )
+
+    save_inputs = [generation_section[k] for k in _SAVE_PROJECT_INPUT_KEYS]
+    generation_section["save_btn"].click(
+        fn=gen_h.save_project,
+        inputs=save_inputs,
+        outputs=[generation_section["save_output"]],
+    ).then(
+        fn=None,
+        inputs=[generation_section["save_output"]],
+        js=_AUTO_DOWNLOAD_SAVE_JS,
     )

@@ -15,6 +15,7 @@ from .generation.validation import (  # noqa: F401
 )
 from .generation.metadata_loading import (  # noqa: F401
     load_metadata,
+    save_project,
     load_random_example,
     sample_example_smart,
     load_random_simple_description,

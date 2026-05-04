@@ -11,11 +11,12 @@ Independent audio file operations outside of handler, supporting:
 import io
 import json
 import os
+import shutil
 import subprocess
 import hashlib
 import tempfile
 from pathlib import Path
-from typing import Union, Optional, List, Tuple
+from typing import Union, Optional, List, Tuple, Dict
 import torch
 import numpy as np
 import torchaudio
@@ -166,8 +167,11 @@ class AudioSaver:
                 channels_first=True,
                 backend='soundfile',
             )
+            ffmpeg = _find_ffmpeg()
+            if not ffmpeg:
+                raise RuntimeError("ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files.")
             cmd = [
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                ffmpeg, '-y', '-hide_banner', '-loglevel', 'error',
                 '-i', str(temp_wav_path),
                 '-codec:a', 'libmp3lame',
                 '-ar', str(int(target_sample_rate)),
@@ -176,8 +180,6 @@ class AudioSaver:
             ]
             subprocess.run(cmd, check=True, capture_output=True, timeout=120)
             logger.debug(f"[AudioSaver] Saved audio to {output_path} (mp3, {target_sample_rate}Hz, {bitrate})")
-        except FileNotFoundError as e:
-            raise RuntimeError("ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files.") from e
         except subprocess.TimeoutExpired as e:
             raise RuntimeError("ffmpeg MP3 export timed out after 120 seconds.") from e
         except subprocess.CalledProcessError as e:
@@ -615,4 +617,63 @@ def save_audio(
         mp3_bitrate,
         mp3_sample_rate,
     )
+
+
+def _find_ffmpeg() -> Optional[str]:
+    """Return the ffmpeg executable path, or None if not found."""
+    return shutil.which("ffmpeg")
+
+
+def write_audio_tags(audio_path: str, tags: Dict[str, str]) -> None:
+    """Embed metadata tags into an audio file using ffmpeg (stream-copy, no re-encode).
+
+    Supports MP3 (ID3v2), FLAC (Vorbis comments), WAV (INFO chunk), and most
+    other ffmpeg-writable containers.  Silently skips if ffmpeg is unavailable
+    or if the tag dict is empty.
+
+    Args:
+        audio_path: Absolute path to the existing audio file.
+        tags: Mapping of tag name → value (e.g. ``{"title": "My Song", ...}``).
+              Empty / None values are skipped.
+    """
+    ffmpeg = _find_ffmpeg()
+    if not ffmpeg:
+        logger.warning("[Tags] ffmpeg not found — skipping audio tag writing")
+        return
+
+    clean_tags = {k: str(v).strip() for k, v in tags.items() if v is not None and str(v).strip()}
+    if not clean_tags:
+        return
+
+    src = Path(audio_path)
+    if not src.is_file():
+        logger.warning(f"[Tags] Audio file not found, skipping tags: {audio_path}")
+        return
+
+    fd, tmp_str = tempfile.mkstemp(suffix=src.suffix, dir=src.parent)
+    os.close(fd)
+    tmp = Path(tmp_str)
+    try:
+        cmd = [ffmpeg, '-y', '-hide_banner', '-loglevel', 'error', '-i', str(src), '-c', 'copy']
+        for key, value in clean_tags.items():
+            # Escape any double-quotes inside the value so the shell doesn't break
+            cmd += ['-metadata', f'{key}={value}']
+        cmd.append(str(tmp))
+
+        subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+        tmp.replace(src)
+        logger.debug(f"[Tags] Wrote {list(clean_tags.keys())} to {src.name}")
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode('utf-8', errors='ignore') if exc.stderr else str(exc)
+        logger.warning(f"[Tags] ffmpeg tag write failed for {src.name}: {stderr}")
+    except subprocess.TimeoutExpired:
+        logger.warning(f"[Tags] ffmpeg timed out writing tags to {src.name}")
+    except OSError as exc:
+        logger.warning(f"[Tags] I/O error writing tags to {src.name}: {exc}")
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError as _e:
+                logger.debug(f"[Tags] Could not remove temp file {tmp}: {_e}")
 

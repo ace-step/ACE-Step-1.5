@@ -114,6 +114,7 @@ def capture_current_params(
     latent_shift, latent_rescale,
     repaint_mode, repaint_strength,
     retake_variance=0.0, retake_seed="",
+    song_name="",
 ):
     """Capture current UI parameters for next-batch generation.
 
@@ -178,6 +179,7 @@ def capture_current_params(
         "repaint_strength": repaint_strength,
         "retake_variance": retake_variance,
         "retake_seed": retake_seed,
+        "song_name": song_name,
     }
 
 
@@ -193,7 +195,7 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     """
     if current_batch_index not in batch_queue:
         gr.Warning(t("messages.no_batch_data"))
-        return [gr.update()] * 33
+        return [gr.update()] * 34
 
     batch_data = batch_queue[current_batch_index]
     params = batch_data.get("generation_params", {})
@@ -220,6 +222,7 @@ def restore_batch_parameters(current_batch_index, batch_queue):
     allow_lm_batch = params.get("allow_lm_batch", True)
     track_name = params.get("track_name", None)
     complete_track_classes = params.get("complete_track_classes", [])
+    song_name = params.get("song_name", "")
     enable_normalization = params.get("enable_normalization", True)
     normalization_db = params.get("normalization_db", -1.0)
     fade_in_duration = params.get("fade_in_duration", 0.0)
@@ -251,5 +254,6 @@ def restore_batch_parameters(current_batch_index, batch_queue):
         enable_normalization, normalization_db,
         fade_in_duration, fade_out_duration,
         latent_shift, latent_rescale, no_fsq,
+        song_name,
         retake_variance, retake_seed,
     )

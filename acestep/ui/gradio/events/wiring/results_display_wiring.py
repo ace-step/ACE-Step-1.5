@@ -133,6 +133,7 @@ def register_results_restore_and_lrc_handlers(context: GenerationWiringContext) 
             generation_section["latent_shift"],
             generation_section["latent_rescale"],
             generation_section["no_fsq"],
+            generation_section["song_name"],
             generation_section["retake_variance"],
             generation_section["retake_seed"],
         ],

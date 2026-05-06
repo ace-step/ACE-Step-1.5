@@ -312,8 +312,8 @@ class AudioSaver:
             return str(output_path)
             
         except Exception as e:
-            if format == "mp3":
-                logger.error(f"[AudioSaver] MP3 export failed without fallback: {e}")
+            if format in ("mp3", "opus", "aac"):
+                logger.error(f"[AudioSaver] {format.upper()} export failed without fallback: {e}")
                 raise
             try:
                 import soundfile as sf
@@ -363,14 +363,31 @@ class AudioSaver:
         if not input_path.exists():
             raise FileNotFoundError(f"Input file not found: {input_path}")
         
-        # Load audio
+        # Load audio — try soundfile first, fall back to ffmpeg for compressed formats
         import soundfile as sf
-        audio_np, sample_rate = sf.read(str(input_path), dtype="float32")
+        try:
+            audio_np, sample_rate = sf.read(str(input_path), dtype="float32")
+        except Exception:
+            # libsndfile cannot read AAC/M4A/Opus etc — convert directly via ffmpeg subprocess
+            logger.debug(f"[AudioSaver] soundfile cannot read {input_path}, falling back to ffmpeg")
+            _codec_map = {"opus": "libopus", "aac": "aac"}
+            _codec = _codec_map.get(output_format)
+            _codec_args = ["-c:a", _codec] if _codec else []
+            subprocess.run(
+                ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                 "-i", str(input_path)] + _codec_args + [str(output_path)],
+                check=True, capture_output=True, timeout=120,
+            )
+            if remove_input:
+                input_path.unlink()
+                logger.debug(f"[AudioSaver] Removed input file: {input_path}")
+            return str(output_path)
+
         if audio_np.ndim == 1:
             audio_tensor = torch.from_numpy(audio_np).unsqueeze(0)  # [1, samples]
         else:
             audio_tensor = torch.from_numpy(audio_np.T).contiguous()  # [channels, samples]
-        
+
         # Save as new format
         output_path = self.save_audio(
             audio_tensor,

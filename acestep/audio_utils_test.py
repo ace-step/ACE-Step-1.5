@@ -360,6 +360,90 @@ class AudioSaverFormatTests(unittest.TestCase):
                     format="mp3",
                 )
 
+    def test_opus_subprocess_error_propagates_directly(self):
+        """CalledProcessError from ffmpeg for opus must propagate, not fall to soundfile fallback."""
+        import subprocess
+        import soundfile as sf_real
+
+        saver = AudioSaver()
+        # Create a real temp WAV to write
+        with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
+            output_path = Path(f.name)
+        try:
+            sf_call_count = []
+
+            real_sf_write = sf_real.write
+
+            def spy_sf_write(*args, **kwargs):
+                sf_call_count.append(args)
+                return real_sf_write(*args, **kwargs)
+
+            ffmpeg_error = subprocess.CalledProcessError(1, "ffmpeg", stderr=b"codec not found")
+
+            with (
+                patch("acestep.audio_utils.subprocess.run", side_effect=ffmpeg_error),
+                patch("soundfile.write", side_effect=spy_sf_write),
+            ):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    saver.save_audio(
+                        self.sample_audio,
+                        output_path,
+                        sample_rate=self.sample_rate,
+                        format="opus",
+                    )
+
+            # soundfile.write should have been called exactly ONCE (to write the temp WAV),
+            # NOT a second time as a fallback for opus encoding.
+            self.assertEqual(
+                len(sf_call_count),
+                1,
+                f"soundfile.write called {len(sf_call_count)} times — fallback was attempted after ffmpeg failure",
+            )
+        finally:
+            output_path.unlink(missing_ok=True)
+
+    def test_aac_subprocess_error_propagates_directly(self):
+        """CalledProcessError from ffmpeg for aac must propagate, not fall to soundfile fallback."""
+        import subprocess
+        import soundfile as sf_real
+
+        saver = AudioSaver()
+        with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as f:
+            output_path = Path(f.name)
+        try:
+            sf_call_count = []
+
+            real_sf_write = sf_real.write
+
+            def spy_sf_write(*args, **kwargs):
+                sf_call_count.append(args)
+                return real_sf_write(*args, **kwargs)
+
+            ffmpeg_error = subprocess.CalledProcessError(1, "ffmpeg", stderr=b"codec not found")
+
+            with (
+                patch("acestep.audio_utils.subprocess.run", side_effect=ffmpeg_error),
+                patch("soundfile.write", side_effect=spy_sf_write),
+            ):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    saver.save_audio(
+                        self.sample_audio,
+                        output_path,
+                        sample_rate=self.sample_rate,
+                        format="aac",
+                    )
+
+            # soundfile.write should have been called exactly ONCE (temp WAV only),
+            # NOT a second time as a fallback for aac encoding.
+            self.assertEqual(
+                len(sf_call_count),
+                1,
+                f"soundfile.write called {len(sf_call_count)} times — fallback was attempted after ffmpeg failure",
+            )
+        finally:
+            output_path.unlink(missing_ok=True)
+
+
 class ApplyFadeTests(unittest.TestCase):
     """Tests for apply_fade function."""
 
@@ -532,6 +616,37 @@ class AudioSaverTorchaudioFreeTests(unittest.TestCase):
         with patch('acestep.audio_utils.torchaudio.load') as mock_load:
             saver.convert_audio(str(src), str(Path(self.temp_dir) / 'out.flac'), 'flac')
             mock_load.assert_not_called()
+
+    def test_convert_audio_handles_soundfile_unsupported_format(self):
+        """BUG: convert_audio should fall back to subprocess ffmpeg when soundfile cannot read input.
+
+        Currently convert_audio calls sf.read() directly with no fallback. libsndfile cannot
+        read AAC/M4A/Opus files, so those calls raise RuntimeError. This test documents the
+        DESIRED behavior (fallback via subprocess) and will FAIL until the bug is fixed.
+        """
+        import subprocess
+
+        saver = AudioSaver()
+
+        # Simulate soundfile failing to read (as it does for AAC/M4A in practice)
+        sf_error = RuntimeError("Format not recognised")
+
+        with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as f:
+            f.write(b"\x00" * 100)
+            input_path = f.name
+
+        try:
+            with (
+                patch("soundfile.read", side_effect=sf_error),
+                patch("subprocess.run") as mock_subprocess,
+                patch.object(saver, "save_audio", return_value=str(Path(self.temp_dir) / "output.wav")),
+            ):
+                result = saver.convert_audio(input_path, str(Path(self.temp_dir) / "output.wav"), "wav")
+                # After the fix: convert_audio must attempt a subprocess/ffmpeg fallback
+                # when sf.read fails, rather than propagating the RuntimeError.
+                mock_subprocess.assert_called()
+        finally:
+            Path(input_path).unlink(missing_ok=True)
 
 
 if __name__ == '__main__':

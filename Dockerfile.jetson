@@ -281,7 +281,7 @@ EXPOSE 7860 8001
 # Lightweight probe: the Gradio or API server must be listening.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -sf http://localhost:${GRADIO_PORT:-7860}/ > /dev/null 2>&1 \
-     || curl -sf http://localhost:${API_PORT:-8001}/health > /dev/null 2>&1 \
+     || curl -sf http://localhost:${API_PORT:-${ACESTEP_API_PORT:-8001}}/health > /dev/null 2>&1 \
      || exit 1
 
 # ==================== Entrypoint ====================
@@ -316,10 +316,10 @@ if [ "${ACESTEP_INIT_SERVICE:-true}" = "true" ]; then
 fi
 
 if [ "${ACESTEP_MODE}" = "api" ]; then
-    echo "Starting REST API server on 0.0.0.0:${ACESTEP_API_PORT:-8001} ..."
+    echo "Starting REST API server on 0.0.0.0:${API_PORT:-${ACESTEP_API_PORT:-8001}} ..."
     exec python -m acestep.api_server \
         --host "${ACESTEP_API_HOST:-0.0.0.0}" \
-        --port "${ACESTEP_API_PORT:-8001}" \
+        --port "${API_PORT:-${ACESTEP_API_PORT:-8001}}" \
         ${ACESTEP_EXTRA_ARGS:-}
 else
     echo "Starting Gradio UI on 0.0.0.0:${GRADIO_PORT:-7860} ..."

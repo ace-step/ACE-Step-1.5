@@ -50,6 +50,11 @@ except ImportError:
     from configuration_acestep_v15 import AceStepConfig
     from apg_guidance import adg_forward, apg_forward, cfg_forward, MomentumBuffer
 
+# DCW (Differential Correction in Wavelet domain) — CVPR 2026.
+# Opt-in sampler-side correction for SNR-t bias; see the `dcw_*` kwargs on
+# `generate_audio` and the docs page for details.
+from acestep.models.common.dcw_correction import DCWCorrector
+
 
 logger = logging.get_logger(__name__)
 
@@ -1842,6 +1847,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         silence_latent: Optional[torch.FloatTensor] = None,
         attention_mask: torch.Tensor = None,
         seed: int = None,
+        retake_seed: Optional[Union[int, List[int]]] = None,
+        retake_variance: float = 0.0,
         infer_method: str = "ode",
         use_cache: bool = True,
         infer_steps: int = 30,
@@ -1864,6 +1871,12 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
+        timesteps: Optional[torch.Tensor] = None,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
+        dcw_wavelet: str = "haar",
         **kwargs,
     ):
         # Backward-compat: accept the old misspelled key "diffusion_guidance_sale"
@@ -1928,16 +1941,27 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         # Calculate cover steps based on audio_cover_strength
         cover_steps = int(infer_steps * audio_cover_strength)
         device, dtype = context_latents.device, context_latents.dtype
-        t = torch.linspace(1.0, 0.0, infer_steps + 1, device=device, dtype=dtype)
-        # Apply shift transformation to timesteps if shift != 1.0
-        if shift != 1.0:
-            t = shift * t / (1 + (shift - 1) * t)
+        # Use custom timesteps if provided, otherwise compute from infer_steps and shift
+        if timesteps is not None:
+            t = timesteps.to(device=device, dtype=dtype)
+            infer_steps = len(t) - 1  # Override infer_steps based on timesteps length
+        else:
+            t = torch.linspace(1.0, 0.0, infer_steps + 1, device=device, dtype=dtype)
+            # Apply shift transformation to timesteps if shift != 1.0
+            if shift != 1.0:
+                t = shift * t / (1 + (shift - 1) * t)
         if use_progress_bar:
             iterator = tqdm(zip(t[:-1], t[1:]), total=infer_steps)
         else:
             iterator = zip(t[:-1], t[1:])
 
         noise = self.prepare_noise(context_latents, seed)
+        # Retake mixing: variance-preserving blend with an independent noise draw.
+        # v=0 -> noise unchanged; v=1 -> equivalent to using retake_seed as the main seed.
+        if retake_variance > 0.0:
+            retake_noise = self.prepare_noise(context_latents, retake_seed)
+            v_rad = retake_variance * (math.pi / 2.0)
+            noise = math.cos(v_rad) * noise + math.sin(v_rad) * retake_noise
         bsz, device, dtype = context_latents.shape[0], context_latents.device, context_latents.dtype
         past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
         momentum_buffer = MomentumBuffer()
@@ -1984,6 +2008,16 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         if use_heun and infer_method == "sde":
             logger.warning("Heun sampler is not compatible with SDE; falling back to Euler.")
             use_heun = False
+
+        # DCW — Differential Correction in Wavelet domain (CVPR 2026).
+        # No-op unless `dcw_enabled=True` and a non-zero scaler is configured.
+        dcw_corrector = DCWCorrector(
+            enabled=dcw_enabled,
+            mode=dcw_mode,
+            scaler=dcw_scaler,
+            high_scaler=dcw_high_scaler,
+            wavelet=dcw_wavelet,
+        )
 
         _switched_to_non_cover = False
         with torch.no_grad():
@@ -2049,6 +2083,16 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 # Velocity EMA smoothing — stabilises denoising trajectory
                 if use_ema and prev_vt is not None:
                     vt = (1.0 - velocity_ema_factor) * vt + velocity_ema_factor * prev_vt
+
+                # Cache pre-step latent so DCW can reconstruct the predicted
+                # clean sample `denoised = x - v * t` after the sampler update.
+                # Also stash the *raw* velocity (pre-Heun-averaging) so the
+                # reconstruction uses the single-evaluation `v(t_curr)`, which
+                # is what the reference FLUX scheduler's `x0 = sample - sigma *
+                # model_output` assumes; Heun below overwrites `vt` with the
+                # trapezoidal average, which would bias the x0 estimate.
+                xt_before_step = xt
+                vt_for_denoise = vt
 
                 # Update x_t based on inference method
                 if infer_method == "sde":
@@ -2122,6 +2166,16 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     xt = xt - vt * dt_tensor
                     t_after_step = t_prev
 
+                # DCW correction: push x_next's frequency band(s) away from
+                # the predicted clean sample to compensate for SNR-t drift.
+                # Scaler is t_curr-modulated inside the corrector, so this
+                # naturally decays to identity as the trajectory approaches 0.
+                if dcw_corrector.is_active:
+                    t_curr_f = float(t_curr) if torch.is_tensor(t_curr) else t_curr
+                    t_unsq = t_curr_f * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                    denoised = xt_before_step - vt_for_denoise * t_unsq
+                    xt = dcw_corrector.apply(xt, denoised, t_curr_f)
+
                 prev_vt = vt
 
                 injection_cutoff = round(repaint_injection_ratio * infer_steps)
@@ -2144,6 +2198,19 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             "target_latents": x_gen,
             "time_costs": time_costs,
         }
+
+    def flowedit_generate_audio(self, **kwargs):
+        """Flow-edit (#1156): morph src toward a target prompt/lyrics.
+
+        Thin delegate to ``models.common.flow_edit_pipeline`` so all four
+        base variants share the same implementation.  See that module's
+        docstring for the algorithm and v1 sampler-trick exclusions.
+        """
+        from acestep.models.common.flow_edit_pipeline import (
+            flowedit_generate_audio as _flowedit_impl,
+        )
+
+        return _flowedit_impl(self, **kwargs)
 
 
 def test_forward(model, seed=42):

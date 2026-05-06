@@ -15,6 +15,7 @@ class _Host(ConditioningBatchMixin):
         self.device = "cpu"
         self.dtype = torch.float32
         self.sample_rate = 48000
+        self.seen_task_type = None
 
     def _normalize_audio_code_hints(self, audio_code_hints, batch_size: int) -> List[Optional[str]]:
         if audio_code_hints is None:
@@ -38,8 +39,13 @@ class _Host(ConditioningBatchMixin):
         return list(instructions)
 
     def _prepare_target_latents_and_wavs(
-        self, batch_size: int, target_wavs: torch.Tensor, audio_code_hints: List[Optional[str]]
+        self,
+        batch_size: int,
+        target_wavs: torch.Tensor,
+        audio_code_hints: List[Optional[str]],
+        source_repaint_latents: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, torch.Tensor]:
+        _ = source_repaint_latents
         target_latents = torch.zeros(batch_size, 128, 16, dtype=torch.float32)
         latent_masks = torch.ones(batch_size, 128, dtype=torch.long)
         silence_latent_tiled = torch.zeros(128, 16, dtype=torch.float32)
@@ -57,7 +63,9 @@ class _Host(ConditioningBatchMixin):
         repainting_end: Optional[List[float]],
         silence_latent_tiled: torch.Tensor,
         chunk_mask_modes: Optional[List[str]] = None,
+        task_type: str = "",
     ) -> Tuple[torch.Tensor, List[Tuple[str, int, int]], torch.Tensor, torch.Tensor, None]:
+        self.seen_task_type = task_type
         chunk_masks = torch.ones(batch_size, max_latent_length, dtype=torch.bool)
         spans: List[Tuple[str, int, int]] = [("full", 0, max_latent_length)] * batch_size
         is_covers = torch.zeros(batch_size, dtype=torch.bool)
@@ -114,6 +122,7 @@ class ConditioningBatchMixinTests(unittest.TestCase):
             instructions=None,
             audio_code_hints=[None, None],
             audio_cover_strength=1.0,
+            task_type="cover-nofsq",
         )
 
         self.assertIn("target_latents", batch)
@@ -124,6 +133,7 @@ class ConditioningBatchMixinTests(unittest.TestCase):
         self.assertEqual(batch["target_latents"].shape, (2, 128, 16))
         self.assertEqual(len(batch["refer_audioss"]), 2)
         self.assertEqual(batch["refer_audioss"][0][0].shape, (2, 30 * host.sample_rate))
+        self.assertEqual(host.seen_task_type, "cover-nofsq")
 
     def test_prepare_batch_populates_non_cover_inputs_when_strength_below_one(self):
         """Populate optional non-cover token fields for blended cover path."""

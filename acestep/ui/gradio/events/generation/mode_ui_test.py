@@ -12,6 +12,7 @@ import unittest
 from types import SimpleNamespace
 
 try:
+    from acestep.constants import GENERATION_MODES_BASE, GENERATION_MODES_TURBO, MODE_TO_TASK_TYPE
     from acestep.ui.gradio.events.generation.mode_ui import compute_mode_ui_updates
     _IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - environment dependency guard
@@ -19,10 +20,16 @@ except Exception as exc:  # pragma: no cover - environment dependency guard
     _IMPORT_ERROR = exc
 
 # Output indices for the two new state-clearing outputs
-_IDX_AUDIO_CODES = 44
-_IDX_SRC_AUDIO = 45
+_IDX_AUDIO_CODES = 47
+_IDX_SRC_AUDIO = 48
+_IDX_FLOW_EDIT_COLUMN = 49
+_IDX_FLOW_EDIT_MORPH = 50
+_IDX_TASK_TYPE = 5
+_IDX_SRC_AUDIO_ROW = 6
 _IDX_THINK_CHECKBOX = 14
-_EXPECTED_TUPLE_LENGTH = 46
+_IDX_REMIX_STRENGTH = 17
+_IDX_COVER_NOISE = 18
+_EXPECTED_TUPLE_LENGTH = 51
 _IDX_BPM = 21
 _IDX_KEY = 22
 _IDX_TIMESIG = 23
@@ -36,7 +43,7 @@ class ModeUiStateClearingTests(unittest.TestCase):
     """Tests that mode switches clear stale UI state to prevent noise."""
 
     def test_tuple_length(self):
-        """compute_mode_ui_updates should return exactly 44 elements."""
+        """compute_mode_ui_updates should return exactly 51 elements."""
         result = compute_mode_ui_updates("Custom")
         self.assertEqual(len(result), _EXPECTED_TUPLE_LENGTH)
 
@@ -86,11 +93,50 @@ class ModeUiStateClearingTests(unittest.TestCase):
         # Should be a no-op update (no value key)
         self.assertNotIn("value", src_update)
 
+    def test_remix_mode_uses_cover_task_and_source_audio_controls(self):
+        """Remix should keep the standard cover task and source-audio controls."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        result = compute_mode_ui_updates("Remix", llm_handler=llm_handler, previous_mode="Custom")
+        self.assertEqual(result[_IDX_TASK_TYPE].get("value"), "cover")
+        self.assertTrue(result[_IDX_SRC_AUDIO_ROW].get("visible"))
+        self.assertEqual(result[_IDX_AUDIO_CODES].get("value"), "")
+        self.assertFalse(result[_IDX_AUDIO_CODES].get("visible"))
+        self.assertNotIn("value", result[_IDX_SRC_AUDIO])
+        self.assertTrue(result[_IDX_COVER_NOISE].get("visible"))
+        self.assertEqual(result[_IDX_REMIX_STRENGTH].get("value"), 0.0)
+        self.assertEqual(result[_IDX_COVER_NOISE].get("value"), 0.2)
+
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertFalse(think_update.get("value"))
+        self.assertFalse(think_update.get("interactive"))
+
+    def test_generation_modes_do_not_expose_raw_remix_as_top_level_mode(self):
+        """Raw remix should be selected by no_fsq, not by a separate mode."""
+        self.assertNotIn("Remix (Raw)", GENERATION_MODES_TURBO)
+        self.assertNotIn("Remix (Raw)", GENERATION_MODES_BASE)
+        self.assertNotIn("Remix (Raw)", MODE_TO_TASK_TYPE)
+
     def test_repaint_mode_preserves_src_audio(self):
         """In Repaint mode, src_audio should not be cleared (it's needed)."""
         result = compute_mode_ui_updates("Repaint")
         src_update = result[_IDX_SRC_AUDIO]
         self.assertNotIn("value", src_update)
+
+    def test_repaint_mode_hides_and_disables_edit(self):
+        """Repaint has its own local edit path, so flow-edit should be unavailable."""
+        result = compute_mode_ui_updates("Repaint")
+
+        self.assertFalse(result[_IDX_FLOW_EDIT_COLUMN].get("visible"))
+        self.assertFalse(result[_IDX_FLOW_EDIT_MORPH].get("visible"))
+        self.assertFalse(result[_IDX_FLOW_EDIT_MORPH].get("value"))
+
+    def test_remix_mode_shows_edit(self):
+        """Remix keeps the flow-edit overlay available."""
+        result = compute_mode_ui_updates("Remix")
+
+        self.assertTrue(result[_IDX_FLOW_EDIT_COLUMN].get("visible"))
+        self.assertTrue(result[_IDX_FLOW_EDIT_MORPH].get("visible"))
+        self.assertTrue(result[_IDX_FLOW_EDIT_MORPH].get("interactive"))
 
     def test_round_trip_remix_to_custom_clears_both(self):
         """Switching Remix -> Custom should clear both audio_codes and src_audio.

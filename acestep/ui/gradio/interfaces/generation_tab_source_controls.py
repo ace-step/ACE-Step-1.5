@@ -89,7 +89,10 @@ def build_lm_code_hint_controls() -> dict[str, Any]:
         elem_classes=["has-info-container"],
     ) as text2music_audio_codes_group:
         with gr.Row(equal_height=True):
-            lm_codes_audio_upload = gr.Audio(label=t("generation.source_audio"), type="filepath", scale=3)
+            lm_codes_audio_upload = gr.Audio(
+                label=t("generation.lm_codes_audio_upload_label"),
+                type="filepath", scale=3,
+            )
             text2music_audio_code_string = gr.Textbox(
                 label=t("generation.lm_codes_label"),
                 placeholder=t("generation.lm_codes_placeholder"),
@@ -97,6 +100,7 @@ def build_lm_code_hint_controls() -> dict[str, Any]:
                 info=t("generation.lm_codes_info"),
                 elem_classes=["has-info-container"],
                 scale=6,
+                interactive=True,
             )
         with gr.Row():
             convert_src_to_codes_btn = gr.Button(

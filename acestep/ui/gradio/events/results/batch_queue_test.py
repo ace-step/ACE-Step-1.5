@@ -155,8 +155,8 @@ class StoreBatchInQueueTests(unittest.TestCase):
         self.assertFalse(offloaded.is_cuda, "Tensor should have been moved to CPU")
         self.assertEqual(offloaded.device.type, "cpu")
 
-    def test_store_offloads_only_previous_batch_cuda_tensors(self):
-        """Only the immediately preceding batch's CUDA tensors should be offloaded."""
+    def test_store_keeps_previous_batch_and_clears_older_tensors(self):
+        """Only the previous batch keeps tensors; older batches are cleared."""
         import torch
         tensor_a = torch.ones(1)
         tensor_b = torch.ones(2)
@@ -171,8 +171,7 @@ class StoreBatchInQueueTests(unittest.TestCase):
             generation_info="info",
             seeds="7",
         )
-        # Both batch 0 and batch 1 should still have their tensors (CPU tensors are untouched)
-        self.assertIn("pred_latents", queue[0]["extra_outputs"])
+        self.assertNotIn("pred_latents", queue[0]["extra_outputs"])
         self.assertIn("pred_latents", queue[1]["extra_outputs"])
 
     def test_store_first_batch_no_prev_cleanup(self):
@@ -226,7 +225,7 @@ class CaptureCurrentParamsTests(unittest.TestCase):
             "batch_size_input", "src_audio", "text2music_audio_code_string",
             "repainting_start", "repainting_end", "instruction_display_gen",
             "audio_cover_strength", "cover_noise_strength", "task_type",
-            "use_adg", "cfg_interval_start", "cfg_interval_end", "shift",
+            "no_fsq", "use_adg", "cfg_interval_start", "cfg_interval_end", "shift",
             "infer_method", "custom_timesteps", "audio_format", "mp3_bitrate", "mp3_sample_rate", "lm_temperature",
             "think_checkbox", "lm_cfg_scale", "lm_top_k", "lm_top_p",
             "lm_negative_prompt", "use_cot_metas", "use_cot_caption",
@@ -265,6 +264,12 @@ class CaptureCurrentParamsTests(unittest.TestCase):
         args = self._build_args(random_seed_checkbox=False)
         result = capture_current_params(*args)
         self.assertTrue(result["random_seed_checkbox"])
+
+    def test_capture_preserves_no_fsq(self):
+        """The Remix no_fsq checkbox must be captured for AutoGen batches."""
+        args = self._build_args(no_fsq=True)
+        result = capture_current_params(*args)
+        self.assertTrue(result["no_fsq"])
 
 
 if __name__ == "__main__":

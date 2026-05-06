@@ -4,9 +4,15 @@ Contains functions for visibility toggles, auto-checkbox management,
 instrumental handling, and other lightweight UI helpers.
 """
 
-import gradio as gr
 from typing import Optional
 
+import gradio as gr
+
+from acestep.ui.gradio.events.dcw_defaults import (
+    NON_THINK_DCW_DEFAULTS,
+    THINK_DCW_DEFAULTS,
+    get_dcw_defaults_for_think,
+)
 from acestep.ui.gradio.i18n import t
 from .validation import _has_reference_audio
 
@@ -14,6 +20,23 @@ from .validation import _has_reference_audio
 def update_negative_prompt_visibility(init_llm_checked):
     """Update negative prompt visibility: show if Initialize 5Hz LM checkbox is checked."""
     return gr.update(visible=init_llm_checked)
+
+
+def update_dcw_defaults_for_think(think_enabled: bool):
+    """Update DCW controls to defaults for the current Think state.
+
+    Args:
+        think_enabled: Whether LM Think mode is enabled.
+
+    Returns:
+        Gradio updates for ``dcw_mode``, ``dcw_scaler``, and ``dcw_high_scaler``.
+    """
+    defaults = get_dcw_defaults_for_think(bool(think_enabled))
+    return (
+        gr.update(value=defaults["mode"]),
+        gr.update(value=defaults["scaler"]),
+        gr.update(value=defaults["high_scaler"]),
+    )
 
 
 # Default "auto" values per field — these cause the model to auto-infer.
@@ -101,8 +124,8 @@ def uncheck_auto_for_populated_fields(bpm, key_scale, time_signature, vocal_lang
 def update_audio_cover_strength_visibility(task_type_value, init_llm_checked, reference_audio=None):
     """Update audio_cover_strength visibility and label."""
     has_reference = _has_reference_audio(reference_audio)
-    is_visible = (task_type_value == "cover") or init_llm_checked or has_reference
-    if task_type_value == "cover":
+    is_visible = (task_type_value in ("cover", "cover-nofsq")) or init_llm_checked or has_reference
+    if task_type_value in ("cover", "cover-nofsq"):
         label = t("generation.cover_strength_label")
         help_text = t("generation.cover_strength_info")
     elif init_llm_checked:

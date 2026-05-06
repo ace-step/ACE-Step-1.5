@@ -37,6 +37,7 @@ class ConditioningTargetMixin:
         batch_size: int,
         target_wavs: torch.Tensor,
         audio_code_hints: List[Optional[str]],
+        source_repaint_latents: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, torch.Tensor]:
         """Encode target audio/codes to latents and pad batch tensors."""
         self._ensure_silence_latent_on_device()
@@ -45,6 +46,10 @@ class ConditioningTargetMixin:
             target_latents_list = []
             latent_lengths = []
             target_wavs_list = [target_wavs[i].clone() for i in range(batch_size)]
+            source_repaint_batch = self._normalize_source_repaint_latents(
+                source_repaint_latents,
+                batch_size,
+            )
             if target_wavs.device != self.device:
                 target_wavs = target_wavs.to(self.device)
 
@@ -54,6 +59,21 @@ class ConditioningTargetMixin:
 
                 for i in range(batch_size):
                     code_hint = audio_code_hints[i]
+                    if source_repaint_batch is not None:
+                        current_wav = target_wavs_list[i].to(self.device).unsqueeze(0)
+                        expected_latent_length = max(1, current_wav.shape[-1] // 1920)
+                        target_latent = self._align_source_repaint_latent(
+                            source_repaint_batch[i],
+                            expected_latent_length,
+                        )
+                        logger.info(
+                            "[generate_music] Using cached repaint source latents for item {}...",
+                            i,
+                        )
+                        target_latents_list.append(target_latent)
+                        latent_lengths.append(target_latent.shape[0])
+                        continue
+
                     if code_hint:
                         logger.info(f"[generate_music] Decoding audio codes for item {i}...")
                         decoded_latents = self._decode_audio_codes_to_latents(code_hint)
@@ -122,3 +142,40 @@ class ConditioningTargetMixin:
                 ]
             )
             return target_wavs, target_latents, latent_masks, max_latent_length, silence_latent_tiled
+
+    def _normalize_source_repaint_latents(
+        self,
+        source_repaint_latents: Optional[torch.Tensor],
+        batch_size: int,
+    ) -> Optional[torch.Tensor]:
+        """Normalize cached repaint source latents to ``[B, T, C]``."""
+        if source_repaint_latents is None:
+            return None
+        latents = torch.as_tensor(
+            source_repaint_latents,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        if latents.ndim == 2:
+            latents = latents.unsqueeze(0)
+        if latents.ndim != 3:
+            raise ValueError("source_repaint_latents must be shaped [T, C] or [B, T, C]")
+        if latents.shape[0] == 1 and batch_size > 1:
+            latents = latents.expand(batch_size, -1, -1).clone()
+        if latents.shape[0] != batch_size:
+            raise ValueError("source_repaint_latents batch size must match generation batch size")
+        return latents
+
+    def _align_source_repaint_latent(
+        self,
+        latent: torch.Tensor,
+        target_length: int,
+    ) -> torch.Tensor:
+        """Trim or silence-pad cached source latents to the source-audio length."""
+        latent = latent.to(device=self.device, dtype=self.dtype)
+        if latent.shape[0] > target_length:
+            return latent[:target_length]
+        if latent.shape[0] == target_length:
+            return latent
+        pad_length = target_length - latent.shape[0]
+        return torch.cat([latent, self._get_silence_latent_slice(pad_length)], dim=0)

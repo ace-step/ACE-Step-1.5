@@ -27,6 +27,7 @@ class MlxDitInitMixin:
 
             mlx_decoder = MLXDiTDecoder.from_config(self.config)
             convert_and_load(self.model, mlx_decoder)
+            mlx_decoder.materialize_static_buffers()
             self.mlx_decoder = mlx_decoder
             self.use_mlx_dit = True
             self.mlx_dit_compiled = compile_model

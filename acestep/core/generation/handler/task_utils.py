@@ -75,6 +75,8 @@ class TaskUtilsMixin:
             return TASK_INSTRUCTIONS["repaint"]
         if task_type == "cover":
             return TASK_INSTRUCTIONS["cover"]
+        if task_type == "cover-nofsq":
+            return TASK_INSTRUCTIONS["cover"]
         if task_type == "extract":
             return (
                 TASK_INSTRUCTIONS["extract"].format(TRACK_NAME=track_name.upper())
@@ -100,7 +102,7 @@ class TaskUtilsMixin:
         """Compute task-mode booleans for downstream generation logic."""
         is_repaint_task = task_type == "repaint"
         is_lego_task = task_type == "lego"
-        is_cover_task = task_type == "cover"
+        is_cover_task = task_type in ("cover", "cover-nofsq")
 
         if isinstance(audio_code_string, list):
             has_codes = any((c or "").strip() for c in audio_code_string)

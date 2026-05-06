@@ -70,11 +70,12 @@ class MlxDitInitMixinTests(unittest.TestCase):
         host = _DitHost()
         fake_mlx = types.ModuleType("acestep.models.mlx")
         fake_mlx.mlx_available = lambda: True
+        fake_decoder = Mock()
         fake_dit_model = types.ModuleType("acestep.models.mlx.dit_model")
         fake_dit_model.MLXDiTDecoder = type(
             "FakeDecoder",
             (),
-            {"from_config": classmethod(lambda _cls, _cfg: object())},
+            {"from_config": classmethod(lambda _cls, _cfg: fake_decoder)},
         )
         fake_dit_convert = types.ModuleType("acestep.models.mlx.dit_convert")
         fake_dit_convert.convert_and_load = Mock()
@@ -89,7 +90,9 @@ class MlxDitInitMixinTests(unittest.TestCase):
             self.assertTrue(host._init_mlx_dit(compile_model=True))
         self.assertTrue(host.use_mlx_dit)
         self.assertTrue(host.mlx_dit_compiled)
-        fake_dit_convert.convert_and_load.assert_called_once()
+        fake_dit_convert.convert_and_load.assert_called_once_with(host.model, fake_decoder)
+        fake_decoder.materialize_static_buffers.assert_called_once_with()
+        self.assertIs(host.mlx_decoder, fake_decoder)
 
 
 if __name__ == "__main__":

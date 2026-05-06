@@ -6,8 +6,10 @@ language model.  Provides PMI, top-k recall, metadata recall, and a
 composite reward score.
 """
 import contextlib
+import gc
 import math
 import re
+import traceback
 
 import torch
 import torch.nn.functional as F
@@ -111,6 +113,89 @@ def _load_scoring_model_context(llm_handler):
                 torch.cuda.empty_cache()
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available() and hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
                 torch.mps.empty_cache()
+
+
+def _offload_cached_hf_scoring_model(llm_handler) -> None:
+    """Move the auxiliary HF scoring model off accelerator memory after PMI."""
+    backend = getattr(llm_handler, "llm_backend", "pt")
+    if backend not in ("vllm", "mlx"):
+        return
+    model = getattr(llm_handler, "_hf_model_for_scoring", None)
+    if model is None or not hasattr(model, "to"):
+        return
+    try:
+        logger.info("[scoring] Offloading cached HF scoring model to CPU")
+        model.to("cpu")
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.empty_cache()
+        elif (
+            hasattr(torch.backends, "mps")
+            and torch.backends.mps.is_available()
+            and hasattr(torch, "mps")
+            and hasattr(torch.mps, "empty_cache")
+        ):
+            torch.mps.empty_cache()
+    except (RuntimeError, OSError) as exc:
+        logger.warning("[scoring] Failed to offload cached HF scoring model: {}", exc)
+
+
+def _release_cached_hf_scoring_model(llm_handler) -> None:
+    """Drop the auxiliary HF scoring model after a temporary-runtime score."""
+    _offload_cached_hf_scoring_model(llm_handler)
+    if getattr(llm_handler, "_hf_model_for_scoring", None) is not None:
+        llm_handler._hf_model_for_scoring = None
+        gc.collect()
+
+
+@contextlib.contextmanager
+def _temporary_unload_interactive_lm_for_scoring(llm_handler):
+    """Temporarily unload interactive vLLM so PMI can use HF scoring model.
+
+    nano-vLLM does not support a cheap ``.to("cpu")`` offload.  For PMI
+    scoring we free its GPU runtime, load the HF scorer, then restore the LM
+    from the saved initialization config so the rest of the UI keeps working.
+    """
+    if getattr(llm_handler, "llm_backend", None) != "vllm" or getattr(llm_handler, "llm", None) is None:
+        yield
+        return
+
+    restore_config = getattr(llm_handler, "_last_initialize_config", None)
+    if not restore_config:
+        yield
+        return
+
+    logger.info("[scoring] Temporarily unloading vLLM runtime for PMI scoring")
+    llm_runtime = llm_handler.llm
+    try:
+        if hasattr(llm_runtime, "reset"):
+            llm_runtime.reset()
+    except Exception as exc:
+        logger.warning("[scoring] vLLM reset during PMI offload failed: {}", exc)
+    try:
+        llm_handler._cleanup_torch_distributed_state()
+    except Exception as exc:
+        logger.warning("[scoring] vLLM distributed cleanup during PMI offload failed: {}", exc)
+    llm_handler.llm = None
+    llm_handler.llm_initialized = False
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
+    try:
+        yield
+    finally:
+        _release_cached_hf_scoring_model(llm_handler)
+        logger.info("[scoring] Restoring vLLM runtime after PMI scoring")
+        status, success = llm_handler.initialize(**restore_config)
+        if not success:
+            logger.error("[scoring] Failed to restore vLLM runtime after PMI scoring: {}", status)
+            raise RuntimeError(f"Failed to restore vLLM runtime after PMI scoring: {status}")
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 def _get_logits_and_target_for_scoring(llm_handler, formatted_prompt: str,
@@ -406,66 +491,67 @@ def calculate_pmi_score_per_condition(
     if not audio_codes or not audio_codes.strip():
         return {}, 0.0, "❌ No audio codes provided"
 
+    if metadata is None:
+        metadata = {}
     if "caption" not in metadata:
-        metadata['caption'] = caption
+        metadata["caption"] = caption
 
     formatted_prompt = llm_handler.build_formatted_prompt_for_understanding(audio_codes=audio_codes, is_negative_prompt=False)
     prompt_uncond = llm_handler.build_formatted_prompt_for_understanding(audio_codes="NO USER INPUT", is_negative_prompt=False)
     try:
-        # 1. Calculate Recall for Metadata Fields
-        if metadata and isinstance(metadata, dict):
+        with _temporary_unload_interactive_lm_for_scoring(llm_handler):
             scores = {}
-            # Define which fields use which metric
             metadata_recall_keys = ['bpm', 'duration', 'genres', 'keyscale', 'language', 'timesignature']
             metadata_pmi_keys = ['caption']
-            for key in metadata_recall_keys:
-                if key in metadata and metadata[key] is not None:
-                    recall_metadata = {key: metadata[key]}
-                    field_scores = _calculate_metadata_recall(llm_handler, formatted_prompt, recall_metadata, topk=topk)
-                    scores.update(field_scores)
+            # 1. Calculate Recall for Metadata Fields
+            if metadata and isinstance(metadata, dict):
+                for key in metadata_recall_keys:
+                    if key in metadata and metadata[key] is not None:
+                        recall_metadata = {key: metadata[key]}
+                        field_scores = _calculate_metadata_recall(llm_handler, formatted_prompt, recall_metadata, topk=topk)
+                        scores.update(field_scores)
 
-            # 2. Calculate PMI for Caption
-            for key in metadata_pmi_keys:
-                if key in metadata and metadata[key] is not None:
-                    cot_yaml = yaml.dump({key: metadata[key]}, allow_unicode=True, sort_keys=True).strip()
-                    target_text = f"<think>\n{cot_yaml}\n</think>\n"
+                # 2. Calculate PMI for Caption
+                for key in metadata_pmi_keys:
+                    if key in metadata and metadata[key] is not None:
+                        cot_yaml = yaml.dump({key: metadata[key]}, allow_unicode=True, sort_keys=True).strip()
+                        target_text = f"<think>\n{cot_yaml}\n</think>\n"
 
-                    log_prob_cond = _calculate_log_prob(llm_handler, formatted_prompt, target_text)
-                    log_prob_uncond = _calculate_log_prob(llm_handler, prompt_uncond, target_text)
+                        log_prob_cond = _calculate_log_prob(llm_handler, formatted_prompt, target_text)
+                        log_prob_uncond = _calculate_log_prob(llm_handler, prompt_uncond, target_text)
 
-                    pmi_normalized = pmi_to_normalized_score(log_prob_cond - log_prob_uncond, scale=score_scale)
-                    scores[key] = pmi_normalized
+                        pmi_normalized = pmi_to_normalized_score(log_prob_cond - log_prob_uncond, scale=score_scale)
+                        scores[key] = pmi_normalized
 
-        # 3. Calculate PMI for Lyrics
-        if lyrics:
-            target_text = f"<think>\n</think>\n# Lyric\n{lyrics}\n"
+            # 3. Calculate PMI for Lyrics
+            if lyrics:
+                target_text = f"<think>\n</think>\n# Lyric\n{lyrics}\n"
 
-            log_prob_cond = _calculate_log_prob(llm_handler, formatted_prompt, target_text)
+                log_prob_cond = _calculate_log_prob(llm_handler, formatted_prompt, target_text)
+                log_prob_uncond = _calculate_log_prob(llm_handler, prompt_uncond, target_text)
 
-            prompt_uncond = llm_handler.build_formatted_prompt_for_understanding(audio_codes="NO USER INPUT", is_negative_prompt=False)
-            log_prob_uncond = _calculate_log_prob(llm_handler, prompt_uncond, target_text)
+                scores['lyrics'] = pmi_to_normalized_score(log_prob_cond - log_prob_uncond, scale=score_scale)
 
-            scores['lyrics'] = pmi_to_normalized_score(log_prob_cond - log_prob_uncond, scale=score_scale)
+            if not scores:
+                return {}, 0.0, "❌ No conditions to evaluate"
 
-        if not scores:
-            return {}, 0.0, "❌ No conditions to evaluate"
+            # 4. Global Score
+            global_score = sum(scores.values()) / len(scores)
+            global_score, breakdown_lines = calculate_reward_score(scores)
 
-        # 4. Global Score
-        global_score = sum(scores.values()) / len(scores)
-        global_score, breakdown_lines = calculate_reward_score(scores)
-
-        # Status Message
-        status_lines = [breakdown_lines, "\n✅ Per-condition scores (0-1):"]
-        for key, score in sorted(scores.items()):
-            metric = "Top-k Recall" if key in metadata_recall_keys else "PMI (Norm)"
-            status_lines.append(f"  {key}: {score:.4f} ({metric})")
-        status = "\n".join(status_lines)
-        logger.info(f"Calculated scores: {global_score:.4f}\n{status}")
-        return scores, global_score, status
+            # Status Message
+            status_lines = [breakdown_lines, "\n✅ Per-condition scores (0-1):"]
+            for key, score in sorted(scores.items()):
+                metric = "Top-k Recall" if key in metadata_recall_keys else "PMI (Norm)"
+                status_lines.append(f"  {key}: {score:.4f} ({metric})")
+            status = "\n".join(status_lines)
+            logger.info(f"Calculated scores: {global_score:.4f}\n{status}")
+            return scores, global_score, status
 
     except Exception as e:
-        import traceback
         error_msg = f"❌ Error: {str(e)}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())
         return {}, float('-inf'), error_msg
+    finally:
+        _offload_cached_hf_scoring_model(llm_handler)

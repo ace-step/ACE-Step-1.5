@@ -80,6 +80,13 @@ class ServiceGenerateExecuteMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
+        dcw_wavelet: str = "haar",
+        retake_seed: Any = None,
+        retake_variance: float = 0.0,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         repaint_mask = payload.get("repaint_mask")
@@ -116,6 +123,13 @@ class ServiceGenerateExecuteMixin:
             "sampler_mode": sampler_mode,
             "velocity_norm_threshold": velocity_norm_threshold,
             "velocity_ema_factor": velocity_ema_factor,
+            "dcw_enabled": dcw_enabled,
+            "dcw_mode": dcw_mode,
+            "dcw_scaler": dcw_scaler,
+            "dcw_high_scaler": dcw_high_scaler,
+            "dcw_wavelet": dcw_wavelet,
+            "retake_seed": retake_seed,
+            "retake_variance": retake_variance,
         }
         if timesteps is not None:
             kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32, device=self.device)
@@ -129,8 +143,18 @@ class ServiceGenerateExecuteMixin:
         infer_method: str,
         shift: float,
         audio_cover_strength: float,
+        retake_seed: Any = None,
+        retake_variance: float = 0.0,
+        flow_edit_ctx: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], torch.Tensor, torch.Tensor, torch.Tensor]:
         """Execute condition preparation and diffusion using MLX or PyTorch backend."""
+        if flow_edit_ctx is not None and flow_edit_ctx.get("morph"):
+            from .service_generate_flow_edit import dispatch_flow_edit_overlay
+
+            return dispatch_flow_edit_overlay(
+                self, payload=payload, generate_kwargs=generate_kwargs,
+                seed_param=seed_param, flow_edit_ctx=flow_edit_ctx,
+            )
         dit_backend = (
             "MLX (native)" if (self.use_mlx_dit and self.mlx_decoder is not None) else f"PyTorch ({self.device})"
         )
@@ -159,6 +183,14 @@ class ServiceGenerateExecuteMixin:
                 )
 
                 if self.use_mlx_dit and self.mlx_decoder is not None:
+                    if generate_kwargs.get("dcw_enabled") and generate_kwargs.get("dcw_wavelet", "haar") != "haar":
+                        logger.info(
+                            "[service_generate] DCW enabled on MLX path with "
+                            "wavelet='{}'; non-Haar wavelets use the PyTorch "
+                            "bridge and fall back to native Haar only if the "
+                            "bridge dependencies are unavailable.",
+                            generate_kwargs.get("dcw_wavelet"),
+                        )
                     try:
                         enc_hs_nc, enc_am_nc, ctx_nc = None, None, None
                         if audio_cover_strength < 1.0 and payload["non_cover_text_hidden_states"] is not None:
@@ -206,6 +238,13 @@ class ServiceGenerateExecuteMixin:
                             sampler_mode=generate_kwargs.get("sampler_mode", "euler"),
                             velocity_norm_threshold=generate_kwargs.get("velocity_norm_threshold", 0.0),
                             velocity_ema_factor=generate_kwargs.get("velocity_ema_factor", 0.0),
+                            dcw_enabled=generate_kwargs.get("dcw_enabled", True),
+                            dcw_mode=generate_kwargs.get("dcw_mode", "double"),
+                            dcw_scaler=generate_kwargs.get("dcw_scaler", 0.05),
+                            dcw_high_scaler=generate_kwargs.get("dcw_high_scaler", 0.02),
+                            dcw_wavelet=generate_kwargs.get("dcw_wavelet", "haar"),
+                            retake_seed=retake_seed,
+                            retake_variance=retake_variance,
                         )
                         _tc = outputs.get("time_costs", {})
                         logger.info(

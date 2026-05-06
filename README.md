@@ -190,7 +190,7 @@ LANGUAGE=en
 | Method | Description | Documentation |
 |--------|-------------|---------------|
 | 🖥️ **Gradio Web UI** | Interactive web interface for music generation | [Guide](./docs/en/GRADIO_GUIDE.md) |
-| 🎚️ **Studio UI** | Optional HTML frontend (DAW-like) | [Guide](./docs/en/studio.md) |
+| 🧭 **UI Support Baseline** | Supported UI boundary and future UI parity checklist | [Guide](./docs/en/UI_SUPPORT.md) |
 | 🎛️ **VST3 Plugin** | Standalone VST3 plugin (C++/GGML) for DAW integration | [acestep.vst3](https://github.com/ace-step/acestep.vst3) |
 | 🐍 **Python API** | Programmatic access for integration | [Guide](./docs/en/INFERENCE.md) |
 | 🌐 **REST API** | HTTP-based async API for services | [Guide](./docs/en/API.md) |

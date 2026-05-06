@@ -239,9 +239,9 @@ RUN pip install --no-cache-dir \
     && python -c "import nanovllm; print('nano-vllm OK')"
 
 # ==================== Runtime directories ====================
+# Symlink examples into the path where api_routes.py's _get_project_root()
+# resolves (acestep/ui/) until the upstream bug is fixed.
 RUN mkdir -p /app/checkpoints /app/gradio_outputs \
-    # Symlink examples into the path where api_routes.py's _get_project_root()
-    # resolves (acestep/ui/) until the upstream bug is fixed.
     && ln -sf /app/examples /app/acestep/ui/examples
 
 # ==================== Jetson environment defaults ====================

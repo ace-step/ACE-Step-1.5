@@ -13,6 +13,8 @@ import json
 import os
 import subprocess
 import hashlib
+import shutil
+import sys
 import tempfile
 from pathlib import Path
 from typing import Union, Optional, List, Tuple
@@ -20,6 +22,43 @@ import torch
 import numpy as np
 import torchaudio
 from loguru import logger
+
+
+def _find_ffmpeg() -> str:
+    """Locate the ffmpeg executable, checking common installation paths on Windows if not in PATH."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+
+    if sys.platform == "win32":
+        candidates: list[Path] = []
+
+        # WinGet packages (any Gyan.FFmpeg version)
+        winget_base = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+        if winget_base.is_dir():
+            candidates.extend(p / "bin" for p in winget_base.glob("Gyan.FFmpeg*") if (p / "bin").is_dir())
+            # Also handle nested versioned sub-dirs (e.g. Gyan.FFmpeg_.../ffmpeg-X.Y-full_build/bin)
+            for pkg in winget_base.glob("Gyan.FFmpeg*"):
+                candidates.extend(p / "bin" for p in pkg.glob("ffmpeg-*") if (p / "bin").is_dir())
+
+        # Chocolatey
+        candidates.append(Path(os.environ.get("ChocolateyInstall", r"C:\ProgramData\chocolatey")) / "bin")
+
+        # Scoop
+        candidates.append(Path(os.environ.get("USERPROFILE", "")) / "scoop" / "shims")
+
+        # Common manual installs
+        for root in (Path("C:/ffmpeg"), Path("C:/tools/ffmpeg")):
+            candidates.append(root / "bin")
+            candidates.append(root)
+
+        for candidate in candidates:
+            exe = candidate / "ffmpeg.exe"
+            if exe.is_file():
+                logger.debug(f"[_find_ffmpeg] Found ffmpeg at {exe} (not in PATH)")
+                return str(exe)
+
+    raise FileNotFoundError("ffmpeg not found")
 
 
 def apply_fade(
@@ -166,8 +205,9 @@ class AudioSaver:
                 channels_first=True,
                 backend='soundfile',
             )
+            ffmpeg_exe = _find_ffmpeg()
             cmd = [
-                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                ffmpeg_exe, '-y', '-hide_banner', '-loglevel', 'error',
                 '-i', str(temp_wav_path),
                 '-codec:a', 'libmp3lame',
                 '-ar', str(int(target_sample_rate)),
@@ -177,7 +217,10 @@ class AudioSaver:
             subprocess.run(cmd, check=True, capture_output=True, timeout=120)
             logger.debug(f"[AudioSaver] Saved audio to {output_path} (mp3, {target_sample_rate}Hz, {bitrate})")
         except FileNotFoundError as e:
-            raise RuntimeError("ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files.") from e
+            raise RuntimeError(
+                "ffmpeg executable not found. Install ffmpeg and add it to PATH to export MP3 files. "
+                "See https://ffmpeg.org/download.html"
+            ) from e
         except subprocess.TimeoutExpired as e:
             raise RuntimeError("ffmpeg MP3 export timed out after 120 seconds.") from e
         except subprocess.CalledProcessError as e:

@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import gradio as gr
 
+from acestep.ui.gradio.direction_utils import auto_heading_id, auto_textbox_id
 from acestep.ui.gradio.i18n import t
 
 
 def build_dataset_label_and_preview_controls() -> dict[str, object]:
     """Render auto-label and sample-preview editors for dataset-builder workflows."""
 
-    gr.HTML(f"<hr><h3>🤖 {t('training.step2_title')}</h3>")
+    gr.HTML(
+        f"<hr><h3>🤖 {t('training.step2_title')}</h3>",
+        elem_id=auto_heading_id(),
+    )
 
     with gr.Row():
         with gr.Column(scale=3):
@@ -40,7 +44,10 @@ def build_dataset_label_and_preview_controls() -> dict[str, object]:
         lines=2,
     )
 
-    gr.HTML(f"<hr><h3>👀 {t('training.step3_title')}</h3>")
+    gr.HTML(
+        f"<hr><h3>👀 {t('training.step3_title')}</h3>",
+        elem_id=auto_heading_id(),
+    )
 
     with gr.Row():
         with gr.Column(scale=1):
@@ -71,6 +78,8 @@ def build_dataset_label_and_preview_controls() -> dict[str, object]:
                     label=t("training.caption"),
                     lines=3,
                     placeholder="Music description...",
+                    # elem_id=auto_textbox_id(),
+                    elem_classes=["alignment-toggle"],
                 )
 
             with gr.Row():
@@ -92,6 +101,8 @@ def build_dataset_label_and_preview_controls() -> dict[str, object]:
                     label=t("training.lyrics_editable_label"),
                     lines=6,
                     placeholder="[Verse 1]\nLyrics here...\n\n[Chorus]\n...",
+                    # elem_id=auto_textbox_id(),
+                    elem_classes=["alignment-toggle"],
                 )
                 raw_lyrics_display = gr.Textbox(
                     label=t("training.raw_lyrics_label"),

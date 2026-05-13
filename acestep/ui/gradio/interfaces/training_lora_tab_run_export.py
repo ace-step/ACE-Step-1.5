@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gradio as gr
 
+from acestep.ui.gradio.direction_utils import auto_heading_id
 from acestep.ui.gradio.i18n import t
 
 
@@ -15,7 +16,10 @@ def build_lora_run_and_export_controls(
 ) -> dict[str, object]:
     """Render LoRA training-run and export controls for the training tab."""
 
-    gr.HTML(f"<hr><h3>🎛️ {t('training.train_section_params')}</h3>")
+    gr.HTML(
+        f"<hr><h3>🎛️ {t('training.train_section_params')}</h3>",
+        elem_id=auto_heading_id(),
+    )
 
     with gr.Row():
         learning_rate = gr.Number(
@@ -87,6 +91,11 @@ def build_lora_run_and_export_controls(
             elem_classes=["has-info-container"],
         )
 
+    gr.HTML(
+        f"<hr><h3>🔄 {t('training.resume_checkpoint_header')}</h3>",
+        elem_id=auto_heading_id(),
+    )
+
     with gr.Row():
         resume_checkpoint_dir = gr.Textbox(
             label="Resume Checkpoint",
@@ -130,7 +139,10 @@ def build_lora_run_and_export_controls(
             scale=1,
         )
 
-    gr.HTML(f"<hr><h3>📦 {t('training.export_header')}</h3>")
+    gr.HTML(
+        f"<hr><h3>📦 {t('training.export_header')}</h3>",
+        elem_id=auto_heading_id(),
+    )
 
     with gr.Row():
         export_path = gr.Textbox(

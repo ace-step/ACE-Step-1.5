@@ -4,6 +4,7 @@ from acestep.ui.gradio.i18n.i18n import (  # noqa: F401
     get_i18n,
     t,
     available_languages_info,
+    language_directionality,
     set_language_context,
     reset_language_context,
 )

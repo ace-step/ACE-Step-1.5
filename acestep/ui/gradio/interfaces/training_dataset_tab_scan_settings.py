@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gradio as gr
 
+from acestep.ui.gradio.direction_utils import auto_block_id, auto_heading_id
 from acestep.ui.gradio.i18n import t
 
 
@@ -16,12 +17,16 @@ def build_dataset_scan_and_settings_controls() -> dict[str, object]:
                 <h3 style="margin: 0 0 5px 0;">{t("training.quick_start_title")}</h3>
                 <p style="margin: 0; color: #aaa;">Choose one: <b>Load existing dataset</b> OR <b>Scan new directory</b></p>
             </div>
-            """
+            """,
+            elem_id=auto_block_id(),
     )
 
     with gr.Row():
         with gr.Column(scale=1):
-            gr.HTML("<h4>📂 Load Existing Dataset</h4>")
+            gr.HTML(
+                "<h4>📂 Load Existing Dataset</h4>",
+                elem_id=auto_heading_id(),
+            )
             with gr.Row():
                 load_json_path = gr.Textbox(
                     label=t("training.load_dataset_label"),
@@ -37,7 +42,10 @@ def build_dataset_scan_and_settings_controls() -> dict[str, object]:
             )
 
         with gr.Column(scale=1):
-            gr.HTML("<h4>🔍 Scan New Directory</h4>")
+            gr.HTML(
+                "<h4>🔍 Scan New Directory</h4>",
+                elem_id=auto_heading_id(),
+            )
             with gr.Row():
                 audio_directory = gr.Textbox(
                     label=t("training.scan_label"),
@@ -65,7 +73,10 @@ def build_dataset_scan_and_settings_controls() -> dict[str, object]:
             )
 
         with gr.Column(scale=1):
-            gr.HTML(f"<h3>⚙️ {t('training.dataset_settings_header')}</h3>")
+            gr.HTML(
+                f"<h3>⚙️ {t('training.dataset_settings_header')}</h3>",
+                elem_id=auto_heading_id(),
+            )
 
             dataset_name = gr.Textbox(
                 label=t("training.dataset_name"),

@@ -10,6 +10,7 @@ from acestep.ui.gradio.interfaces.training_dataset_builder_tab import (
 )
 from acestep.ui.gradio.interfaces.training_lokr_tab import create_training_lokr_tab
 from acestep.ui.gradio.interfaces.training_lora_tab import create_training_lora_tab
+from acestep.ui.gradio.direction_utils import rtl_block_id
 
 
 def _resolve_epoch_slider_defaults() -> tuple[int, int, int]:
@@ -43,7 +44,8 @@ def create_training_section(dit_handler, llm_handler, init_params=None) -> dict:
         <h2>🎵 LoRA Training for ACE-Step</h2>
         <p>Build datasets from your audio files and train custom LoRA adapters</p>
     </div>
-    """
+    """,
+        elem_id=rtl_block_id(align_right=False),
     )
 
     training_section: dict[str, object] = {}

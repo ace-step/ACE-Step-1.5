@@ -6,6 +6,7 @@ import gradio as gr
 
 from acestep.constants import VALID_LANGUAGES
 from acestep.ui.gradio.help_content import create_help_button
+from acestep.ui.gradio.direction_utils import auto_textbox_id
 from acestep.ui.gradio.i18n import t
 
 
@@ -24,7 +25,8 @@ def build_simple_input_controls() -> tuple[gr.Textbox, gr.Dropdown, gr.Checkbox]
         placeholder=t("generation.simple_query_placeholder"),
         lines=2,
         info=t("generation.simple_query_info"),
-        elem_classes=["has-info-container"],
+        elem_id=auto_textbox_id(),
+        elem_classes=["has-info-container", "alignment-toggle"],
         scale=9,
     )
     with gr.Column(scale=1):

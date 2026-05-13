@@ -29,7 +29,7 @@ def build_language_selector(current_language: str) -> dict[str, Any]:
 
     with gr.Row():
         language_dropdown = gr.Dropdown(
-            choices=[(native_name + f" ({name})" if name != native_name else name, code) for code, name, native_name in available_languages_info()],
+            choices=[(native_name + f" ({name})" if name != native_name else name, code) for code, name, native_name, dir in available_languages_info()],
             value=current_language,
             label=t("service.language_label"),
             info=t("service.language_info"),

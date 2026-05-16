@@ -460,7 +460,7 @@ def util_script() -> str:
 
             // Insert after the tooltip div (if present) to preserve tooltip hover trigger
             var tooltipDiv = infoSpan.nextElementSibling;
-            var hasTooltip = tooltipDiv && tooltipDiv.classList.contains('svelte-9hc4ua');
+            var hasTooltip = tooltipDiv && (tooltipDiv.tagName === 'DIV' || tooltipDiv.tagName === 'SPAN'); 
             if (hasTooltip) {
                 tooltipDiv.after(leftBtn, rightBtn);
             } else {
@@ -686,7 +686,7 @@ def rtl_css() -> str:
     textarea[data-testid="textbox"] {
         direction: rtl !important;
         unicode-bidi: embed;
-        /* Keep text left-aligned to match LTR UI elements (captions, paths, etc.) */
+        // Keep text left-aligned to match LTR UI elements (captions, paths, etc.) 
         text-align: left;
     }
     */

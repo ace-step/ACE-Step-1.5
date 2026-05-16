@@ -236,7 +236,7 @@ def main():
                 code
                 + f" ({native_name}"
                 + (f"/{name})" if name != native_name else ")")
-                for code, name, native_name, dir in available_languages
+                for code, name, native_name, _ in available_languages
             )
         ),
     )

@@ -112,7 +112,7 @@ class GenerationHandlersTests(unittest.TestCase):
         gpu_config_mock.available_lm_models = ["acestep-5Hz-lm-1.7B"]
         get_global_gpu_config_mock.return_value = gpu_config_mock
 
-        get_model_type_ui_settings_mock.return_value = (None,) * 9  # 9 model type settings
+        get_model_type_ui_settings_mock.return_value = (None,) * 10
 
         dit_handler = MagicMock()
         dit_handler.model = MagicMock()
@@ -169,7 +169,7 @@ class GenerationHandlersTests(unittest.TestCase):
         gpu_config_mock.available_lm_models = ["acestep-5Hz-lm-1.7B"]
         get_global_gpu_config_mock.return_value = gpu_config_mock
 
-        get_model_type_ui_settings_mock.return_value = (None,) * 9
+        get_model_type_ui_settings_mock.return_value = (None,) * 10
 
         dit_handler = MagicMock()
         dit_handler.model = MagicMock()

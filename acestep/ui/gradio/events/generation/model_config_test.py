@@ -105,16 +105,19 @@ class GetUiControlConfigTests(unittest.TestCase):
         """SFT models should default to 50 inference steps."""
         cfg = get_ui_control_config(is_turbo=False, is_sft=True)
         self.assertEqual(cfg["inference_steps_value"], 50)
+        self.assertFalse(cfg["dcw_enabled_value"])
 
     def test_base_model_returns_32_steps(self):
         """Non-SFT, non-turbo models should default to 32 inference steps."""
         cfg = get_ui_control_config(is_turbo=False, is_sft=False)
         self.assertEqual(cfg["inference_steps_value"], 32)
+        self.assertFalse(cfg["dcw_enabled_value"])
 
     def test_turbo_model_returns_8_steps(self):
         """Turbo models should default to 8 inference steps."""
         cfg = get_ui_control_config(is_turbo=True)
         self.assertEqual(cfg["inference_steps_value"], 8)
+        self.assertTrue(cfg["dcw_enabled_value"])
 
     def test_turbo_takes_precedence_over_sft(self):
         """When both turbo and SFT flags are set, turbo should win."""
@@ -130,16 +133,20 @@ class UpdateModelTypeSettingsIntegrationTests(unittest.TestCase):
         result = update_model_type_settings("acestep-v15-sft")
         # First element is the inference_steps gr.update()
         self.assertEqual(result[0]["value"], 50)
+        self.assertEqual(result[3]["value"], 1.0)
+        self.assertEqual(result[9]["value"], False)
 
     def test_turbo_path_produces_8_steps(self):
         """Passing a turbo model path should yield 8 inference steps."""
         result = update_model_type_settings("acestep-v15-turbo")
         self.assertEqual(result[0]["value"], 8)
+        self.assertEqual(result[9]["value"], True)
 
     def test_base_path_produces_32_steps(self):
         """Passing a base model path should yield 32 inference steps."""
         result = update_model_type_settings("acestep-v15-base")
         self.assertEqual(result[0]["value"], 32)
+        self.assertEqual(result[9]["value"], False)
 
     def test_none_path_does_not_crash(self):
         """Passing None as config_path should not raise."""

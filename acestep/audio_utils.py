@@ -19,6 +19,7 @@ from typing import Union, Optional, List, Tuple
 import torch
 import numpy as np
 import torchaudio
+import soundfile as sf
 from loguru import logger
 
 
@@ -159,12 +160,15 @@ class AudioSaver:
             temp_wav_path = Path(temp_wav.name)
 
         try:
-            torchaudio.save(
-                str(temp_wav_path),
-                tensor_to_save,
-                int(target_sample_rate),
-                channels_first=True,
-                backend='soundfile',
+            # Write WAV directly via soundfile to avoid torchaudio's torchcodec
+            # dispatch, which fails on environments with incompatible FFmpeg
+            # shared libraries (e.g. Colab with PyTorch 2.10+cu128).
+            audio_np = tensor_to_save.numpy()
+            if audio_np.ndim == 2:
+                audio_np = audio_np.T  # (C, N) -> (N, C) for soundfile
+            sf.write(
+                str(temp_wav_path), audio_np, int(target_sample_rate),
+                subtype="PCM_16",
             )
             cmd = [
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',

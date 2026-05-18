@@ -131,14 +131,14 @@ class AudioSaverFormatTests(unittest.TestCase):
         output_path = Path(self.temp_dir) / "test.mp3"
 
         with (
-            patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,
+            patch('acestep.audio_utils.sf.write') as mock_sf_write,
             patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run,
         ):
             saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
 
-            mock_torchaudio_save.assert_called_once()
-            save_args = mock_torchaudio_save.call_args[0]
-            self.assertEqual(save_args[2], 48000)
+            mock_sf_write.assert_called_once()
+            sf_args = mock_sf_write.call_args
+            self.assertEqual(sf_args[0][2], 48000)  # sample_rate arg
 
             cmd = mock_subprocess_run.call_args[0][0]
             self.assertIn('libmp3lame', cmd)
@@ -153,7 +153,7 @@ class AudioSaverFormatTests(unittest.TestCase):
 
         with (
             patch('acestep.audio_utils.torchaudio.functional.resample', return_value=self.sample_audio) as mock_resample,
-            patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,
+            patch('acestep.audio_utils.sf.write') as mock_sf_write,
             patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run,
         ):
             saver._save_mp3(
@@ -165,13 +165,31 @@ class AudioSaverFormatTests(unittest.TestCase):
             )
 
             mock_resample.assert_called_once_with(self.sample_audio, 48000, 44100)
-            mock_torchaudio_save.assert_called_once()
-            save_args = mock_torchaudio_save.call_args[0]
-            self.assertEqual(save_args[2], 44100)
+            mock_sf_write.assert_called_once()
+            sf_args = mock_sf_write.call_args
+            self.assertEqual(sf_args[0][2], 44100)  # sample_rate arg
 
             cmd = mock_subprocess_run.call_args[0][0]
             self.assertIn('320k', cmd)
             self.assertIn('44100', cmd)
+
+    def test__save_mp3_does_not_call_torchaudio_save(self):
+        """Regression: _save_mp3 must not call torchaudio.save (torchcodec bypass).
+
+        On PyTorch 2.10+, torchaudio.save() unconditionally routes through
+        torchcodec even with backend='soundfile', crashing on environments
+        with incompatible FFmpeg shared libraries (e.g. Colab).
+        """
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test_no_torchcodec.mp3"
+
+        with (
+            patch('acestep.audio_utils.sf.write'),
+            patch('acestep.audio_utils.subprocess.run'),
+            patch('acestep.audio_utils.torchaudio.save') as mock_ta_save,
+        ):
+            saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
+            mock_ta_save.assert_not_called()
 
     def test_save_audio_opus_uses_ffmpeg_backend(self):
         """Opus format should use ffmpeg backend like MP3."""

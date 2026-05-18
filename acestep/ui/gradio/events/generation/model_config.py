@@ -135,7 +135,7 @@ def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False, is_sft: bo
             "inference_steps_minimum": 1,
             "guidance_scale_visible": True,
             "use_adg_visible": True,
-            "shift_value": 1.0,
+            "shift_value": 3.0,
             "shift_visible": True,
             "dcw_enabled_value": False,
             "cfg_interval_start_visible": True,

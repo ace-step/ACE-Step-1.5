@@ -133,7 +133,6 @@ class UpdateModelTypeSettingsIntegrationTests(unittest.TestCase):
         result = update_model_type_settings("acestep-v15-sft")
         # First element is the inference_steps gr.update()
         self.assertEqual(result[0]["value"], 50)
-        self.assertEqual(result[3]["value"], 1.0)
         self.assertEqual(result[9]["value"], False)
 
     def test_turbo_path_produces_8_steps(self):

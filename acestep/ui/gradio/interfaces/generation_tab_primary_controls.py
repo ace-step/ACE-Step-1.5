@@ -55,7 +55,7 @@ def build_hidden_generation_state() -> dict[str, Any]:
         A component map containing hidden task/instruction fields and Gradio state objects.
     """
 
-    task_type = gr.Textbox(value="text2music", visible=False, label="task_type")
+    task_type = gr.State(value="text2music")
     instruction_display_gen = gr.Textbox(
         label=t("generation.instruction_label"),
         value=DEFAULT_DIT_INSTRUCTION,

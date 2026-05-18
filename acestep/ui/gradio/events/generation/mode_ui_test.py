@@ -6,6 +6,10 @@ between modes, preventing the state-leakage noise bug.
 
 Also verifies that think_checkbox is restored to True when switching
 back to Custom/Simple modes after Remix/Repaint forced it off.
+
+Also verifies that task_type (a gr.State) is correctly set on every
+mode switch so that stale "repaint" task_type cannot leak into Custom
+mode generation and trigger the "requires source audio" error.
 """
 
 import unittest
@@ -20,12 +24,12 @@ except Exception as exc:  # pragma: no cover - environment dependency guard
     _IMPORT_ERROR = exc
 
 # Output indices for the two new state-clearing outputs
+_IDX_TASK_TYPE = 5       # Index of task_type (gr.State) in compute_mode_ui_updates return tuple
+_IDX_SRC_AUDIO_ROW = 6
 _IDX_AUDIO_CODES = 47
 _IDX_SRC_AUDIO = 48
 _IDX_FLOW_EDIT_COLUMN = 49
 _IDX_FLOW_EDIT_MORPH = 50
-_IDX_TASK_TYPE = 5
-_IDX_SRC_AUDIO_ROW = 6
 _IDX_THINK_CHECKBOX = 14
 _IDX_REMIX_STRENGTH = 17
 _IDX_COVER_NOISE = 18
@@ -237,6 +241,75 @@ class ModeUiStateClearingTests(unittest.TestCase):
         result = compute_mode_ui_updates("Custom", previous_mode="Extract")
         for idx in (_IDX_BPM, _IDX_KEY, _IDX_TIMESIG, _IDX_VOCAL_LANG, _IDX_DURATION):
             self.assertFalse(result[idx].get("interactive"))
+
+
+@unittest.skipIf(compute_mode_ui_updates is None,
+                 f"compute_mode_ui_updates import unavailable: {_IMPORT_ERROR}")
+class ModeUiTaskTypeTests(unittest.TestCase):
+    """Regression tests for task_type (gr.State) being correctly set on mode switches.
+
+    These tests guard against the bug where switching from Repaint back to Custom
+    mode left a stale ``task_type="repaint"`` value that caused the backend to raise
+    "Task 'repaint' requires source audio, but none was provided."
+
+    Because ``task_type`` is now a ``gr.State`` (not a hidden ``gr.Textbox``), the
+    mode switch handler must return the raw string value directly rather than a
+    ``gr.update()`` dict.  These tests confirm the returned value is a plain ``str``.
+    """
+
+    def test_repaint_to_custom_resets_task_type_to_text2music(self):
+        """Switching Repaint → Custom must reset task_type to 'text2music'.
+
+        This is the primary regression test for the bug described in the issue:
+        going from Repaint back to Custom left task_type='repaint' in the UI
+        state, causing generation to fail with "requires source audio".
+        """
+        result = compute_mode_ui_updates("Custom", previous_mode="Repaint")
+        task_type_value = result[_IDX_TASK_TYPE]
+        self.assertEqual(task_type_value, "text2music",
+                         "task_type must be reset to 'text2music' when switching to Custom mode")
+        self.assertIsInstance(task_type_value, str,
+                              "task_type output must be a raw string (gr.State), not a gr.update() dict")
+
+    def test_custom_mode_task_type_is_text2music(self):
+        """Custom mode sets task_type to 'text2music'."""
+        result = compute_mode_ui_updates("Custom")
+        self.assertEqual(result[_IDX_TASK_TYPE], "text2music")
+
+    def test_repaint_mode_task_type_is_repaint(self):
+        """Repaint mode sets task_type to 'repaint'."""
+        result = compute_mode_ui_updates("Repaint", previous_mode="Custom")
+        self.assertEqual(result[_IDX_TASK_TYPE], "repaint")
+
+    def test_remix_mode_task_type_is_cover(self):
+        """Remix mode sets task_type to 'cover'."""
+        result = compute_mode_ui_updates("Remix", previous_mode="Custom")
+        self.assertEqual(result[_IDX_TASK_TYPE], "cover")
+
+    def test_simple_mode_task_type_is_text2music(self):
+        """Simple mode sets task_type to 'text2music'."""
+        result = compute_mode_ui_updates("Simple", previous_mode="Custom")
+        self.assertEqual(result[_IDX_TASK_TYPE], "text2music")
+
+    def test_task_type_output_is_plain_string_not_dict(self):
+        """task_type output must be a raw string, not a gr.update() dict.
+
+        Using gr.State requires returning the raw value, not a gr.update() wrapper.
+        Returning a gr.update() dict for a gr.State could cause Gradio to fail to
+        update the state value, leaving stale values from previous modes.
+        """
+        for mode in ("Custom", "Repaint", "Remix", "Simple"):
+            with self.subTest(mode=mode):
+                result = compute_mode_ui_updates(mode)
+                task_type_value = result[_IDX_TASK_TYPE]
+                self.assertIsInstance(
+                    task_type_value, str,
+                    f"task_type for mode '{mode}' must be a plain string, got {type(task_type_value)}"
+                )
+                self.assertNotIsInstance(
+                    task_type_value, dict,
+                    f"task_type for mode '{mode}' must not be a gr.update() dict"
+                )
 
 
 if __name__ == "__main__":

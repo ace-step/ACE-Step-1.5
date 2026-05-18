@@ -177,7 +177,7 @@ def get_model_type_ui_settings(is_turbo: bool, current_mode: str | None = None, 
         gr.update(value=cfg["shift_value"], visible=cfg["shift_visible"]),
         gr.update(visible=cfg["cfg_interval_start_visible"]),
         gr.update(visible=cfg["cfg_interval_end_visible"]),
-        gr.update(),  # task_type
+        gr.skip(),  # task_type (gr.State — no-op on model config change)
         mode_update,
         init_llm_update,
         gr.update(value=cfg["dcw_enabled_value"]),

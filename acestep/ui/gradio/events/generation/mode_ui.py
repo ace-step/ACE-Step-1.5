@@ -14,7 +14,7 @@ from .mode_ui_helpers import (
 
 
 def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "Custom"):
-    """Return the 44-output mode-switch update tuple for generation UI."""
+    """Return the 46-output mode-switch update tuple for generation UI."""
     task_type = MODE_TO_TASK_TYPE.get(mode, "text2music")
 
     is_simple = (mode == "Simple")
@@ -150,7 +150,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         generate_btn_update,                               # 2: generate_btn
         False,                                             # 3: simple_sample_created
         gr.update(visible=show_optional, open=False),       # 4: optional_params_accordion
-        gr.update(value=task_type, elem_classes=["has-info-container"]),  # 5: task_type
+        task_type,                                         # 5: task_type (gr.State — raw value)
         gr.update(visible=show_src_audio),                 # 6: src_audio_row
         gr.update(visible=show_repainting),                # 7: repainting_group
         gr.update(visible=show_audio_codes),               # 8: text2music_audio_codes_group

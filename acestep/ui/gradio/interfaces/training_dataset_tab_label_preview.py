@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import gradio as gr
 
-from acestep.ui.gradio.direction_utils import auto_heading_id, auto_textbox_id # noqa: F401 – used once placeholders are i18n-ified 
+from acestep.ui.gradio.direction_utils import auto_heading_id, auto_textbox_id  # noqa: F401 - used once Textbox placeholders are i18n-ified 
 from acestep.ui.gradio.i18n import t
 
 

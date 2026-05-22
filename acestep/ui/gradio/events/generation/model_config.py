@@ -50,9 +50,9 @@ def update_model_type_settings(config_path: str | None, current_mode: str | None
         current_mode: Current generation mode value to preserve across choices update.
 
     Returns:
-        Nine-element tuple of ``gr.update()`` dicts for inference_steps,
+        Ten-element tuple of ``gr.update()`` dicts for inference_steps,
         guidance_scale, use_adg, shift, cfg_interval_start, cfg_interval_end,
-        task_type, generation_mode, and init_llm_checkbox.
+        task_type, generation_mode, init_llm_checkbox, and dcw_enabled.
     """
     if config_path is None:
         config_path = ""
@@ -120,14 +120,14 @@ def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False, is_sft: bo
             "use_adg_visible": False,
             "shift_value": 3.0,
             "shift_visible": True,
+            "dcw_enabled_value": True,
             "cfg_interval_start_visible": False,
             "cfg_interval_end_visible": False,
             "task_type_choices": task_choices,
             "generation_mode_choices": mode_choices,
         }
     else:
-        # SFT models are optimized for 50 steps per training defaults;
-        # pure base / unknown models fall back to 32 steps.
+        # SFT models use 50 steps; pure base / unknown models use 32.
         steps = 50 if is_sft else 32
         return {
             "inference_steps_value": steps,
@@ -137,6 +137,7 @@ def get_ui_control_config(is_turbo: bool, is_pure_base: bool = False, is_sft: bo
             "use_adg_visible": True,
             "shift_value": 3.0,
             "shift_visible": True,
+            "dcw_enabled_value": False,
             "cfg_interval_start_visible": True,
             "cfg_interval_end_visible": True,
             "task_type_choices": task_choices,
@@ -156,7 +157,7 @@ def get_model_type_ui_settings(is_turbo: bool, current_mode: str | None = None, 
     Returns:
         Tuple of updates for inference_steps, guidance_scale, use_adg,
         shift, cfg_interval_start, cfg_interval_end, task_type,
-        generation_mode, init_llm_checkbox.
+        generation_mode, init_llm_checkbox, and dcw_enabled.
     """
     cfg = get_ui_control_config(is_turbo, is_pure_base=is_pure_base, is_sft=is_sft)
     new_choices = cfg["generation_mode_choices"]
@@ -176,9 +177,10 @@ def get_model_type_ui_settings(is_turbo: bool, current_mode: str | None = None, 
         gr.update(value=cfg["shift_value"], visible=cfg["shift_visible"]),
         gr.update(visible=cfg["cfg_interval_start_visible"]),
         gr.update(visible=cfg["cfg_interval_end_visible"]),
-        gr.update(),  # task_type
+        gr.skip(),  # task_type (gr.State — no-op on model config change)
         mode_update,
         init_llm_update,
+        gr.update(value=cfg["dcw_enabled_value"]),
     )
 
 

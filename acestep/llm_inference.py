@@ -75,6 +75,8 @@ class LLMHandler:
 
         # Shared HuggingFace model for perplexity calculation
         self._hf_model_for_scoring = None
+        self._lm_full_model_path = None
+        self._last_initialize_config = None
 
         # MLX model reference (used when llm_backend == "mlx")
         self._mlx_model = None
@@ -588,6 +590,15 @@ class LLMHandler:
             full_lm_model_path = os.path.join(checkpoint_dir, lm_model_path)
             if not os.path.exists(full_lm_model_path):
                 return f"❌ 5Hz LM model not found at {full_lm_model_path}", False
+            self._lm_full_model_path = full_lm_model_path
+            self._last_initialize_config = {
+                "checkpoint_dir": checkpoint_dir,
+                "lm_model_path": lm_model_path,
+                "backend": backend,
+                "device": device,
+                "offload_to_cpu": offload_to_cpu,
+                "dtype": self.dtype,
+            }
 
             # Proactive CUDA cleanup before LM load to reduce fragmentation on mode/model switch
             if device == "cuda" and torch.cuda.is_available():
@@ -4164,9 +4175,16 @@ class LLMHandler:
             if self._hf_model_for_scoring is None:
                 logger.info("Loading HuggingFace model for scoring (from checkpoint)")
 
-                # Get model path from vllm config
-                model_runner = self.llm.model_runner
-                model_path = model_runner.config.model
+                # Get model path from vllm config.  During PMI scoring the
+                # interactive vLLM runtime may be temporarily unloaded to free
+                # VRAM, so fall back to the saved initialization path.
+                model_runner = getattr(self.llm, "model_runner", None)
+                if model_runner is not None:
+                    model_path = model_runner.config.model
+                else:
+                    model_path = self._lm_full_model_path
+                if model_path is None:
+                    raise ValueError("vLLM model path is not available for scoring.")
 
                 # Load HuggingFace model from the same checkpoint
                 # This will load the original unfused weights
@@ -4188,7 +4206,10 @@ class LLMHandler:
                     self._hf_model_for_scoring.eval()
                     logger.info("HuggingFace model for scoring kept on CPU (offload_to_cpu=True)")
                 else:
-                    device = next(model_runner.model.parameters()).device
+                    if model_runner is not None:
+                        device = next(model_runner.model.parameters()).device
+                    else:
+                        device = self.device
                     self._hf_model_for_scoring = self._hf_model_for_scoring.to(device)
                     self._hf_model_for_scoring.eval()
                     logger.info(f"HuggingFace model for scoring ready on {device}")

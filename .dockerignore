@@ -51,13 +51,17 @@ Thumbs.db
 # Large docs / assets not needed at runtime
 docs/pics/
 
-# UV lock file (deps are installed explicitly in Dockerfile)
-uv.lock
+# Test / generated output
+output/
 
-# Windows scripts (not needed on Jetson ARM64)
+# UV lock file needed by Jetson Dockerfile (which installs deps manually),
+# but the generic Dockerfile uses `uv sync --frozen` and REQUIRES it.
+# Do NOT add uv.lock here.
+
+# Windows scripts
 *.bat
 *.ps1
 
-# nano-vllm build artifacts (not used on Jetson)
+# nano-vllm build artifacts
 acestep/third_parts/nano-vllm/build/
 acestep/third_parts/nano-vllm/nano_vllm.egg-info/

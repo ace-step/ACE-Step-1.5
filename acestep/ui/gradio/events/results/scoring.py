@@ -6,8 +6,21 @@ scores on generated audio samples.
 import traceback
 
 import gradio as gr
+import torch
+from loguru import logger
 
 from acestep.ui.gradio.i18n import t
+from acestep.ui.gradio.events.results.session_artifacts import (
+    artifact_to_alignment_tensors,
+    load_batch_sample_session_tensors,
+)
+
+
+_PMI_MIN_FREE_GB_BY_MODEL_SIZE = {
+    "0.6B": 8.0,
+    "1.7B": 16.0,
+    "4B": 32.0,
+}
 
 
 def calculate_score_handler(
@@ -65,6 +78,7 @@ def calculate_score_handler(
         scores_per_condition = {}
         global_score = 0.0
         alignment_report = ""
+        pmi_skip_report = ""
 
         # PMI-based scoring (requires audio codes and LLM)
         if has_audio_codes:
@@ -72,38 +86,31 @@ def calculate_score_handler(
                 if not has_dit_alignment_data:
                     return t("messages.lm_not_initialized")
             else:
-                metadata = {}
-                if lm_metadata and isinstance(lm_metadata, dict):
-                    metadata.update(lm_metadata)
-                if bpm is not None and 'bpm' not in metadata:
-                    try:
-                        metadata['bpm'] = int(bpm)
-                    except Exception:
-                        pass
-                if caption and 'caption' not in metadata:
-                    metadata['caption'] = caption
-                if audio_duration is not None and audio_duration > 0 and 'duration' not in metadata:
-                    try:
-                        metadata['duration'] = int(audio_duration)
-                    except Exception:
-                        pass
-                if key_scale and key_scale.strip() and 'keyscale' not in metadata:
-                    metadata['keyscale'] = key_scale.strip()
-                if vocal_language and vocal_language.strip() and 'language' not in metadata:
-                    metadata['language'] = vocal_language.strip()
-                if time_signature and time_signature.strip() and 'timesignature' not in metadata:
-                    metadata['timesignature'] = time_signature.strip()
-
-                scores_per_condition, global_score, _status = calculate_pmi_score_per_condition(
-                    llm_handler=llm_handler,
-                    audio_codes=audio_codes_str,
-                    caption=caption or "",
-                    lyrics=lyrics or "",
-                    metadata=metadata if metadata else None,
-                    temperature=1.0,
-                    topk=10,
-                    score_scale=score_scale,
-                )
+                pmi_skip_reason = _pmi_vram_skip_reason(llm_handler)
+                if pmi_skip_reason:
+                    pmi_skip_report = f"\n⚠️ PMI Score Skipped: {pmi_skip_reason}"
+                else:
+                    metadata = _build_score_metadata(
+                        lm_metadata=lm_metadata,
+                        bpm=bpm,
+                        caption=caption,
+                        audio_duration=audio_duration,
+                        key_scale=key_scale,
+                        vocal_language=vocal_language,
+                        time_signature=time_signature,
+                    )
+                    scores_per_condition, global_score, pmi_status = calculate_pmi_score_per_condition(
+                        llm_handler=llm_handler,
+                        audio_codes=audio_codes_str,
+                        caption=caption or "",
+                        lyrics=lyrics or "",
+                        metadata=metadata,
+                        temperature=1.0,
+                        topk=10,
+                        score_scale=score_scale,
+                    )
+                    if pmi_status and pmi_status.startswith("❌"):
+                        pmi_skip_report = f"\n⚠️ PMI Score Failed: {pmi_status}"
 
         # DiT alignment scoring
         if has_dit_alignment_data:
@@ -133,9 +140,11 @@ def calculate_score_handler(
 
         # Format display string
         if has_audio_codes and llm_handler.llm_initialized:
-            if global_score == 0.0 and not scores_per_condition:
+            if not scores_per_condition:
                 if alignment_report and not alignment_report.startswith("\n⚠️"):
-                    return "📊 DiT Alignment Scores (LM codes not available):\n" + alignment_report
+                    return "📊 DiT Alignment Scores (PMI unavailable):\n" + alignment_report + pmi_skip_report
+                if pmi_skip_report:
+                    return pmi_skip_report.strip()
                 return t("messages.score_failed", error="PMI scoring returned no results")
 
             condition_lines = [
@@ -149,6 +158,8 @@ def calculate_score_handler(
             )
             if alignment_report:
                 final_output += alignment_report + "\n"
+            if pmi_skip_report:
+                final_output += pmi_skip_report + "\n"
             final_output += "Note: Metadata uses Top-k Recall, Caption/Lyrics use PMI"
             return final_output
         else:
@@ -160,6 +171,98 @@ def calculate_score_handler(
 
     except Exception as e:
         return t("messages.score_error", error=str(e)) + f"\n{traceback.format_exc()}"
+
+
+def _build_score_metadata(
+    lm_metadata,
+    bpm,
+    caption,
+    audio_duration,
+    key_scale,
+    vocal_language,
+    time_signature,
+):
+    """Build the metadata payload used by PMI score calculation."""
+    metadata = {}
+    if lm_metadata and isinstance(lm_metadata, dict):
+        metadata.update(lm_metadata)
+    if bpm is not None and "bpm" not in metadata:
+        try:
+            metadata["bpm"] = int(bpm)
+        except (TypeError, ValueError):
+            pass
+    if caption and "caption" not in metadata:
+        metadata["caption"] = caption
+    if audio_duration is not None and "duration" not in metadata:
+        try:
+            duration = float(audio_duration)
+            if duration > 0:
+                metadata["duration"] = int(duration)
+        except (TypeError, ValueError):
+            pass
+    if key_scale and key_scale.strip() and "keyscale" not in metadata:
+        metadata["keyscale"] = key_scale.strip()
+    if vocal_language and vocal_language.strip() and "language" not in metadata:
+        metadata["language"] = vocal_language.strip()
+    if time_signature and time_signature.strip() and "timesignature" not in metadata:
+        metadata["timesignature"] = time_signature.strip()
+    return metadata
+
+
+def _pmi_vram_skip_reason(llm_handler) -> str | None:
+    """Return a user-facing reason to skip PMI when free VRAM is too low."""
+    backend = getattr(llm_handler, "llm_backend", "pt")
+    if backend not in ("vllm", "mlx"):
+        return None
+    if backend == "vllm" and getattr(llm_handler, "_last_initialize_config", None):
+        return None
+    if not torch.cuda.is_available():
+        return None
+    try:
+        free_bytes, _total_bytes = torch.cuda.mem_get_info()
+    except (RuntimeError, AttributeError):
+        return None
+
+    free_gb = free_bytes / (1024 ** 3)
+    required_gb = _estimate_pmi_min_free_gb(llm_handler)
+    if free_gb >= required_gb:
+        return None
+    reason = (
+        f"only {free_gb:.1f}GB free VRAM is available, but PMI scoring with "
+        f"the {backend} backend may need about {required_gb:.0f}GB free. "
+        "Using DiT alignment score when available."
+    )
+    logger.warning("[score] Skipping PMI score: {}", reason)
+    return reason
+
+
+def _estimate_pmi_min_free_gb(llm_handler) -> float:
+    """Estimate free VRAM needed before loading the auxiliary HF scorer."""
+    model_path = _llm_model_path_for_score(llm_handler)
+    model_size = _lm_model_size_label(model_path)
+    return _PMI_MIN_FREE_GB_BY_MODEL_SIZE.get(model_size, 16.0)
+
+
+def _llm_model_path_for_score(llm_handler) -> str:
+    """Best-effort model path lookup for the active LLM backend."""
+    if getattr(llm_handler, "llm_backend", None) == "vllm":
+        try:
+            return str(llm_handler.llm.model_runner.config.model)
+        except AttributeError:
+            return ""
+    return str(getattr(llm_handler, "_mlx_model_path", "") or "")
+
+
+def _lm_model_size_label(model_path: str) -> str:
+    """Return a coarse LM size label from a checkpoint path."""
+    lowered = model_path.lower()
+    if "0.6b" in lowered:
+        return "0.6B"
+    if "1.7b" in lowered:
+        return "1.7B"
+    if "4b" in lowered:
+        return "4B"
+    return ""
 
 
 def calculate_score_handler_with_selection(
@@ -232,8 +335,15 @@ def calculate_score_handler_with_selection(
                     if any(v is None for v in extra_tensor_data.values()):
                         extra_tensor_data = None
                 except Exception as e:
-                    print(f"Error slicing tensor data for score: {e}")
+                    logger.warning(
+                        "[score] Failed to slice in-memory tensor data for sample {}: {}",
+                        sample_idx,
+                        e,
+                    )
                     extra_tensor_data = None
+    if extra_tensor_data is None and dit_handler:
+        artifact = load_batch_sample_session_tensors(batch_data, sample_idx)
+        extra_tensor_data = artifact_to_alignment_tensors(artifact)
 
     score_display = calculate_score_handler(
         llm_handler, audio_codes_str, caption, lyrics, lm_metadata,

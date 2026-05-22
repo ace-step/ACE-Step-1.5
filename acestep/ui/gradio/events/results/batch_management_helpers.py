@@ -37,6 +37,7 @@ def _build_saved_params(
     enable_normalization, normalization_db, fade_in_duration, fade_out_duration,
     latent_shift, latent_rescale,
     repaint_mode="balanced", repaint_strength=0.5,
+    retake_variance=0.0, retake_seed="",
 ):
     """Build the parameter snapshot dict stored in batch history."""
     return {
@@ -84,6 +85,7 @@ def _build_saved_params(
         "fade_out_duration": fade_out_duration,
         "latent_shift": latent_shift, "latent_rescale": latent_rescale,
         "repaint_mode": repaint_mode, "repaint_strength": repaint_strength,
+        "retake_variance": retake_variance, "retake_seed": retake_seed,
     }
 
 
@@ -148,6 +150,7 @@ def _apply_param_defaults(params):
         "fade_in_duration": 0.0, "fade_out_duration": 0.0,
         "latent_shift": 0.0, "latent_rescale": 1.0,
         "repaint_mode": "balanced", "repaint_strength": 0.5,
+        "retake_variance": 0.0, "retake_seed": "",
     }
     for key, value in defaults.items():
         params.setdefault(key, value)

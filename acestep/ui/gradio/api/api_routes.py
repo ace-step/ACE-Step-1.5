@@ -587,8 +587,8 @@ async def release_task(request: Request, authorization: Optional[str] = Header(N
 
 
 # Origins that are expected to call the API:
-#  - "null"                     → studio.html opened via file:// protocol
-#  - http://localhost:*         → local dev servers / Gradio UI
+#  - "null"                    → local files opened via file:// protocol
+#  - http://localhost:*        → local dev servers / Gradio UI
 #  - http://127.0.0.1:*        → same, numeric form
 _CORS_KWARGS = dict(
     allow_origins=["null", "http://localhost", "http://127.0.0.1"],
@@ -599,7 +599,7 @@ _CORS_KWARGS = dict(
 
 
 def _add_cors_middleware(app):
-    """Add CORS middleware so browser-based frontends (e.g. studio.html via file://) can call the API."""
+    """Add CORS middleware so browser-based local frontends can call the API."""
     app.add_middleware(CORSMiddleware, **_CORS_KWARGS)
 
 
@@ -651,4 +651,3 @@ def setup_api_routes(demo, dit_handler, llm_handler, api_key: Optional[str] = No
     app.state.dit_handler = dit_handler
     app.state.llm_handler = llm_handler
     app.include_router(router)
-

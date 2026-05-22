@@ -85,6 +85,8 @@ class ServiceGenerateExecuteMixin:
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
         dcw_wavelet: str = "haar",
+        retake_seed: Any = None,
+        retake_variance: float = 0.0,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         repaint_mask = payload.get("repaint_mask")
@@ -126,6 +128,8 @@ class ServiceGenerateExecuteMixin:
             "dcw_scaler": dcw_scaler,
             "dcw_high_scaler": dcw_high_scaler,
             "dcw_wavelet": dcw_wavelet,
+            "retake_seed": retake_seed,
+            "retake_variance": retake_variance,
         }
         if timesteps is not None:
             kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32, device=self.device)
@@ -139,8 +143,18 @@ class ServiceGenerateExecuteMixin:
         infer_method: str,
         shift: float,
         audio_cover_strength: float,
+        retake_seed: Any = None,
+        retake_variance: float = 0.0,
+        flow_edit_ctx: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], torch.Tensor, torch.Tensor, torch.Tensor]:
         """Execute condition preparation and diffusion using MLX or PyTorch backend."""
+        if flow_edit_ctx is not None and flow_edit_ctx.get("morph"):
+            from .service_generate_flow_edit import dispatch_flow_edit_overlay
+
+            return dispatch_flow_edit_overlay(
+                self, payload=payload, generate_kwargs=generate_kwargs,
+                seed_param=seed_param, flow_edit_ctx=flow_edit_ctx,
+            )
         dit_backend = (
             "MLX (native)" if (self.use_mlx_dit and self.mlx_decoder is not None) else f"PyTorch ({self.device})"
         )
@@ -229,6 +243,12 @@ class ServiceGenerateExecuteMixin:
                             dcw_scaler=generate_kwargs.get("dcw_scaler", 0.05),
                             dcw_high_scaler=generate_kwargs.get("dcw_high_scaler", 0.02),
                             dcw_wavelet=generate_kwargs.get("dcw_wavelet", "haar"),
+                            retake_seed=retake_seed,
+                            retake_variance=retake_variance,
+                            repaint_mask=generate_kwargs.get("repaint_mask"),
+                            clean_src_latents=generate_kwargs.get("clean_src_latents"),
+                            repaint_crossfade_frames=generate_kwargs.get("repaint_crossfade_frames", 10),
+                            repaint_injection_ratio=generate_kwargs.get("repaint_injection_ratio", 0.5),
                         )
                         _tc = outputs.get("time_costs", {})
                         logger.info(

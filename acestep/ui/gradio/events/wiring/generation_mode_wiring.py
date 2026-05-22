@@ -10,6 +10,7 @@ import gradio as gr
 
 from .. import generation_handlers as gen_h
 from .context import GenerationWiringContext
+from acestep.constants import MODE_TO_TASK_TYPE
 
 
 def _on_repaint_mode_change(mode, current_strength, memory):
@@ -44,6 +45,7 @@ def register_generation_mode_handlers(
 
     generation_section = context.generation_section
     results_section = context.results_section
+    dit_handler = context.dit_handler
     llm_handler = context.llm_handler
 
     # Shared handler for mode-change and initial page load — extracted to
@@ -173,6 +175,17 @@ def register_generation_mode_handlers(
         fn=gen_h.uncheck_auto_for_populated_fields,
         inputs=list(auto_checkbox_inputs),
         outputs=list(auto_checkbox_outputs),
+    ).then(
+        # After creating a sample the generation_mode is set to "Custom"
+        # (task_type="text2music"). If task_type was already "text2music" the
+        # task_type.change event does not fire, leaving instruction_display_gen
+        # stale (e.g. the LM instruction from a previous Remix session). Force
+        # it to the correct DiT text2music instruction unconditionally.
+        fn=lambda: gen_h.update_instruction_ui(
+            dit_handler, MODE_TO_TASK_TYPE["Custom"], None, [], False, None
+        ),
+        inputs=[],
+        outputs=[generation_section["instruction_display_gen"]],
     )
 
     generation_section["repaint_mode"].change(

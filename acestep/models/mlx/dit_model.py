@@ -83,6 +83,14 @@ class MLXRotaryEmbedding(nn.Module):
         sin = self._sin[:seq_len][None, None, :, :]
         return cos, sin
 
+    def materialize_static_buffers(self) -> None:
+        """Materialize cached RoPE tables on the current MLX stream.
+
+        The tables are not MLX module parameters, so parameter-only evaluation
+        does not force them before Gradio worker threads reuse the decoder.
+        """
+        mx.eval(self._cos, self._sin)
+
 
 # ---------------------------------------------------------------------------
 # Cross-Attention KV Cache
@@ -506,16 +514,24 @@ class MLXDiTDecoder(nn.Module):
         self.scale_shift_table = mx.zeros((1, 2, inner_dim))
 
         # Pre-compute sliding window mask (will be set on first forward)
-        self._sliding_masks: dict[int, mx.array] = {}
+        self._sliding_masks: dict[tuple[int, str], mx.array] = {}
         self._sliding_window = sliding_window
         self._layer_types = layer_types
 
+    def materialize_static_buffers(self) -> None:
+        """Materialize non-parameter MLX buffers before cross-thread use."""
+        self.rotary_emb.materialize_static_buffers()
+
     def _get_sliding_mask(self, seq_len: int, dtype: mx.Dtype) -> mx.array:
-        if seq_len not in self._sliding_masks:
-            self._sliding_masks[seq_len] = _create_sliding_window_mask(
+        """Return a materialized sliding-window mask for the requested sequence length."""
+        key = (seq_len, str(dtype))
+        if key not in self._sliding_masks:
+            mask = _create_sliding_window_mask(
                 seq_len, self._sliding_window, dtype
             )
-        return self._sliding_masks[seq_len]
+            mx.eval(mask)
+            self._sliding_masks[key] = mask
+        return self._sliding_masks[key]
 
     def __call__(
         self,

@@ -1,0 +1,76 @@
+# =============================================================================
+# ACE-Step 1.5 — Docker Compose (generic CUDA)
+# =============================================================================
+#
+# Usage:
+#   docker compose up              # Start Gradio UI (default)
+#   docker compose up --build      # Build and start
+#   docker compose up -d           # Run in background
+#   docker compose down            # Stop
+#   docker compose logs -f         # View logs
+#
+#   # Start REST API server instead:
+#   ACESTEP_MODE=api docker compose up
+#
+# =============================================================================
+
+services:
+  acestep:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/ace-step/ace-step-1.5:latest
+    container_name: acestep
+
+    # ---- GPU access ----
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # ---- Environment ----
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - ACESTEP_MODE=${ACESTEP_MODE:-gradio}
+      - ACESTEP_LLM_BACKEND=${ACESTEP_LLM_BACKEND:-pt}
+      - ACESTEP_INIT_SERVICE=${ACESTEP_INIT_SERVICE:-true}
+      - ACESTEP_CONFIG_PATH=${ACESTEP_CONFIG_PATH:-acestep-v15-turbo}
+      - ACESTEP_LM_MODEL_PATH=${ACESTEP_LM_MODEL_PATH:-acestep-5Hz-lm-4B}
+      - ACESTEP_EXTRA_ARGS=${ACESTEP_EXTRA_ARGS:-}
+      - TOKENIZERS_PARALLELISM=false
+
+    # ---- Ports ----
+    ports:
+      - "${GRADIO_PORT:-7860}:7860"
+      - "${API_PORT:-8001}:8001"
+
+    # ---- Persistent volumes ----
+    volumes:
+      - ./checkpoints:/app/checkpoints
+      - hf_cache:/root/.cache/huggingface
+      - ./gradio_outputs:/app/gradio_outputs
+      - ./output:/app/output
+
+    # ---- Shared memory for PyTorch DataLoader ----
+    shm_size: "2gb"
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: >-
+        curl -sf http://localhost:7860/ > /dev/null 2>&1 ||
+        curl -sf http://localhost:8001/health > /dev/null 2>&1 ||
+        exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 300s
+      retries: 3
+
+volumes:
+  hf_cache:

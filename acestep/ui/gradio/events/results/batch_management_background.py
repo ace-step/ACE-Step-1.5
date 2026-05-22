@@ -124,6 +124,8 @@ def generate_next_batch_background(
             latent_rescale=params.get("latent_rescale", 1.0),
             repaint_mode=params.get("repaint_mode", "balanced"),
             repaint_strength=params.get("repaint_strength", 0.5),
+            retake_variance=params.get("retake_variance", 0.0),
+            retake_seed=params.get("retake_seed", ""),
             progress=progress,
         )
 

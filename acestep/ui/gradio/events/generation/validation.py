@@ -123,13 +123,15 @@ def validate_uploaded_audio_file(audio_value: Any, audio_role: str = "reference"
         soundfile.info(audio_path)
         return gr.skip()
     except (OSError, RuntimeError, ValueError):
-        role_label = (
-            t("generation.reference_audio")
-            if audio_role == "reference"
-            else t("generation.source_audio")
-        )
-        gr.Warning(t("messages.audio_format_invalid", role=role_label))
-        return gr.update(value=None)
+        # ``soundfile`` (libsndfile) has spotty mp3 support and refuses
+        # files torchaudio / process_src_audio handle fine.  Issuing a
+        # silent ``gr.update(value=None)`` here previously cleared the
+        # user's upload while leaving the waveform visible (cached by
+        # the player) — the user clicked Generate and got
+        # "src_audio=None" with no obvious cause.  Preserve the value;
+        # the backend's own decode path will surface a clearer error
+        # if the file is genuinely unreadable.
+        return gr.skip()
 
 
 def _contains_audio_code_tokens(codes_string: str) -> bool:

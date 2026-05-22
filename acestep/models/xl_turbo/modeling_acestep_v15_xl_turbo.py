@@ -1838,7 +1838,29 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             t = t.unsqueeze(-1).unsqueeze(-1)
         xt = t * noise + (1 - t) * x
         return xt
-    
+
+    def flowedit_generate_audio(self, **kwargs):
+        """Flow-edit overlay (#1156) on the CFG-distilled XL-turbo variant.
+
+        Force ``diffusion_guidance_scale=1.0`` because XL-turbo bakes
+        CFG into the velocity head — paired-CFG would amplify a delta
+        the model wasn't trained to produce.  Otherwise delegate to
+        the shared pipeline.
+        """
+        from acestep.models.common.flow_edit_pipeline import (
+            flowedit_generate_audio as _flowedit_impl,
+        )
+
+        gs = kwargs.get("diffusion_guidance_scale", 1.0)
+        if gs != 1.0:
+            from loguru import logger
+            logger.info(
+                "[xl-turbo flowedit] xl-turbo is CFG-distilled; forcing "
+                "diffusion_guidance_scale=1.0 (was {:.2f}).", gs,
+            )
+            kwargs["diffusion_guidance_scale"] = 1.0
+        return _flowedit_impl(self, **kwargs)
+
     def generate_audio(
         self,
         text_hidden_states: torch.FloatTensor,
@@ -1853,6 +1875,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         silence_latent: Optional[torch.FloatTensor] = None,
         attention_mask: torch.Tensor = None,
         seed: int = None,
+        retake_seed: Optional[Union[int, List[int]]] = None,
+        retake_variance: float = 0.0,
         fix_nfe: int = 8,
         infer_steps: Optional[int] = None,
         infer_method: str = "ode",
@@ -2025,6 +2049,12 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         start_time = end_time
         
         noise = self.prepare_noise(context_latents, seed)
+        # Retake mixing: variance-preserving blend with an independent noise draw.
+        # v=0 -> noise unchanged; v=1 -> equivalent to using retake_seed as the main seed.
+        if retake_variance > 0.0:
+            retake_noise = self.prepare_noise(context_latents, retake_seed)
+            v_rad = retake_variance * (math.pi / 2.0)
+            noise = math.cos(v_rad) * noise + math.sin(v_rad) * retake_noise
         bsz, device, dtype = context_latents.shape[0], context_latents.device, context_latents.dtype
         past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
         

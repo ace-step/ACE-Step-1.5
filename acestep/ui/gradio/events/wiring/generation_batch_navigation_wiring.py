@@ -167,6 +167,8 @@ def _build_capture_current_params_inputs(generation_section: dict[str, Any]) -> 
         generation_section["latent_rescale"],
         generation_section["repaint_mode"],
         generation_section["repaint_strength"],
+        generation_section["retake_variance"],
+        generation_section["retake_seed"],
     ]
 
 

@@ -155,8 +155,8 @@ class StoreBatchInQueueTests(unittest.TestCase):
         self.assertFalse(offloaded.is_cuda, "Tensor should have been moved to CPU")
         self.assertEqual(offloaded.device.type, "cpu")
 
-    def test_store_offloads_only_previous_batch_cuda_tensors(self):
-        """Only the immediately preceding batch's CUDA tensors should be offloaded."""
+    def test_store_keeps_previous_batch_and_clears_older_tensors(self):
+        """Only the previous batch keeps tensors; older batches are cleared."""
         import torch
         tensor_a = torch.ones(1)
         tensor_b = torch.ones(2)
@@ -171,8 +171,7 @@ class StoreBatchInQueueTests(unittest.TestCase):
             generation_info="info",
             seeds="7",
         )
-        # Both batch 0 and batch 1 should still have their tensors (CPU tensors are untouched)
-        self.assertIn("pred_latents", queue[0]["extra_outputs"])
+        self.assertNotIn("pred_latents", queue[0]["extra_outputs"])
         self.assertIn("pred_latents", queue[1]["extra_outputs"])
 
     def test_store_first_batch_no_prev_cleanup(self):

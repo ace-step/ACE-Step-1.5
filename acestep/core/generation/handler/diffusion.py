@@ -34,6 +34,8 @@ class DiffusionMixin:
         encoder_hidden_states_non_cover=None,
         encoder_attention_mask_non_cover=None,
         context_latents_non_cover=None,
+        retake_seed: Optional[object] = None,
+        retake_variance: float = 0.0,
         disable_tqdm: bool = False,
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
@@ -43,6 +45,10 @@ class DiffusionMixin:
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
         dcw_wavelet: str = "haar",
+        repaint_mask: Optional[torch.Tensor] = None,
+        clean_src_latents: Optional[torch.Tensor] = None,
+        repaint_crossfade_frames: int = 10,
+        repaint_injection_ratio: float = 0.5,
     ) -> Dict[str, Any]:
         """Run the MLX diffusion loop and return generated latents.
 
@@ -125,6 +131,15 @@ class DiffusionMixin:
             if context_latents_non_cover is not None else None
         )
 
+        repaint_mask_np = (
+            repaint_mask.detach().cpu().numpy().astype(bool)
+            if repaint_mask is not None else None
+        )
+        clean_src_np = (
+            clean_src_latents.detach().cpu().float().numpy()
+            if clean_src_latents is not None else None
+        )
+
         null_cond_np = (
             null_condition_emb.detach().cpu().float().numpy()
             if null_condition_emb is not None else None
@@ -154,6 +169,8 @@ class DiffusionMixin:
             audio_cover_strength=audio_cover_strength,
             encoder_hidden_states_non_cover_np=enc_nc_np,
             context_latents_non_cover_np=ctx_nc_np,
+            retake_seed=retake_seed,
+            retake_variance=retake_variance,
             compile_model=getattr(self, "mlx_dit_compiled", False),
             disable_tqdm=disable_tqdm,
             sampler_mode=sampler_mode,
@@ -164,6 +181,10 @@ class DiffusionMixin:
             dcw_scaler=dcw_scaler,
             dcw_high_scaler=dcw_high_scaler,
             dcw_wavelet=dcw_wavelet,
+            repaint_mask_np=repaint_mask_np,
+            clean_src_latents_np=clean_src_np,
+            repaint_crossfade_frames=repaint_crossfade_frames,
+            repaint_injection_ratio=repaint_injection_ratio,
         )
 
         target_np = result["target_latents"]

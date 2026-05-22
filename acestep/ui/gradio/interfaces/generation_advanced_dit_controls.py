@@ -81,7 +81,7 @@ def build_dit_controls(ui_config: dict[str, Any], think_enabled: bool = False) -
             with gr.Row():
                 dcw_enabled = gr.Checkbox(
                     label=t("generation.dcw_enabled_label"),
-                    value=True,
+                    value=ui_config.get("dcw_enabled_value", False),
                     info=t("generation.dcw_enabled_info"),
                     elem_classes=["has-info-container"],
                 )

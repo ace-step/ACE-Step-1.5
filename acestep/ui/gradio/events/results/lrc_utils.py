@@ -16,6 +16,7 @@ from loguru import logger
 
 from acestep.ui.gradio.i18n import t
 from acestep.ui.gradio.events.results.generation_info import DEFAULT_RESULTS_DIR
+from acestep.ui.gradio.events.results.session_artifacts import load_batch_sample_session_tensors
 
 
 def parse_lrc_to_subtitles(lrc_text: str, total_duration: Optional[float] = None) -> List[Dict[str, Any]]:
@@ -208,9 +209,10 @@ def save_lrc_to_file(lrc_text):
 def generate_lrc_handler(dit_handler, sample_idx, current_batch_index, batch_queue, vocal_language, inference_steps):
     """Generate LRC timestamps for a specific audio sample.
 
-    Retrieves cached generation data from *batch_queue* and calls the
-    handler's ``get_lyric_timestamp`` method.  Only updates ``lrc_display``;
-    audio subtitles are refreshed via a separate ``.change()`` event.
+    Retrieves cached generation data from *batch_queue* or persisted session
+    artifacts and calls the handler's ``get_lyric_timestamp`` method.  Only
+    updates ``lrc_display``; audio subtitles are refreshed via a separate
+    ``.change()`` event.
 
     Args:
         dit_handler: DiT handler instance.
@@ -226,12 +228,7 @@ def generate_lrc_handler(dit_handler, sample_idx, current_batch_index, batch_que
     import torch  # noqa: F401 – kept for tensor slicing
     from acestep.gpu_config import get_global_gpu_config
 
-    if get_global_gpu_config().save_memory_mode:
-        return (
-            gr.update(value=t("messages.lrc_save_memory_disabled"), visible=True),
-            gr.skip(),
-            batch_queue,
-        )
+    save_memory_mode = get_global_gpu_config().save_memory_mode
 
     if current_batch_index not in batch_queue:
         return gr.skip(), gr.skip(), batch_queue
@@ -239,19 +236,34 @@ def generate_lrc_handler(dit_handler, sample_idx, current_batch_index, batch_que
     batch_data = batch_queue[current_batch_index]
     extra_outputs = batch_data.get("extra_outputs", {})
 
-    if not extra_outputs:
-        return gr.update(value=t("messages.lrc_no_extra_outputs"), visible=True), gr.skip(), batch_queue
-
-    pred_latents = extra_outputs.get("pred_latents")
-    encoder_hidden_states = extra_outputs.get("encoder_hidden_states")
-    encoder_attention_mask = extra_outputs.get("encoder_attention_mask")
-    context_latents = extra_outputs.get("context_latents")
-    lyric_token_idss = extra_outputs.get("lyric_token_idss")
+    pred_latents = extra_outputs.get("pred_latents") if extra_outputs else None
+    encoder_hidden_states = extra_outputs.get("encoder_hidden_states") if extra_outputs else None
+    encoder_attention_mask = extra_outputs.get("encoder_attention_mask") if extra_outputs else None
+    context_latents = extra_outputs.get("context_latents") if extra_outputs else None
+    lyric_token_idss = extra_outputs.get("lyric_token_idss") if extra_outputs else None
 
     if any(x is None for x in [pred_latents, encoder_hidden_states, encoder_attention_mask, context_latents, lyric_token_idss]):
-        return gr.update(value=t("messages.lrc_missing_tensors"), visible=True), gr.skip(), batch_queue
+        artifact = load_batch_sample_session_tensors(batch_data, sample_idx)
+        if artifact:
+            pred_latents = artifact["pred_latents"]
+            encoder_hidden_states = artifact["encoder_hidden_states"]
+            encoder_attention_mask = artifact["encoder_attention_mask"]
+            context_latents = artifact["context_latents"]
+            lyric_token_idss = artifact["lyric_token_ids"]
+            idx0 = 0
+        elif save_memory_mode:
+            return (
+                gr.update(value=t("messages.lrc_save_memory_disabled"), visible=True),
+                gr.skip(),
+                batch_queue,
+            )
+        elif not extra_outputs:
+            return gr.update(value=t("messages.lrc_no_extra_outputs"), visible=True), gr.skip(), batch_queue
+        else:
+            return gr.update(value=t("messages.lrc_missing_tensors"), visible=True), gr.skip(), batch_queue
+    else:
+        idx0 = sample_idx - 1
 
-    idx0 = sample_idx - 1
     if idx0 >= pred_latents.shape[0]:
         return gr.update(value=t("messages.lrc_sample_not_exist"), visible=True), gr.skip(), batch_queue
 

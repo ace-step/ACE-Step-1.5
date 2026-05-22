@@ -43,7 +43,16 @@ class GenerateMusicExecuteMixin:
         dcw_wavelet: str = "haar",
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        source_repaint_latents: Any = None,
         task_type: str = "",
+        actual_retake_seed_list: Optional[List[int]] = None,
+        retake_variance: float = 0.0,
+        flow_edit_morph: bool = False,
+        flow_edit_source_caption: str = "",
+        flow_edit_source_lyrics: str = "",
+        flow_edit_n_min: float = 0.0,
+        flow_edit_n_max: float = 1.0,
+        flow_edit_n_avg: int = 1,
     ) -> Dict[str, Any]:
         """Invoke ``service_generate`` while maintaining background progress estimation.
 
@@ -102,7 +111,16 @@ class GenerateMusicExecuteMixin:
                     chunk_mask_modes=service_inputs.get("chunk_mask_modes_batch"),
                     repaint_crossfade_frames=repaint_crossfade_frames,
                     repaint_injection_ratio=repaint_injection_ratio,
+                    source_repaint_latents=source_repaint_latents,
                     task_type=task_type,
+                    retake_seed=actual_retake_seed_list,
+                    retake_variance=retake_variance,
+                    flow_edit_morph=flow_edit_morph,
+                    flow_edit_source_caption=flow_edit_source_caption,
+                    flow_edit_source_lyrics=flow_edit_source_lyrics,
+                    flow_edit_n_min=flow_edit_n_min,
+                    flow_edit_n_max=flow_edit_n_max,
+                    flow_edit_n_avg=flow_edit_n_avg,
                 )
             except Exception as exc:
                 _error["exc"] = exc

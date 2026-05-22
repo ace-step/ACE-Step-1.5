@@ -68,8 +68,11 @@ _MODE_UI_OUTPUT_KEYS = (
     "repainting_end",
     "repaint_mode",
     "repaint_strength",
+    "retake_variance",
+    "retake_seed",
     "previous_generation_mode",
     "remix_help_group",
+    "variation_group",
     "extract_help_group",
     "complete_help_group",
     "bpm_auto",
@@ -79,6 +82,8 @@ _MODE_UI_OUTPUT_KEYS = (
     "duration_auto",
     "text2music_audio_code_string",
     "src_audio",
+    "flow_edit_column",
+    "flow_edit_morph",
 )
 
 

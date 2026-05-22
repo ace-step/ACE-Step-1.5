@@ -18,6 +18,7 @@
 #   trajectory.
 
 import logging
+import math
 import time
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -132,6 +133,40 @@ def _mlx_apg_forward(
     return pred_cond + (guidance_scale - 1) * orthogonal
 
 
+def _mlx_repaint_step_injection(xt, clean_src, mask, t_next, noise):
+    """Replace non-repaint regions of *xt* with noised source latents (MLX)."""
+    import mlx.core as mx
+    zt = t_next * noise + (1.0 - t_next) * clean_src
+    m = mx.expand_dims(mask, axis=-1)
+    return mx.where(m, xt, zt)
+
+
+def _mlx_repaint_boundary_blend(x_gen, clean_src, mask_np, cf_frames):
+    """Blend generated latents with source at repaint boundaries (MLX)."""
+    import mlx.core as mx
+    soft = mask_np.astype(np.float32).copy()
+    if cf_frames <= 0:
+        m = mx.expand_dims(mx.array(soft), axis=-1)
+        return m * x_gen + (1.0 - m) * clean_src
+    B, T = mask_np.shape
+    for b in range(B):
+        row = mask_np[b]
+        if row.all() or not row.any():
+            continue
+        idx = np.nonzero(row)[0]
+        if len(idx) == 0:
+            continue
+        left, right = int(idx[0]), int(idx[-1]) + 1
+        fs = max(left - cf_frames, 0)
+        if left - fs > 0:
+            soft[b, fs:left] = np.linspace(0, 1, left - fs + 2)[1:-1]
+        fe = min(right + cf_frames, T)
+        if fe - right > 0:
+            soft[b, right:fe] = np.linspace(1, 0, fe - right + 2)[1:-1]
+    m = mx.expand_dims(mx.array(soft), axis=-1)
+    return m * x_gen + (1.0 - m) * clean_src
+
+
 def mlx_generate_diffusion(
     mlx_decoder,
     encoder_hidden_states_np: np.ndarray,
@@ -149,6 +184,8 @@ def mlx_generate_diffusion(
     audio_cover_strength: float = 1.0,
     encoder_hidden_states_non_cover_np: Optional[np.ndarray] = None,
     context_latents_non_cover_np: Optional[np.ndarray] = None,
+    retake_seed: Optional[Union[int, List[int]]] = None,
+    retake_variance: float = 0.0,
     compile_model: bool = False,
     disable_tqdm: bool = False,
     sampler_mode: str = "euler",
@@ -159,6 +196,10 @@ def mlx_generate_diffusion(
     dcw_scaler: float = 0.05,
     dcw_high_scaler: float = 0.02,
     dcw_wavelet: str = "haar",
+    repaint_mask_np: Optional[np.ndarray] = None,
+    clean_src_latents_np: Optional[np.ndarray] = None,
+    repaint_crossfade_frames: int = 10,
+    repaint_injection_ratio: float = 0.5,
 ) -> Dict[str, object]:
     """Run the complete MLX diffusion loop with optional CFG guidance.
 
@@ -229,6 +270,11 @@ def mlx_generate_diffusion(
     enc_hs_nc = mx.array(encoder_hidden_states_non_cover_np) if encoder_hidden_states_non_cover_np is not None else None
     ctx_nc = mx.array(context_latents_non_cover_np) if context_latents_non_cover_np is not None else None
 
+    # ---- Repaint setup ----
+    do_repaint = repaint_mask_np is not None and clean_src_latents_np is not None
+    repaint_mask_mx = mx.array(repaint_mask_np) if do_repaint else None
+    clean_src_mx = mx.array(clean_src_latents_np) if do_repaint else None
+
     bsz = src_latents_shape[0]
     T = src_latents_shape[1]
     C = src_latents_shape[2]
@@ -248,20 +294,28 @@ def mlx_generate_diffusion(
     momentum_state: Optional[Dict] = {} if do_cfg else None
 
     # ---- Noise preparation ----
-    if seed is None:
-        noise = mx.random.normal((bsz, T, C))
-    elif isinstance(seed, list):
-        parts = []
-        for s in seed:
-            if s is None or s < 0:
-                parts.append(mx.random.normal((1, T, C)))
-            else:
-                key = mx.random.key(int(s))
-                parts.append(mx.random.normal((1, T, C), key=key))
-        noise = mx.concatenate(parts, axis=0)
-    else:
-        key = mx.random.key(int(seed))
-        noise = mx.random.normal((bsz, T, C), key=key)
+    def _draw_noise(_seed):
+        if _seed is None:
+            return mx.random.normal((bsz, T, C))
+        if isinstance(_seed, list):
+            parts = []
+            for s in _seed:
+                if s is None or s < 0:
+                    parts.append(mx.random.normal((1, T, C)))
+                else:
+                    key = mx.random.key(int(s))
+                    parts.append(mx.random.normal((1, T, C), key=key))
+            return mx.concatenate(parts, axis=0)
+        key = mx.random.key(int(_seed))
+        return mx.random.normal((bsz, T, C), key=key)
+
+    noise = _draw_noise(seed)
+    # Retake mixing: variance-preserving blend with an independent noise draw.
+    # v=0 -> noise unchanged; v=1 -> equivalent to using retake_seed as the main seed.
+    if retake_variance > 0.0:
+        retake_noise = _draw_noise(retake_seed)
+        v_rad = retake_variance * (math.pi / 2.0)
+        noise = math.cos(v_rad) * noise + math.sin(v_rad) * retake_noise
 
     # ---- Timestep schedule ----
     t_schedule_list = get_timestep_schedule(shift, timesteps, infer_steps=infer_steps)
@@ -445,6 +499,19 @@ def mlx_generate_diffusion(
             mx.eval(xt)
 
         prev_vt = vt  # store for EMA
+
+        # ---- Repaint step injection ----
+        if do_repaint:
+            injection_cutoff = round(repaint_injection_ratio * num_steps)
+            if step_idx < injection_cutoff:
+                t_after = t_schedule_list[step_idx + 1] if step_idx < num_steps - 1 else 0.0
+                xt = _mlx_repaint_step_injection(xt, clean_src_mx, repaint_mask_mx, t_after, noise)
+                mx.eval(xt)
+
+    # ---- Repaint boundary blend (post-loop) ----
+    if do_repaint and repaint_crossfade_frames > 0:
+        xt = _mlx_repaint_boundary_blend(xt, clean_src_mx, repaint_mask_np, repaint_crossfade_frames)
+        mx.eval(xt)
 
     diff_end = time.time()
     total_end = time.time()

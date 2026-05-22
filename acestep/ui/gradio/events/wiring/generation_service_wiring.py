@@ -70,6 +70,7 @@ def register_generation_service_handlers(
             generation_section["task_type"],
             generation_section["generation_mode"],
             generation_section["init_llm_checkbox"],
+            generation_section["dcw_enabled"],
         ],
     )
 
@@ -123,6 +124,7 @@ def register_generation_service_handlers(
             generation_section["task_type"],
             generation_section["generation_mode"],
             generation_section["init_llm_checkbox"],
+            generation_section["dcw_enabled"],
             generation_section["audio_duration"],
             generation_section["batch_size_input"],
             generation_section["think_checkbox"],

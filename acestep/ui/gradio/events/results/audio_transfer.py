@@ -7,6 +7,7 @@ import gradio as gr
 
 from acestep.ui.gradio.i18n import t
 from acestep.ui.gradio.events.generation_handlers import compute_mode_ui_updates
+from acestep.ui.gradio.events.results.session_artifacts import get_audio_codes_from_sidecar
 
 
 def send_audio_to_src_with_metadata(audio_file, lm_metadata):
@@ -73,18 +74,25 @@ def send_audio_to_remix(audio_file, lm_metadata, current_lyrics, current_caption
         llm_handler: Optional LLM handler.
 
     Returns:
-        50-tuple of Gradio updates (4 data + 46 mode-UI).
+        Tuple of Gradio updates for source fields and mode UI.
     """
-    n_outputs = 50
     if audio_file is None:
-        return (gr.skip(),) * n_outputs
+        mode_updates = compute_mode_ui_updates("Remix", llm_handler, previous_mode=current_mode)
+        return (gr.skip(),) * 6 + (gr.skip(),) * len(mode_updates)
 
     lyrics, caption = _extract_metadata_for_editing(lm_metadata, current_lyrics, current_caption)
     mode_updates = list(compute_mode_ui_updates("Remix", llm_handler, previous_mode=current_mode))
     mode_updates[19] = gr.update(value=caption, visible=True, interactive=True)
     mode_updates[20] = gr.update(value=lyrics, visible=True, interactive=True)
 
-    return (audio_file, gr.update(value="Remix"), lyrics, caption, *mode_updates)
+    # Pre-fill flow-edit source fields with the prior conditions so the
+    # user can use the morph overlay against the previous prompt as V_src
+    # and edit the top-level caption / lyrics as V_tar.
+    return (
+        audio_file, gr.update(value="Remix"), lyrics, caption,
+        gr.update(value=caption), gr.update(value=lyrics),
+        *mode_updates,
+    )
 
 
 def send_audio_to_repaint(audio_file, lm_metadata, current_lyrics, current_caption,
@@ -103,18 +111,23 @@ def send_audio_to_repaint(audio_file, lm_metadata, current_lyrics, current_capti
         llm_handler: Optional LLM handler.
 
     Returns:
-        50-tuple of Gradio updates (4 data + 46 mode-UI).
+        Tuple of Gradio updates for source fields, seed reset, and mode UI.
     """
-    n_outputs = 50
     if audio_file is None:
-        return (gr.skip(),) * n_outputs
+        mode_updates = compute_mode_ui_updates("Repaint", llm_handler, previous_mode=current_mode)
+        return (gr.skip(),) * 8 + (gr.skip(),) * len(mode_updates)
 
     lyrics, caption = _extract_metadata_for_editing(lm_metadata, current_lyrics, current_caption)
     mode_updates = list(compute_mode_ui_updates("Repaint", llm_handler, previous_mode=current_mode))
     mode_updates[19] = gr.update(value=caption, visible=True, interactive=True)
     mode_updates[20] = gr.update(value=lyrics, visible=True, interactive=True)
 
-    return (audio_file, gr.update(value="Repaint"), lyrics, caption, *mode_updates)
+    return (
+        audio_file, gr.update(value="Repaint"), lyrics, caption,
+        gr.update(value=caption), gr.update(value=lyrics),
+        gr.update(value=True), gr.update(value="-1"),
+        *mode_updates,
+    )
 
 
 def convert_result_audio_to_codes(dit_handler, generated_audio):
@@ -130,6 +143,10 @@ def convert_result_audio_to_codes(dit_handler, generated_audio):
     if not generated_audio:
         gr.Warning("No audio to convert.")
         return gr.skip(), gr.skip()
+    cached_codes = get_audio_codes_from_sidecar(generated_audio)
+    if cached_codes:
+        gr.Info("Audio codes loaded from generated sidecar.")
+        return gr.update(value=cached_codes), gr.update(open=True)
     if not dit_handler or dit_handler.model is None:
         gr.Warning(t("messages.service_not_initialized"))
         return gr.skip(), gr.skip()

@@ -14,7 +14,7 @@ from .mode_ui_helpers import (
 
 
 def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "Custom"):
-    """Return the 44-output mode-switch update tuple for generation UI."""
+    """Return the 46-output mode-switch update tuple for generation UI."""
     task_type = MODE_TO_TASK_TYPE.get(mode, "text2music")
 
     is_simple = (mode == "Simple")
@@ -32,7 +32,9 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     show_custom_group = not_simple and not is_extract
     show_generate_row = not_simple
     generate_interactive = not_simple
-    show_src_audio = is_cover or is_repaint or is_extract or is_lego or is_complete
+    # Custom mode shows src_audio so the flow-edit morph overlay can use
+    # it; the row is harmless when morph is off (just an unused upload).
+    show_src_audio = is_cover or is_repaint or is_extract or is_lego or is_complete or is_custom
     show_optional = not_simple and not is_extract and not is_lego
     show_repainting = is_repaint or is_lego
     show_audio_codes = is_custom
@@ -134,13 +136,21 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     else:
         src_audio_update = gr.update(value=None)
 
+    flow_edit_supported = is_custom or is_cover
+    flow_edit_column_update = gr.update(visible=flow_edit_supported)
+    flow_edit_morph_update = (
+        gr.update(visible=True, interactive=True)
+        if flow_edit_supported
+        else gr.update(visible=False, value=False)
+    )
+
     return (
         gr.update(visible=show_simple),                    # 0: simple_mode_group
         gr.update(visible=show_custom_group),              # 1: custom_mode_group
         generate_btn_update,                               # 2: generate_btn
         False,                                             # 3: simple_sample_created
         gr.update(visible=show_optional, open=False),       # 4: optional_params_accordion
-        gr.update(value=task_type, elem_classes=["has-info-container"]),  # 5: task_type
+        task_type,                                         # 5: task_type (gr.State — raw value)
         gr.update(visible=show_src_audio),                 # 6: src_audio_row
         gr.update(visible=show_repainting),                # 7: repainting_group
         gr.update(visible=show_audio_codes),               # 8: text2music_audio_codes_group
@@ -170,17 +180,22 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         repainting_end_update,                             # 32: repainting_end
         gr.skip(),                                         # 33: repaint_mode
         gr.skip(),                                         # 34: repaint_strength
-        mode,                                              # 35: previous_generation_mode
-        gr.update(visible=is_cover),                       # 34: remix_help_group
-        gr.update(visible=(is_extract or is_lego)),        # 35: extract_help_group
-        gr.update(visible=is_complete),                    # 36: complete_help_group
-        auto_bpm_update,                                   # 37: bpm_auto
-        auto_key_update,                                   # 38: key_auto
-        auto_timesig_update,                               # 39: timesig_auto
-        auto_vocal_lang_update,                            # 40: vocal_lang_auto
-        auto_duration_update,                              # 41: duration_auto
-        audio_codes_update,                                # 42: text2music_audio_code_string
-        src_audio_update,                                  # 43: src_audio
+        gr.skip(),                                         # 35: retake_variance
+        gr.skip(),                                         # 36: retake_seed
+        mode,                                              # 37: previous_generation_mode
+        gr.update(visible=is_cover),                       # 38: remix_help_group
+        gr.update(visible=(is_custom or is_cover or is_repaint)),  # 39: variation_group (Retake all 3; Edit honoured in Custom/Remix)
+        gr.update(visible=(is_extract or is_lego)),        # 40: extract_help_group
+        gr.update(visible=is_complete),                    # 41: complete_help_group
+        auto_bpm_update,                                   # 42: bpm_auto
+        auto_key_update,                                   # 43: key_auto
+        auto_timesig_update,                               # 44: timesig_auto
+        auto_vocal_lang_update,                            # 45: vocal_lang_auto
+        auto_duration_update,                              # 46: duration_auto
+        audio_codes_update,                                # 47: text2music_audio_code_string
+        src_audio_update,                                  # 48: src_audio
+        flow_edit_column_update,                           # 49: flow_edit_column
+        flow_edit_morph_update,                            # 50: flow_edit_morph
     )
 
 
@@ -197,15 +212,19 @@ def handle_extract_track_name_change(track_name_value: str, mode: str):
 
 
 def handle_extract_src_audio_change(src_audio_path, mode: str):
-    """Auto-fill audio duration from source audio in Extract/Lego mode."""
+    """Auto-fill audio duration from source audio in Extract/Lego mode.
+
+    Reads duration directly via soundfile to avoid the training-module
+    safe_path guard, which rejects Gradio-uploaded files stored under the
+    system temp directory (e.g. AppData\\Local\\Temp\\gradio\\... on Windows).
+    """
     if mode not in ("Extract", "Lego") or not src_audio_path:
         return gr.update()
     try:
-        # Late import avoids loading training audio helpers unless this path is used.
-        from acestep.training.dataset_builder_modules.audio_io import get_audio_duration
-        duration = get_audio_duration(src_audio_path)
-        if duration and duration > 0:
-            return gr.update(value=float(duration))
+        import soundfile as sf
+        duration = float(sf.info(src_audio_path).duration)
+        if duration > 0:
+            return gr.update(value=duration)
     except Exception as e:
         logger.warning(f"Failed to get audio duration for {mode} mode: {e}")
     return gr.update()

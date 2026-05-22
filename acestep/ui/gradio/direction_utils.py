@@ -437,11 +437,18 @@ def util_script() -> str:
             leftBtn.classList.add('alignment-btn');
             leftBtn.setAttribute('role', 'button');
             leftBtn.setAttribute('tabindex', '0');
+            leftBtn.setAttribute('aria-label', 'Align left');
             leftBtn.addEventListener('click', function(e) {
                 e.preventDefault();
                 textarea.dir = 'ltr';
                 textarea.style.textAlign = 'left';
                 textarea.classList.add('alignment-manual');
+            });
+            leftBtn.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    leftBtn.click();
+                }
             });
 
             // Right-align button
@@ -451,18 +458,33 @@ def util_script() -> str:
             rightBtn.classList.add('alignment-btn');
             rightBtn.setAttribute('role', 'button');
             rightBtn.setAttribute('tabindex', '0');
+            rightBtn.setAttribute('aria-label', 'Align right');
             rightBtn.addEventListener('click', function(e) {
                 e.preventDefault();
                 textarea.dir = 'rtl';
                 textarea.style.textAlign = 'right';
                 textarea.classList.add('alignment-manual');
             });
+            rightBtn.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    rightBtn.click();
+                }
+            });
 
             // Insert after the tooltip div (if present) to preserve tooltip hover trigger
-            var tooltipDiv = infoSpan.nextElementSibling;
-            var hasTooltip = tooltipDiv && (tooltipDiv.tagName === 'DIV' || tooltipDiv.tagName === 'SPAN'); 
+            // Determine if there is a tooltip div immediately after the info span.
+            // The tooltip is present when the next sibling is NOT the textarea's
+            // input container (which always has the "input-container" class).
+            var nextEl = infoSpan.nextElementSibling;
+            var hasTooltip = nextEl && !nextEl.classList.contains('input-container');
+
+            // Remove the order styles; they aren't needed since DOM order already matches
+            leftBtn.style.order = '';
+            rightBtn.style.order = '';
+
             if (hasTooltip) {
-                tooltipDiv.after(leftBtn, rightBtn);
+                nextEl.after(leftBtn, rightBtn);
             } else {
                 infoSpan.after(leftBtn, rightBtn);
             }

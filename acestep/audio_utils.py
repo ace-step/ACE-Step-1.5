@@ -164,6 +164,7 @@ class AudioSaver:
             audio_np = tensor_to_save.detach().cpu()
             if audio_np.dim() == 2:
                 audio_np = audio_np.transpose(0, 1)
+            audio_np = audio_np.contiguous()
             sf.write(
                 str(temp_wav_path),
                 audio_np.numpy(),

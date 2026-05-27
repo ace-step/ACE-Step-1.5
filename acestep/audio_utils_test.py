@@ -138,6 +138,7 @@ class AudioSaverFormatTests(unittest.TestCase):
 
             mock_soundfile_write.assert_called_once()
             write_args = mock_soundfile_write.call_args[0]
+            self.assertTrue(write_args[1].flags["C_CONTIGUOUS"])
             self.assertEqual(write_args[2], 48000)
             self.assertEqual(mock_soundfile_write.call_args[1]["format"], "WAV")
 

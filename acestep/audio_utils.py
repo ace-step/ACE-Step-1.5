@@ -159,12 +159,16 @@ class AudioSaver:
             temp_wav_path = Path(temp_wav.name)
 
         try:
-            torchaudio.save(
+            import soundfile as sf
+
+            audio_np = tensor_to_save.detach().cpu()
+            if audio_np.dim() == 2:
+                audio_np = audio_np.transpose(0, 1)
+            sf.write(
                 str(temp_wav_path),
-                tensor_to_save,
+                audio_np.numpy(),
                 int(target_sample_rate),
-                channels_first=True,
-                backend='soundfile',
+                format="WAV",
             )
             cmd = [
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
@@ -615,4 +619,3 @@ def save_audio(
         mp3_bitrate,
         mp3_sample_rate,
     )
-

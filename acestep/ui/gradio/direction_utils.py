@@ -817,20 +817,33 @@ def rtl_css() -> str:
     label[data-testid$="-radio-label"] {
         flex-direction: row-reverse;
     }
-    /* ---- Adjust indicator->text margin for radio ---- */
+    /* ---- Adjust indicator→text margin for radio ---- */
     /*
-     * Mirror the radio LTR spacing: remove margin-left from the text span
-     * and apply the same gap as margin-right (now between indicator and text).
+     * Mirror the LTR spacing: the original radio label span uses margin-left
+     * to separate it from the indicator.  In RTL we zero that margin and apply
+     * an identical margin-right, keeping the space between the indicator
+     * and the label text.
      */
     label[data-testid$="-radio-label"] span {
         margin-left: 0;
         margin-right: 8px;
     }
 
-    /* ---- Flip Info/Warning/Error toasts to the left ---- */
+    /* ---- Flip Warning/Info/Success/Error toasts to the left ---- */
     .toast-wrap {
-        left: 0;
+        left: 12px !important;
         right: auto !important;
+    }
+    /* ---- Adjust toast icon→text margin for toasts ---- */
+    /*
+     * Mirror the LTR spacing: the original scoped rule applies margin-right
+     * on the toast icon to separate it from the title.  In RTL we zero that
+     * margin and apply an identical margin-left, keeping the space between
+     * the icon and the title.
+     */
+    [data-testid="toast-body"] .toast-icon {
+        margin-left: var(--size-2);
+        margin-right: 0;
     }
 
     /* ---- Adjust text→SVG info icon margin for labels & checkboxes ---- */

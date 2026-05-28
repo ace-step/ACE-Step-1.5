@@ -273,6 +273,9 @@ def ltr_textbox_id(suffix: str | None = None, align_left: bool = True) -> str:
     can still manually override the alignment (via Align left/right toggle) and 
     direction (via Ctrl/Cmd + Left/Right Shift) after the page loads, Gaining
     full control over the textarea's bidirectional behavior.
+    Since the LTR rules reside in ``util_css()`` (always injected), this ID will
+    always apply LTR direction/alignment, regardless of language.  It is safe
+    for any context.
 
     Parameters
     ----------
@@ -317,6 +320,9 @@ def rtl_textbox_id(suffix: str | None = None, align_right: bool = True) -> str:
     can still manually override the alignment (via Align left/right toggle) and 
     direction (via Ctrl/Cmd + Left/Right Shift) after the page loads, Gaining
     full control over the textarea's bidirectional behavior.
+    It can safely be used in any language context.  When the UI language is RTL,
+    the RTL-specific rules in ``rtl_css()`` are applied; when the language is LTR,
+    those rules are absent, so the ID has no effect.
 
     Parameters
     ----------
@@ -361,6 +367,10 @@ def auto_textbox_id(suffix: str | None = None) -> str:
     can still manually override the alignment (via Align left/right toggle) and 
     direction (via Ctrl/Cmd + Left/Right Shift) after the page loads, Gaining
     full control over the textarea's bidirectional behavior.
+    It automatically selects the appropriate prefix (LTR or RTL) based on the
+    current language.  When the language is LTR, the ID matches LTR rules in
+    ``util_css()``; when RTL, it matches RTL rules in ``rtl_css()``.  Safe in
+    both contexts.
 
     Parameters
     ----------

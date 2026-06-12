@@ -108,8 +108,13 @@ def run(label, n_min, n_max, n_avg, infer_steps=60, shift=3.0, guidance_scale=15
     audio = r.audios[0]
     out_path = OUT / f"overlay_{label}.wav"
     if isinstance(audio, dict) and "tensor" in audio:
-        torchaudio.save(str(out_path), audio["tensor"].to(torch.float32),
-                        audio.get("sample_rate", 48000))
+        try:
+             torchaudio.save(str(out_path), audio["tensor"].to(torch.float32), audio.get("sample_rate", 48000))
+        except Exception:
+            import soundfile as sf
+            audio_np = audio["tensor"].to(torch.float32).transpose(0, 1).numpy()
+            sr = audio.get("sample_rate", 48000)
+            sf.write(str(out_path), audio_np, sr, subtype='FLOAT', format='WAV')
     logger.info(f"[{label}] {dt:.1f}s -> {out_path}")
 
 

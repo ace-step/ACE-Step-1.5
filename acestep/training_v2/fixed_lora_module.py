@@ -66,6 +66,8 @@ class _LastLossAccessor:
 
 logger = logging.getLogger(__name__)
 
+_VALID_PRECISIONS = {"auto", "fp32", "fp16", "bf16"}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,9 +82,23 @@ def _normalize_device_type(device: Any) -> str:
     return str(device)
 
 
-def _select_compute_dtype(device_type: str, requested_precision: str = "auto") -> torch.dtype:
+def _normalize_requested_precision(requested_precision: str | None) -> str:
+    """Normalize and validate a requested precision token."""
+    value = (requested_precision or "auto").lower()
+    if value not in _VALID_PRECISIONS:
+        raise ValueError(
+            f"Unsupported precision '{requested_precision}'. "
+            f"Expected one of {sorted(_VALID_PRECISIONS)}."
+        )
+    return value
+
+
+def _select_compute_dtype(
+    device_type: str,
+    requested_precision: str | None = "auto",
+) -> torch.dtype:
     """Select tensor compute dtype from requested precision or device defaults."""
-    requested_precision = requested_precision or "auto"
+    requested_precision = _normalize_requested_precision(requested_precision)
     if requested_precision == "fp32":
         return torch.float32
     if requested_precision == "fp16":
@@ -96,9 +112,12 @@ def _select_compute_dtype(device_type: str, requested_precision: str = "auto") -
     return torch.float32
 
 
-def _select_fabric_precision(device_type: str, requested_precision: str = "auto") -> str:
+def _select_fabric_precision(
+    device_type: str,
+    requested_precision: str | None = "auto",
+) -> str:
     """Select Lightning Fabric precision from requested precision or device defaults."""
-    requested_precision = requested_precision or "auto"
+    requested_precision = _normalize_requested_precision(requested_precision)
     if requested_precision == "fp32":
         return "32-true"
     if requested_precision == "fp16":

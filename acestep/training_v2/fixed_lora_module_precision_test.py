@@ -56,6 +56,13 @@ class TestPrecisionSelection(unittest.TestCase):
                 self.assertEqual(_select_compute_dtype(device_type), dtype)
                 self.assertEqual(_select_fabric_precision(device_type), fabric_precision)
 
+    def test_invalid_precision_raises(self) -> None:
+        """Unsupported precision tokens fail instead of using device defaults."""
+        with self.assertRaises(ValueError):
+            _select_compute_dtype("mps", "fp64")
+        with self.assertRaises(ValueError):
+            _select_fabric_precision("mps", "fp64")
+
 
 class _DummyModel(nn.Module):
     """Minimal model stand-in for FixedLoRAModule construction."""

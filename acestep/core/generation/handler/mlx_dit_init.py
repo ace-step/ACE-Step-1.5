@@ -81,12 +81,23 @@ class MlxDitInitMixin:
                     return value.astype(mx.bfloat16)
                 return value
 
-            mlx_decoder.update(tree_map(_to_bf16, mlx_decoder.parameters()))
-            mlx_decoder.compute_dtype = mx.bfloat16
+            # Materialize the bf16 copy *before* mutating any decoder state, so a
+            # failure here leaves the decoder fully untouched (still float32).
+            # compute_dtype is flipped *last* — only after update + eval succeed —
+            # so the "bf16 applied" signal can never disagree with the actual
+            # parameter dtype on the exception path.
+            bf16_params = tree_map(_to_bf16, mlx_decoder.parameters())
+            mx.eval(bf16_params)
+            mlx_decoder.update(bf16_params)
             mx.eval(mlx_decoder.parameters())
+            mlx_decoder.compute_dtype = mx.bfloat16
             logger.info("[MLX-DiT] Parameters converted to bfloat16 (ACESTEP_MLX_DIT_BF16=1).")
             return True
         except Exception as exc:  # noqa: BLE001
+            # Defensive: guarantee compute_dtype never reports bf16 after a failure,
+            # even if the cast partially applied before raising.
+            if "mx" in locals():
+                mlx_decoder.compute_dtype = mx.float32
             logger.warning(
                 f"[MLX-DiT] bfloat16 conversion failed ({exc}); staying on float32."
             )

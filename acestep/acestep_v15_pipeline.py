@@ -228,7 +228,7 @@ def main():
     parser.add_argument(
         "--language",
         type=str,
-        default="en",
+        default=os.environ.get("LANGUAGE", "en"),
         choices=[language[0] for language in available_languages],
         help="UI language:\n  "
         + "\n  ".join(

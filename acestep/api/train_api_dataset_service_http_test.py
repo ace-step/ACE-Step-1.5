@@ -172,7 +172,7 @@ class TrainApiDatasetServiceHttpTests(unittest.TestCase):
         new=_RuntimeComponentManager,
     )
     def test_auto_label_accepts_legacy_alias_fields(self) -> None:
-        """POST /v1/dataset/auto_label should map legacy alias keys to current request fields."""
+        """POST /v1/dataset/auto_label should accept retired chunk/batch aliases."""
 
         client, builder = self._build_client()
         response = client.post(
@@ -183,8 +183,9 @@ class TrainApiDatasetServiceHttpTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertIsNotNone(builder.last_label_call)
-        self.assertEqual(7, builder.last_label_call["chunk_size"])
-        self.assertEqual(3, builder.last_label_call["batch_size"])
+        self.assertFalse(builder.last_label_call["only_unlabeled"])
+        self.assertNotIn("chunk_size", builder.last_label_call)
+        self.assertNotIn("batch_size", builder.last_label_call)
 
     def test_get_samples_returns_wrapped_serialized_payload(self) -> None:
         """GET /v1/dataset/samples should return serialized sample data in wrapped response."""

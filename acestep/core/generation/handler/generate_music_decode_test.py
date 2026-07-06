@@ -6,7 +6,7 @@ import sys
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import torch
 
@@ -114,6 +114,11 @@ class _Host(GenerateMusicDecodeMixin):
     def _max_memory_allocated(self):
         """Return deterministic max-memory value for debug logging."""
         return 0.0
+
+    def _get_component_device(self, component: str) -> str:
+        """Return the host device when no component map is configured in tests."""
+        _ = component
+        return self.device
 
     def _mlx_vae_decode(self, latents):
         """Return deterministic decoded waveform for MLX decode branch."""
@@ -291,7 +296,7 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
                 self.use_mlx_vae = False
                 self.mlx_vae = None
                 self.vae = _SuccessVae()
-                self.device = "cuda"
+                self.device = "cpu"
 
         host = _SuccessHost()
         pred_latents = torch.ones(1, 4, 3)
@@ -309,6 +314,47 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
         self.assertEqual(len(host.vae.vae_to_calls), 1)
         # The decoded waveform must be returned correctly.
         self.assertEqual(tuple(pred_wavs.shape), (1, 2, 8))
+
+    def test_decode_pred_latents_queries_vram_on_mapped_vae_cuda_index(self):
+        """VRAM preflight should use the mapped VAE device, not cuda:0 by default."""
+
+        class _VramHost(_Host):
+            """Host that exposes a non-zero mapped VAE device for VRAM checks."""
+
+            def __init__(self):
+                super().__init__()
+                self.use_mlx_vae = False
+                self.mlx_vae = None
+                self.device = "cuda:0"
+                self.vae_component_device = "cuda:2"
+
+            def _get_component_device(self, component: str) -> str:
+                if component == "vae":
+                    return self.vae_component_device
+                return self.device
+
+        host = _VramHost()
+        latent = MagicMock()
+        latent.detach.return_value = latent
+        latent.transpose.return_value = latent
+        latent.contiguous.return_value = latent
+        latent.to.return_value = latent
+        time_costs = {"total_time_cost": 1.0}
+
+        with patch.object(
+            GENERATE_MUSIC_DECODE_MODULE,
+            "get_effective_free_vram_gb",
+            return_value=8.0,
+        ) as free_mock:
+            with patch.object(GENERATE_MUSIC_DECODE_MODULE.time, "time", side_effect=[10.0, 11.0]):
+                host._decode_generate_music_pred_latents(
+                    pred_latents=latent,
+                    progress=None,
+                    use_tiled_decode=False,
+                    time_costs=time_costs,
+                )
+
+        free_mock.assert_called_once_with(2)
 
 
 if __name__ == "__main__":

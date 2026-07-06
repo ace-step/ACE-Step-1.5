@@ -105,7 +105,7 @@ class DeviceMapResolutionTests(unittest.TestCase):
             GpuInfo(0, "GPU0", 24.0, 22.0),
             GpuInfo(1, "GPU1", 24.0, 23.0),
         ]
-        with patch("acestep.device_map.discover_gpus", return_value=gpus):
+        with patch("acestep.device_map.resolve.discover_gpus", return_value=gpus):
             device_map = resolve_component_device_map(
                 requested_device="cuda:0",
                 gpu_mapping="auto",
@@ -117,7 +117,7 @@ class DeviceMapResolutionTests(unittest.TestCase):
         self.assertTrue(device_map.is_multi_device())
 
     def test_resolve_component_device_map_auto_falls_back_on_single_gpu(self):
-        with patch("acestep.device_map.discover_gpus", return_value=[GpuInfo(0, "GPU0", 24.0, 22.0)]):
+        with patch("acestep.device_map.resolve.discover_gpus", return_value=[GpuInfo(0, "GPU0", 24.0, 22.0)]):
             device_map = resolve_component_device_map(
                 requested_device="cuda:0",
                 gpu_mapping="auto",

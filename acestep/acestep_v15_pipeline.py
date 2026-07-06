@@ -60,6 +60,11 @@ try:
         is_mps_platform,
     )
     from .model_downloader import ensure_lm_model
+    from .device_map import (
+        GPU_MAPPING_ENV,
+        format_gpu_list_text,
+        log_lm_device_deprecation,
+    )
 except ImportError:
     # When executed as a script: `python acestep/acestep_v15_pipeline.py`
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -82,6 +87,11 @@ except ImportError:
         is_mps_platform,
     )
     from acestep.model_downloader import ensure_lm_model
+    from acestep.device_map import (
+        GPU_MAPPING_ENV,
+        format_gpu_list_text,
+        log_lm_device_deprecation,
+    )
 
 
 def create_demo(init_params=None, language="en"):
@@ -284,6 +294,22 @@ def main():
         help="Processing device (default: auto)",
     )
     parser.add_argument(
+        "--gpu-mapping",
+        dest="gpu_mapping",
+        type=str,
+        default=None,
+        metavar="MAPPING",
+        help=(
+            "Component GPU layout: 'auto', 'single:N', or explicit "
+            "'dit:0,vae:0,text_encoder:0,lm:1'. Also reads ACESTEP_GPU_MAPPING."
+        ),
+    )
+    parser.add_argument(
+        "--list-gpus",
+        action="store_true",
+        help="List visible CUDA devices and exit",
+    )
+    parser.add_argument(
         "--init_llm",
         type=lambda x: x.lower() in ["true", "1", "yes"],
         default=None,
@@ -389,6 +415,16 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.list_gpus:
+        print(format_gpu_list_text())
+        sys.exit(0)
+
+    effective_gpu_mapping = args.gpu_mapping
+    if effective_gpu_mapping is None:
+        effective_gpu_mapping = os.environ.get(GPU_MAPPING_ENV)
+    elif effective_gpu_mapping:
+        os.environ[GPU_MAPPING_ENV] = effective_gpu_mapping
 
     # Enable API requires init_service
     if args.enable_api:
@@ -511,6 +547,7 @@ def main():
                 offload_dit_to_cpu=args.offload_dit_to_cpu,
                 quantization=args.quantization,
                 prefer_source=prefer_source,
+                gpu_mapping=effective_gpu_mapping,
             )
 
             if not enable_generate:
@@ -566,14 +603,26 @@ def main():
                             file=sys.stderr,
                         )
 
+                    lm_device = args.device
+                    device_map = getattr(dit_handler, "device_map", None)
+                    if device_map is not None and device_map.lm is not None:
+                        lm_device = device_map.lm
+                    log_lm_device_deprecation(
+                        explicit_lm_device=os.environ.get("ACESTEP_LM_DEVICE"),
+                        gpu_mapping_env=effective_gpu_mapping,
+                        using_device_map_lm=bool(
+                            device_map is not None and device_map.lm is not None
+                        ),
+                    )
+
                     print(
-                        f"Initializing 5Hz LM: {args.lm_model_path} on {args.device}..."
+                        f"Initializing 5Hz LM: {args.lm_model_path} on {lm_device}..."
                     )
                     lm_status, lm_success = llm_handler.initialize(
                         checkpoint_dir=checkpoint_dir,
                         lm_model_path=args.lm_model_path,
                         backend=args.backend,
-                        device=args.device,
+                        device=lm_device,
                         offload_to_cpu=args.offload_to_cpu,
                         dtype=None,
                     )
@@ -595,6 +644,7 @@ def main():
                 "checkpoint": args.checkpoint,
                 "config_path": args.config_path,
                 "device": args.device,
+                "gpu_mapping": effective_gpu_mapping,
                 "init_llm": args.init_llm,
                 "lm_model_path": args.lm_model_path,
                 "backend": args.backend,

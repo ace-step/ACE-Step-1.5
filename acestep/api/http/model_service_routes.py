@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from acestep.api.http.model_init_service import initialize_models_for_request
 from acestep.constants import TASK_TYPES_BASE, TASK_TYPES_TURBO
+from acestep.device_map import collect_gpu_runtime_status
 
 
 class InitModelRequest(BaseModel):
@@ -122,6 +123,7 @@ def _collect_model_inventory(
         "lm_models": lm_models,
         "loaded_lm_model": loaded_lm_model,
         "llm_initialized": llm_initialized,
+        **collect_gpu_runtime_status(getattr(app.state, "handler", None)),
     }
 
 
@@ -157,6 +159,9 @@ def register_model_service_routes(
                 "llm_initialized": inventory["llm_initialized"],
                 "loaded_model": inventory["default_model"],
                 "loaded_lm_model": inventory["loaded_lm_model"],
+                "gpus": inventory["gpus"],
+                "gpu_mapping": inventory["gpu_mapping"],
+                "device_map": inventory["device_map"],
             }
         )
 

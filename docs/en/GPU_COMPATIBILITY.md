@@ -2,6 +2,8 @@
 
 ACE-Step 1.5 automatically adapts to your GPU's available VRAM, adjusting generation limits, LM model availability, offloading strategies, and UI defaults accordingly. The system detects GPU memory at startup and configures optimal settings for your hardware.
 
+> **Multiple GPUs:** To spread DiT and LM across cards (for example XL + 4B LM on a multi-GPU workstation), see the [Multi-GPU Inference Guide](MULTI_GPU.md).
+
 ## GPU Tier Configuration
 
 | VRAM | Tier | XL (4B) DiT | LM Models | Recommended LM | Backend | Max Duration (LM / No LM) | Max Batch (LM / No LM) | Offload | Quantization |

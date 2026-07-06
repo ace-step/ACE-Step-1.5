@@ -1051,7 +1051,29 @@ def main():
         default="INFO",
         help="Logging level for internal modules (TRACE/DEBUG/INFO/WARNING/ERROR/CRITICAL).",
     )
+    parser.add_argument(
+        "--gpu-mapping",
+        dest="gpu_mapping",
+        type=str,
+        default=None,
+        metavar="MAPPING",
+        help=(
+            "Component GPU layout: 'auto', 'single:N', or explicit "
+            "'dit:0,vae:0,text_encoder:0,lm:1'. Also reads ACESTEP_GPU_MAPPING."
+        ),
+    )
+    parser.add_argument(
+        "--list-gpus",
+        action="store_true",
+        help="List visible CUDA devices and exit",
+    )
     cli_args = parser.parse_args()
+
+    if cli_args.list_gpus:
+        from acestep.device_map import format_gpu_list_text
+
+        print(format_gpu_list_text())
+        sys.exit(0)
 
     _configure_logging(level=cli_args.log_level)
 
@@ -1130,7 +1152,11 @@ def main():
         "cfg_interval_end": params_defaults.cfg_interval_end,
         "lm_negative_prompt": params_defaults.lm_negative_prompt,
         "log_level": cli_args.log_level,
+        "gpu_mapping": cli_args.gpu_mapping or os.environ.get("ACESTEP_GPU_MAPPING"),
     }
+
+    if cli_args.gpu_mapping:
+        os.environ["ACESTEP_GPU_MAPPING"] = cli_args.gpu_mapping
 
     args = argparse.Namespace(**defaults)
     args.config = None
@@ -1416,6 +1442,7 @@ def main():
         compile_model=compile_model,
         offload_to_cpu=args.offload_to_cpu,
         offload_dit_to_cpu=args.offload_dit_to_cpu,
+        gpu_mapping=getattr(args, "gpu_mapping", None),
     )
 
     if requires_lm:
@@ -1450,11 +1477,22 @@ def main():
                 parser.error(f"LM model '{lm_model_path}' not found locally and not in registry. Please provide a valid --lm_model_path.")
 
         print(f"Initializing LM handler with model: {args.lm_model_path}")
+        lm_device = device
+        device_map = getattr(dit_handler, "device_map", None)
+        if device_map is not None and device_map.lm is not None:
+            lm_device = device_map.lm
+        from acestep.device_map import log_lm_device_deprecation
+
+        log_lm_device_deprecation(
+            explicit_lm_device=os.environ.get("ACESTEP_LM_DEVICE"),
+            gpu_mapping_env=getattr(args, "gpu_mapping", None),
+            using_device_map_lm=bool(device_map is not None and device_map.lm is not None),
+        )
         llm_handler.initialize(
             checkpoint_dir=args.checkpoint_dir,
             lm_model_path=args.lm_model_path,
             backend=args.backend,
-            device=device,
+            device=lm_device,
             offload_to_cpu=args.offload_to_cpu,
             dtype=None,
         )

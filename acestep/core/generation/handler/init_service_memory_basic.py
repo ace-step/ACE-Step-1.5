@@ -104,7 +104,7 @@ class InitServiceMemoryBasicMixin:
                 target_type = target_device.type
             else:
                 target_type = torch.device(str(target_device)).type
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             target_type = str(target_device).strip().lower().split(":", 1)[0]
             if not target_type:
                 logger.warning(
@@ -120,7 +120,7 @@ class InitServiceMemoryBasicMixin:
             return True
         try:
             expected = torch.device(normalize_component_device(str(target_device)))
-        except (DeviceMapError, RuntimeError):
+        except (DeviceMapError, RuntimeError, TypeError):
             return False
         return tensor.device == expected
 

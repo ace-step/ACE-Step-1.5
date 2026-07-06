@@ -120,6 +120,35 @@ class InitServiceMixinTests(unittest.TestCase):
             self.assertFalse(host._is_on_target_device(t, ":0"))
         warning.assert_called_once()
 
+    def test_tensor_on_exact_device_distinguishes_cuda_indices(self):
+        """It compares full CUDA device strings, not just backend types."""
+        host = _Host(project_root="K:/fake_root", device="cuda:0")
+        tensor = types.SimpleNamespace(device=torch.device("cuda:0"))
+        self.assertTrue(host._tensor_on_exact_device(tensor, "cuda:0"))
+        self.assertFalse(host._tensor_on_exact_device(tensor, "cuda:3"))
+        self.assertTrue(host._is_on_target_device(tensor, "cuda:3"))
+
+    def test_ensure_silence_latent_on_device_moves_across_cuda_indices(self):
+        """``silence_latent`` must follow ``device_map.dit``, not just the CUDA backend."""
+        host = _Host(project_root="K:/fake_root", device="cuda:3")
+        host.dtype = torch.float32
+        host.device_map = host._resolve_component_device_map(
+            resolved_device="cuda:0",
+            gpu_mapping="dit:3,vae:0,text_encoder:0,lm:1",
+        )
+        moved_to = []
+
+        class _Latent:
+            device = torch.device("cuda:0")
+
+            def to(self, device_or_dtype, *args, **kwargs):
+                moved_to.append(device_or_dtype)
+                return self
+
+        host.silence_latent = _Latent()
+        host._ensure_silence_latent_on_device()
+        self.assertEqual(moved_to[0], "cuda:3")
+        self.assertEqual(len(moved_to), 2)
 
     def test_get_auto_decode_chunk_size_uses_cuda_device_index(self):
         """It probes effective VRAM on the selected CUDA device index."""

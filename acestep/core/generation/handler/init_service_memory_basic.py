@@ -111,6 +111,18 @@ class InitServiceMemoryBasicMixin:
                 return False
         return tensor.device.type == target_type
 
+    def _tensor_on_exact_device(self, tensor, target_device: str) -> bool:
+        """Return whether *tensor* is on the exact device string (including CUDA index)."""
+        if tensor is None:
+            return True
+        from acestep.device_map.devices import normalize_component_device
+
+        try:
+            expected = torch.device(normalize_component_device(str(target_device)))
+        except Exception:
+            return False
+        return tensor.device == expected
+
     @staticmethod
     def _get_affine_quantized_tensor_class():
         """Return the AffineQuantizedTensor class from torchao, or None if unavailable."""
@@ -159,7 +171,7 @@ class InitServiceMemoryBasicMixin:
                 if getattr(self, "device_map", None) is not None
                 else self.device
             )
-            if not self._is_on_target_device(self.silence_latent, target):
+            if not self._tensor_on_exact_device(self.silence_latent, target):
                 self.silence_latent = self.silence_latent.to(target).to(self.dtype)
 
     @staticmethod

@@ -1,44 +1,10 @@
 """Shared fixtures for ``generate_music_decode`` mixin tests."""
 
-import importlib.util
-import sys
-import types
 from contextlib import contextmanager
-from pathlib import Path
 
+import acestep.core.generation.handler.generate_music_decode as GENERATE_MUSIC_DECODE_MODULE
 import torch
-
-
-def load_generate_music_decode_module():
-    """Load ``generate_music_decode.py`` from disk and return its module object."""
-    repo_root = Path(__file__).resolve().parents[4]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-    package_paths = {
-        "acestep": repo_root / "acestep",
-        "acestep.core": repo_root / "acestep" / "core",
-        "acestep.core.generation": repo_root / "acestep" / "core" / "generation",
-        "acestep.core.generation.handler": repo_root / "acestep" / "core" / "generation" / "handler",
-    }
-    for package_name, package_path in package_paths.items():
-        if package_name in sys.modules:
-            continue
-        package_module = types.ModuleType(package_name)
-        package_module.__path__ = [str(package_path)]
-        sys.modules[package_name] = package_module
-    module_path = Path(__file__).with_name("generate_music_decode.py")
-    spec = importlib.util.spec_from_file_location(
-        "acestep.core.generation.handler.generate_music_decode",
-        module_path,
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
-GENERATE_MUSIC_DECODE_MODULE = load_generate_music_decode_module()
-GenerateMusicDecodeMixin = GENERATE_MUSIC_DECODE_MODULE.GenerateMusicDecodeMixin
+from acestep.core.generation.handler.generate_music_decode import GenerateMusicDecodeMixin
 
 
 class FakeDecodeOutput:

@@ -11,6 +11,9 @@ except ImportError:
 import torch
 from loguru import logger
 
+from acestep.device_map.devices import normalize_component_device
+from acestep.device_map.errors import DeviceMapError
+
 # Cached libc handle for mallopt/malloc_trim calls (Linux only).
 _LIBC = None
 _MALLOPT_APPLIED = False
@@ -115,11 +118,9 @@ class InitServiceMemoryBasicMixin:
         """Return whether *tensor* is on the exact device string (including CUDA index)."""
         if tensor is None:
             return True
-        from acestep.device_map.devices import normalize_component_device
-
         try:
             expected = torch.device(normalize_component_device(str(target_device)))
-        except Exception:
+        except (DeviceMapError, RuntimeError):
             return False
         return tensor.device == expected
 

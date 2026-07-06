@@ -73,6 +73,10 @@ class DeviceMapParsingTests(unittest.TestCase):
         with self.assertRaises(DeviceMapError):
             parse_gpu_mapping("vae:0,lm:1", default_device="cuda:0")
 
+    def test_parse_gpu_mapping_rejects_unsupported_default_device(self):
+        with self.assertRaises(DeviceMapError):
+            parse_gpu_mapping("single:0", default_device="unknown-backend")
+
     def test_parse_gpu_mapping_reads_env_when_argument_missing(self):
         with patch.dict(os.environ, {"ACESTEP_GPU_MAPPING": "single:3"}, clear=False):
             device_map = parse_gpu_mapping(None, default_device="cuda:0")

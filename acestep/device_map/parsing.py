@@ -6,7 +6,7 @@ import os
 from typing import Dict, Optional
 
 from acestep.device_map.constants import COMPONENT_KEYS, GPU_MAPPING_ENV, PAIR_PATTERN, SINGLE_PATTERN
-from acestep.device_map.devices import device_type, is_cuda_device
+from acestep.device_map.devices import device_type
 from acestep.device_map.errors import DeviceMapError
 from acestep.device_map.types import ComponentDeviceMap
 
@@ -47,6 +47,20 @@ def _parse_mapping_pairs(mapping: str) -> Dict[str, int]:
     return pairs
 
 
+_SUPPORTED_MAPPING_BACKENDS = frozenset({"cuda", "mps", "xpu", "cpu"})
+
+
+def _resolve_mapping_backend(default_device: str) -> str:
+    """Return the backend token used to interpret explicit GPU indices."""
+    backend = device_type(default_device)
+    if backend in _SUPPORTED_MAPPING_BACKENDS:
+        return backend
+    raise DeviceMapError(
+        f"Unsupported default device {default_device!r} for GPU mapping; "
+        "expected cuda, mps, xpu, or cpu"
+    )
+
+
 def parse_gpu_mapping(
     mapping: Optional[str],
     *,
@@ -63,9 +77,7 @@ def parse_gpu_mapping(
     if not raw or raw.lower() == "auto":
         return None
 
-    backend = device_type(default_device)
-    if backend not in {"cuda", "mps", "xpu", "cpu"}:
-        backend = "cuda" if is_cuda_device(default_device) else device_type(default_device)
+    backend = _resolve_mapping_backend(default_device)
 
     single_match = SINGLE_PATTERN.fullmatch(raw)
     if single_match is not None:

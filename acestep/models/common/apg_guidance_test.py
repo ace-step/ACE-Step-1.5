@@ -58,6 +58,15 @@ class ApgGuidanceDeviceTests(unittest.TestCase):
         )
         self.assertEqual(guided.device, device)
 
+    @unittest.skipUnless(hasattr(torch.backends, "mps") and torch.backends.mps.is_available(), "MPS required")
+    def test_project_returns_mps_tensors_after_cpu_math(self):
+        device = torch.device("mps")
+        v0 = torch.randn(2, 4, 8, device=device)
+        v1 = torch.randn(2, 4, 8, device=device)
+        parallel, orthogonal = project(v0, v1, dims=[1])
+        self.assertEqual(parallel.device.type, "mps")
+        self.assertEqual(orthogonal.device.type, "mps")
+
 
 if __name__ == "__main__":
     unittest.main()

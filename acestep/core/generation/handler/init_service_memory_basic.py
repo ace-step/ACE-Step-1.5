@@ -152,10 +152,15 @@ class InitServiceMemoryBasicMixin:
         return False
 
     def _ensure_silence_latent_on_device(self):
-        """Ensure ``silence_latent`` is on ``self.device``."""
+        """Ensure ``silence_latent`` is on the active DiT device."""
         if hasattr(self, "silence_latent") and self.silence_latent is not None:
-            if not self._is_on_target_device(self.silence_latent, self.device):
-                self.silence_latent = self.silence_latent.to(self.device).to(self.dtype)
+            target = (
+                self._get_component_device("dit")
+                if getattr(self, "device_map", None) is not None
+                else self.device
+            )
+            if not self._is_on_target_device(self.silence_latent, target):
+                self.silence_latent = self.silence_latent.to(target).to(self.dtype)
 
     @staticmethod
     def _get_rss_mb() -> float:

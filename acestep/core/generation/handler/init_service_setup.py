@@ -138,6 +138,47 @@ class InitServiceSetupMixin:
                 routed[key] = self._to_component_device(routed[key], "dit")
         return routed
 
+    def _route_service_generate_kwargs_to_dit(
+        self,
+        generate_kwargs: Dict[str, Any],
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Move diffusion kwargs tensors onto the DiT device for multi-GPU runs."""
+        device_map = getattr(self, "device_map", None)
+        if device_map is None or not device_map.is_multi_device():
+            return generate_kwargs
+
+        routed = dict(generate_kwargs)
+        payload_field_map = {
+            "text_hidden_states": "text_hidden_states",
+            "text_attention_mask": "text_attention_mask",
+            "lyric_hidden_states": "lyric_hidden_states",
+            "lyric_attention_mask": "lyric_attention_mask",
+            "refer_audio_acoustic_hidden_states_packed": "refer_audio_acoustic_hidden_states_packed",
+            "refer_audio_order_mask": "refer_audio_order_mask",
+            "src_latents": "src_latents",
+            "chunk_masks": "chunk_mask",
+            "is_covers": "is_covers",
+            "non_cover_text_hidden_states": "non_cover_text_hidden_states",
+            "non_cover_text_attention_mask": "non_cover_text_attention_masks",
+            "precomputed_lm_hints_25Hz": "precomputed_lm_hints_25Hz",
+            "repaint_mask": "repaint_mask",
+            "clean_src_latents": "target_latents",
+        }
+        for kwarg_key, payload_key in payload_field_map.items():
+            if payload_key in payload:
+                routed[kwarg_key] = payload[payload_key]
+
+        for key in (
+            "silence_latent",
+            "timesteps",
+            "repaint_mask",
+            "clean_src_latents",
+        ):
+            if key in routed:
+                routed[key] = self._to_component_device(routed[key], "dit")
+        return routed
+
     def _configure_initialize_runtime(
         self,
         *,

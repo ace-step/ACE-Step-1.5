@@ -135,6 +135,12 @@ class ConditioningEmbedMixin:
         lyric_hidden_states = lyric_hidden_states.to(dit_device)
         text_attention_mask = text_attention_mask.to(dit_device)
         lyric_attention_mask = lyric_attention_mask.to(dit_device)
+        src_latents = src_latents.to(dit_device)
+        target_latents = target_latents.to(dit_device)
+        chunk_mask = chunk_mask.to(dit_device)
+        is_covers = is_covers.to(dit_device) if isinstance(is_covers, torch.Tensor) else is_covers
+        if precomputed_lm_hints_25hz is not None:
+            precomputed_lm_hints_25hz = precomputed_lm_hints_25hz.to(dit_device)
         if non_cover_text_hidden_states is not None:
             non_cover_text_hidden_states = non_cover_text_hidden_states.to(dit_device)
         if non_cover_text_attention_masks is not None:

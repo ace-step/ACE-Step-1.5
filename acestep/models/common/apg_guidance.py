@@ -19,15 +19,19 @@ def project(
     dims=[-1],
 ):
     dtype = v0.dtype
-    device_type = v0.device.type
-    if device_type == "mps":
+    device = v0.device
+    if device.type == "mps":
         v0, v1 = v0.cpu(), v1.cpu()
+        device = v0.device
 
     v0, v1 = v0.double(), v1.double()
     v1 = torch.nn.functional.normalize(v1, dim=dims)
     v0_parallel = (v0 * v1).sum(dim=dims, keepdim=True) * v1
     v0_orthogonal = v0 - v0_parallel
-    return v0_parallel.to(dtype).to(device_type), v0_orthogonal.to(dtype).to(device_type)
+    return (
+        v0_parallel.to(device=device, dtype=dtype),
+        v0_orthogonal.to(device=device, dtype=dtype),
+    )
 
 
 def apg_forward(

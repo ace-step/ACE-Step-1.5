@@ -9,6 +9,7 @@ import torch
 from loguru import logger
 
 from acestep.gpu_config import get_effective_free_vram_gb
+from acestep.device_map import cuda_device_index, is_cuda_device
 
 
 class GenerateMusicDecodeMixin:
@@ -129,7 +130,12 @@ class GenerateMusicDecodeMixin:
         with torch.inference_mode():
             with self._load_model_context("vae"):
                 pred_latents_cpu = pred_latents.detach().cpu()
-                pred_latents_for_decode = pred_latents.transpose(1, 2).contiguous().to(self.vae.dtype)
+                vae_device = self._get_component_device("vae")
+                pred_latents_for_decode = (
+                    pred_latents.transpose(1, 2)
+                    .contiguous()
+                    .to(device=vae_device, dtype=self.vae.dtype)
+                )
                 del pred_latents
                 self._empty_cache()
 
@@ -150,7 +156,12 @@ class GenerateMusicDecodeMixin:
                                 "(unified memory), keeping VAE on MPS"
                             )
                         else:
-                            effective_free = get_effective_free_vram_gb()
+                            vae_cuda_index = (
+                                cuda_device_index(vae_device)
+                                if is_cuda_device(vae_device)
+                                else 0
+                            )
+                            effective_free = get_effective_free_vram_gb(vae_cuda_index)
                             logger.info(
                                 "[generate_music] Effective free VRAM before VAE decode: "
                                 f"{effective_free:.2f} GB"

@@ -74,9 +74,14 @@ class InitServiceOrchestratorMixin:
                 )
 
             resolved_device = self._resolve_initialize_device(device)
+            if gpu_mapping is None:
+                gpu_mapping = os.environ.get("ACESTEP_GPU_MAPPING")
+            lm_model_path = os.environ.get("ACESTEP_LM_MODEL_PATH")
             self.device_map = self._resolve_component_device_map(
                 resolved_device=resolved_device,
                 gpu_mapping=gpu_mapping,
+                config_path=config_path,
+                lm_model_path=lm_model_path,
             )
             self.device = self.device_map.dit
             self.offload_to_cpu = offload_to_cpu

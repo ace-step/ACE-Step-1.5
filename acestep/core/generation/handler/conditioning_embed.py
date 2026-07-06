@@ -56,7 +56,9 @@ class ConditioningEmbedMixin:
                         refer_audio = _normalize_audio_2d(refer_audio)
                         with torch.inference_mode():
                             refer_audio_latent = self.tiled_encode(refer_audio, offload_latent_to_cpu=True)
-                        refer_audio_latent = refer_audio_latent.to(self.device).to(self.dtype)
+                        refer_audio_latent = refer_audio_latent.to(
+                            self._get_component_device("dit")
+                        ).to(self.dtype)
                         if refer_audio_latent.dim() == 2:
                             refer_audio_latent = refer_audio_latent.unsqueeze(0)
                         refer_audio_latent = _ensure_latent_3d(refer_audio_latent.transpose(1, 2))
@@ -65,7 +67,11 @@ class ConditioningEmbedMixin:
                     refer_audio_order_mask.append(batch_idx)
 
         refer_audio_latents = torch.cat(refer_audio_latents, dim=0)
-        refer_audio_order_mask = torch.tensor(refer_audio_order_mask, device=self.device, dtype=torch.long)
+        dit_device = self._get_component_device("dit")
+        refer_audio_latents = refer_audio_latents.to(dit_device).to(self.dtype)
+        refer_audio_order_mask = torch.tensor(
+            refer_audio_order_mask, device=dit_device, dtype=torch.long
+        )
         return refer_audio_latents, refer_audio_order_mask
 
     def infer_text_embeddings(self, text_token_idss):
@@ -123,6 +129,16 @@ class ConditioningEmbedMixin:
                 non_cover_text_hidden_states = self.infer_text_embeddings(non_cover_text_input_ids)
 
         repaint_mask = batch.get("repaint_mask", None)
+
+        dit_device = self._get_component_device("dit")
+        text_hidden_states = text_hidden_states.to(dit_device)
+        lyric_hidden_states = lyric_hidden_states.to(dit_device)
+        text_attention_mask = text_attention_mask.to(dit_device)
+        lyric_attention_mask = lyric_attention_mask.to(dit_device)
+        if non_cover_text_hidden_states is not None:
+            non_cover_text_hidden_states = non_cover_text_hidden_states.to(dit_device)
+        if non_cover_text_attention_masks is not None:
+            non_cover_text_attention_masks = non_cover_text_attention_masks.to(dit_device)
 
         return (
             keys,

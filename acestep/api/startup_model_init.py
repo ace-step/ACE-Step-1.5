@@ -85,6 +85,7 @@ def do_model_initialization(
         compile_model=compile_model,
         offload_to_cpu=offload_to_cpu,
         offload_dit_to_cpu=offload_dit_to_cpu,
+        gpu_mapping=os.getenv("ACESTEP_GPU_MAPPING"),
     )
     if not ok:
         app.state._init_error = status_msg
@@ -157,6 +158,7 @@ def do_model_initialization(
         get_model_name=get_model_name,
         ensure_model_downloaded=ensure_model_downloaded,
         env_bool=env_bool,
+        dit_handler=handler,
     )
 
     print("[API Server] All models initialized successfully!")

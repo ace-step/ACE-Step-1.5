@@ -97,7 +97,11 @@ def init_service_wrapper(
             )
             lm_device = "cpu"
         else:
-            lm_device = device
+            device_map = getattr(dit_handler, "device_map", None)
+            if device_map is not None and device_map.lm is not None:
+                lm_device = device_map.lm
+            else:
+                lm_device = device
 
     if init_llm and lm_model_path and gpu_config.available_lm_models:
         if not is_lm_model_size_allowed(lm_model_path, gpu_config.available_lm_models):
@@ -130,6 +134,7 @@ def init_service_wrapper(
         offload_to_cpu=offload_to_cpu, offload_dit_to_cpu=offload_dit_to_cpu,
         quantization=quant_value, use_mlx_dit=mlx_dit,
         vae_checkpoint=vae_checkpoint,
+        gpu_mapping=os.environ.get("ACESTEP_GPU_MAPPING"),
     )
 
     if init_llm:

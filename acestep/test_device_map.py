@@ -7,8 +7,14 @@ from unittest.mock import patch
 from acestep.device_map import (
     ComponentDeviceMap,
     DeviceMapError,
+    GpuInfo,
+    LayoutError,
+    LayoutRequest,
+    compute_auto_device_map,
     cuda_device_index,
     device_type,
+    estimate_dit_peak_gb,
+    estimate_lm_total_gb,
     is_cuda_device,
     normalize_component_device,
     parse_gpu_mapping,
@@ -93,6 +99,70 @@ class DeviceMapResolutionTests(unittest.TestCase):
         )
         self.assertEqual(device_map.dit, "cuda:1")
         self.assertEqual(device_map.lm, "cuda:1")
+
+    def test_resolve_component_device_map_auto_uses_multi_gpu_layout(self):
+        gpus = [
+            GpuInfo(0, "GPU0", 24.0, 22.0),
+            GpuInfo(1, "GPU1", 24.0, 23.0),
+        ]
+        with patch("acestep.device_map.discover_gpus", return_value=gpus):
+            device_map = resolve_component_device_map(
+                requested_device="cuda:0",
+                gpu_mapping="auto",
+                config_path="acestep-v15-xl-sft",
+                lm_model_path="acestep-5Hz-lm-4B",
+            )
+        self.assertEqual(device_map.dit, "cuda:1")
+        self.assertEqual(device_map.lm, "cuda:0")
+        self.assertTrue(device_map.is_multi_device())
+
+    def test_resolve_component_device_map_auto_falls_back_on_single_gpu(self):
+        with patch("acestep.device_map.discover_gpus", return_value=[GpuInfo(0, "GPU0", 24.0, 22.0)]):
+            device_map = resolve_component_device_map(
+                requested_device="cuda:0",
+                gpu_mapping="auto",
+            )
+        self.assertEqual(device_map.dit, "cuda:0")
+        self.assertFalse(device_map.is_multi_device())
+
+
+class AutoLayoutTests(unittest.TestCase):
+    """Tests for VRAM-aware automatic layout selection."""
+
+    def test_compute_auto_device_map_splits_dit_and_lm(self):
+        gpus = [
+            GpuInfo(0, "GPU0", 24.0, 10.0),
+            GpuInfo(1, "GPU1", 24.0, 23.0),
+        ]
+        layout = compute_auto_device_map(
+            LayoutRequest(
+                gpus=gpus,
+                dit_type="xl_base",
+                lm_model_path="acestep-5Hz-lm-4B",
+            )
+        )
+        self.assertIsInstance(layout, ComponentDeviceMap)
+        self.assertEqual(layout.dit, "cuda:1")
+        self.assertEqual(layout.lm, "cuda:0")
+
+    def test_compute_auto_device_map_returns_error_when_dit_does_not_fit(self):
+        gpus = [GpuInfo(0, "GPU0", 8.0, 2.0)]
+        layout = compute_auto_device_map(
+            LayoutRequest(gpus=gpus, dit_type="xl_base")
+        )
+        self.assertIsInstance(layout, LayoutError)
+        self.assertIn("No GPU has", layout.message)
+
+    def test_estimate_helpers_use_config_profiles(self):
+        self.assertGreater(estimate_dit_peak_gb("xl_base", batch_size=2), estimate_dit_peak_gb("turbo", 1))
+        self.assertGreater(
+            estimate_lm_total_gb("acestep-5Hz-lm-4B"),
+            estimate_lm_total_gb("acestep-5Hz-lm-0.6B"),
+        )
+
+
+class DeviceAliasTests(unittest.TestCase):
+    """Tests for CUDA alias helpers."""
 
     def test_device_for_maps_model_alias_to_dit(self):
         device_map = ComponentDeviceMap.from_single_device("cuda:0")

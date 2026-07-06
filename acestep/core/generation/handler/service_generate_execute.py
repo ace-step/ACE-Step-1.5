@@ -155,6 +155,7 @@ class ServiceGenerateExecuteMixin:
                 self, payload=payload, generate_kwargs=generate_kwargs,
                 seed_param=seed_param, flow_edit_ctx=flow_edit_ctx,
             )
+        payload = self._route_service_payload_to_dit(payload)
         dit_backend = (
             "MLX (native)" if (self.use_mlx_dit and self.mlx_decoder is not None) else f"PyTorch ({self.device})"
         )

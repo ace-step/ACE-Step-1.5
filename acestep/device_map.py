@@ -1,18 +1,27 @@
 """
 Component-level device placement for multi-GPU inference.
 
-PR1 scope: parse explicit mappings, discover GPUs, and resolve per-component
-device strings. Auto-layout across multiple GPUs is deferred to PR2.
+Supports explicit mappings, single-GPU parity, and automatic layout across
+multiple CUDA devices when ``gpu_mapping=auto``.
 """
 
 from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple, Union
 
 from loguru import logger
+
+from acestep.gpu_config import (
+    DIT_INFERENCE_VRAM_PER_BATCH,
+    LM_VRAM,
+    MODEL_VRAM,
+    VRAM_SAFETY_MARGIN_GB,
+    get_dit_type_from_path,
+    get_lm_model_size,
+)
 
 GPU_MAPPING_ENV = "ACESTEP_GPU_MAPPING"
 
@@ -88,6 +97,110 @@ class ComponentDeviceMap:
 
 class DeviceMapError(ValueError):
     """Raised when a GPU mapping string cannot be parsed or validated."""
+
+
+@dataclass(frozen=True)
+class LayoutRequest:
+    """Inputs used to compute an automatic multi-GPU layout."""
+
+    gpus: List[GpuInfo]
+    dit_type: str = "turbo"
+    lm_model_path: Optional[str] = None
+    use_lm: bool = True
+    batch_size: int = 1
+
+
+@dataclass(frozen=True)
+class LayoutError:
+    """Returned when automatic layout cannot place all requested components."""
+
+    message: str
+    suggestions: Tuple[str, ...] = field(default_factory=tuple)
+
+
+def _dit_model_vram_key(dit_type: str) -> str:
+    if dit_type.startswith("dit_"):
+        return dit_type
+    return f"dit_{dit_type}"
+
+
+def estimate_dit_peak_gb(dit_type: str, batch_size: int) -> float:
+    """Estimate DiT GPU memory including co-located VAE and text encoder."""
+    model_key = _dit_model_vram_key(dit_type)
+    weights = MODEL_VRAM.get(model_key, MODEL_VRAM["dit_turbo"])
+    per_batch = DIT_INFERENCE_VRAM_PER_BATCH.get(
+        dit_type,
+        DIT_INFERENCE_VRAM_PER_BATCH["turbo"],
+    )
+    aux = (
+        MODEL_VRAM["vae"]
+        + MODEL_VRAM["text_encoder"]
+        + MODEL_VRAM["cuda_context"]
+        + VRAM_SAFETY_MARGIN_GB
+    )
+    return weights + (per_batch * max(1, batch_size)) + aux
+
+
+def estimate_lm_total_gb(lm_model_path: Optional[str]) -> float:
+    """Estimate LM weights plus KV cache on the target GPU."""
+    model_size = get_lm_model_size(lm_model_path or "acestep-5Hz-lm-1.7B")
+    lm_info = LM_VRAM.get(model_size, LM_VRAM["0.6B"])
+    return lm_info["weights"] + lm_info["kv_cache_4k"] + 0.3
+
+
+def _sort_gpus_for_layout(gpus: List[GpuInfo]) -> List[GpuInfo]:
+    return sorted(
+        gpus,
+        key=lambda gpu: (-gpu.free_vram_gb, -gpu.total_vram_gb, gpu.logical_index),
+    )
+
+
+def compute_auto_device_map(request: LayoutRequest) -> Union[ComponentDeviceMap, LayoutError]:
+    """Place components across visible CUDA devices based on free VRAM."""
+    gpus = _sort_gpus_for_layout(request.gpus)
+    if not gpus:
+        return LayoutError(
+            "No CUDA devices detected for auto layout",
+            suggestions=("Install CUDA drivers or pass an explicit --gpu-mapping",),
+        )
+
+    dit_need_gb = estimate_dit_peak_gb(request.dit_type, request.batch_size)
+    dit_gpu = next((gpu for gpu in gpus if gpu.free_vram_gb >= dit_need_gb), None)
+    if dit_gpu is None:
+        return LayoutError(
+            f"No GPU has {dit_need_gb:.1f}GB free for DiT ({request.dit_type})",
+            suggestions=(
+                "Reduce batch size",
+                "Use a smaller DiT checkpoint",
+                "Enable CPU offload",
+                "Pass an explicit gpu mapping",
+            ),
+        )
+
+    dit_device = f"cuda:{dit_gpu.logical_index}"
+    lm_device = None
+    if request.use_lm:
+        lm_need_gb = estimate_lm_total_gb(request.lm_model_path)
+        lm_candidates = [gpu for gpu in gpus if gpu.logical_index != dit_gpu.logical_index]
+        lm_candidates.extend(gpu for gpu in gpus if gpu.logical_index == dit_gpu.logical_index)
+        lm_gpu = next((gpu for gpu in lm_candidates if gpu.free_vram_gb >= lm_need_gb), None)
+        if lm_gpu is None:
+            return LayoutError(
+                f"No GPU has {lm_need_gb:.1f}GB free for LM ({request.lm_model_path or 'default'})",
+                suggestions=(
+                    "Use a smaller LM model",
+                    "Pass gpu_mapping with lm on a specific GPU",
+                    "Disable LM initialization",
+                ),
+            )
+        lm_device = f"cuda:{lm_gpu.logical_index}"
+
+    return ComponentDeviceMap(
+        dit=dit_device,
+        vae=dit_device,
+        text_encoder=dit_device,
+        lm=lm_device,
+    )
 
 
 def device_type(device: str) -> str:
@@ -210,7 +323,7 @@ def parse_gpu_mapping(
     """
     Parse a GPU mapping string into a component device map.
 
-    Returns None when mapping is unset or set to 'auto' (PR1 legacy behavior).
+    Returns None when mapping is unset or explicitly set to 'auto'.
     """
     raw = (mapping or "").strip()
     if not raw:
@@ -251,17 +364,54 @@ def parse_gpu_mapping(
     )
 
 
+def _raw_gpu_mapping_value(gpu_mapping: Optional[str]) -> str:
+    raw = (gpu_mapping or "").strip()
+    if not raw:
+        raw = os.environ.get(GPU_MAPPING_ENV, "").strip()
+    return raw
+
+
 def resolve_component_device_map(
     *,
     requested_device: str,
     gpu_mapping: Optional[str] = None,
+    config_path: Optional[str] = None,
+    lm_model_path: Optional[str] = None,
+    use_lm: bool = True,
+    batch_size: int = 1,
 ) -> ComponentDeviceMap:
     """
     Resolve the effective component device map for service initialization.
 
     When no mapping is provided, all components share ``requested_device``.
+    When mapping is ``auto`` and multiple CUDA devices are visible, compute a
+    VRAM-aware layout; otherwise fall back to single-device placement.
     """
     normalized_device = normalize_component_device(requested_device)
+    raw_mapping = _raw_gpu_mapping_value(gpu_mapping)
+
+    if raw_mapping.lower() == "auto" and is_cuda_device(normalized_device):
+        gpus = discover_gpus()
+        if len(gpus) >= 2:
+            dit_type = get_dit_type_from_path(config_path or "")
+            layout = compute_auto_device_map(
+                LayoutRequest(
+                    gpus=gpus,
+                    dit_type=dit_type,
+                    lm_model_path=lm_model_path,
+                    use_lm=use_lm,
+                    batch_size=batch_size,
+                )
+            )
+            if isinstance(layout, ComponentDeviceMap):
+                logger.info("[device_map] Auto layout selected from {} GPU(s)", len(gpus))
+                return layout
+            logger.warning(
+                "[device_map] Auto layout failed: {}. Suggestions: {}",
+                layout.message,
+                "; ".join(layout.suggestions),
+            )
+
     parsed = parse_gpu_mapping(gpu_mapping, default_device=normalized_device)
     if parsed is None:
         return ComponentDeviceMap.from_single_device(normalized_device)
@@ -272,7 +422,4 @@ def log_device_map(device_map: ComponentDeviceMap) -> None:
     """Emit a startup log line describing the active component layout."""
     logger.info("[device_map] Active layout: {}", device_map.summary())
     if device_map.is_multi_device():
-        logger.info(
-            "[device_map] Multi-device placement enabled; "
-            "cross-GPU inference routing arrives in PR2"
-        )
+        logger.info("[device_map] Multi-device placement enabled with cross-GPU routing")

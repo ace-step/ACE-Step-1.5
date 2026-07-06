@@ -1,6 +1,6 @@
 """Runtime setup helpers for initialization orchestration."""
 
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 from loguru import logger
@@ -75,11 +75,19 @@ class InitServiceSetupMixin:
         *,
         resolved_device: str,
         gpu_mapping: Optional[str] = None,
+        config_path: Optional[str] = None,
+        lm_model_path: Optional[str] = None,
+        use_lm: bool = True,
+        batch_size: int = 1,
     ) -> ComponentDeviceMap:
         """Resolve per-component device placement for initialization."""
         device_map = resolve_component_device_map(
             requested_device=resolved_device,
             gpu_mapping=gpu_mapping,
+            config_path=config_path,
+            lm_model_path=lm_model_path,
+            use_lm=use_lm,
+            batch_size=batch_size,
         )
         log_device_map(device_map)
         return device_map
@@ -92,6 +100,43 @@ class InitServiceSetupMixin:
         if component == "model":
             component = "dit"
         return device_map.device_for(component)
+
+    def _to_component_device(self, value: Any, component: str) -> Any:
+        """Move a tensor to the device assigned to *component* when needed."""
+        if value is None or not isinstance(value, torch.Tensor):
+            return value
+        target = self._get_component_device(component)
+        device = torch.device(target)
+        if value.device != device:
+            return value.to(device)
+        return value
+
+    def _route_service_payload_to_dit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Move service-generation tensors onto the DiT device for diffusion."""
+        device_map = getattr(self, "device_map", None)
+        if device_map is None or not device_map.is_multi_device():
+            return payload
+
+        routed = dict(payload)
+        for key in (
+            "text_hidden_states",
+            "text_attention_mask",
+            "lyric_hidden_states",
+            "lyric_attention_mask",
+            "refer_audio_acoustic_hidden_states_packed",
+            "refer_audio_order_mask",
+            "src_latents",
+            "chunk_mask",
+            "is_covers",
+            "precomputed_lm_hints_25Hz",
+            "non_cover_text_hidden_states",
+            "non_cover_text_attention_masks",
+            "repaint_mask",
+            "target_latents",
+        ):
+            if key in routed:
+                routed[key] = self._to_component_device(routed[key], "dit")
+        return routed
 
     def _configure_initialize_runtime(
         self,

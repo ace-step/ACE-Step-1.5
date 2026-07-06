@@ -288,6 +288,24 @@ class InitServiceMixinTests(unittest.TestCase):
         self.assertEqual(host._get_component_device("model"), "cuda:0")
         self.assertEqual(host._get_component_device("vae"), "cuda:2")
 
+    def test_route_service_payload_to_dit_moves_tensors(self):
+        """It routes diffusion tensors onto the DiT device in multi-GPU mode."""
+        host = _Host(project_root="K:/fake_root", device="cuda:0")
+        host.device_map = host._resolve_component_device_map(
+            resolved_device="cuda:0",
+            gpu_mapping="dit:0,vae:0,text_encoder:0,lm:1",
+        )
+        tensor = object()
+        payload = {
+            "text_hidden_states": tensor,
+            "ignored": "keep-me",
+        }
+        with patch.object(host, "_to_component_device", side_effect=lambda value, component: value) as move_mock:
+            routed = host._route_service_payload_to_dit(payload)
+        move_mock.assert_called_once_with(tensor, "dit")
+        self.assertIs(routed["text_hidden_states"], tensor)
+        self.assertEqual(routed["ignored"], "keep-me")
+
     def test_configure_initialize_runtime_redirects_compile_on_mps(self):
         """It converts MPS compile intent to MLX compile and disables quantization."""
         host = _Host(project_root="K:/fake_root", device="mps")

@@ -23,6 +23,7 @@ def initialize_llm_at_startup(
     get_model_name: Callable[[str], str],
     ensure_model_downloaded: Callable[[str, str], str],
     env_bool: Callable[[str, bool], bool],
+    dit_handler: Any = None,
 ) -> None:
     """Initialize LLM model according to GPU config and environment overrides."""
 
@@ -73,6 +74,9 @@ def initialize_llm_at_startup(
 
         lm_backend = resolve_lm_backend(os.getenv("ACESTEP_LM_BACKEND"), gpu_config)
         lm_device = os.getenv("ACESTEP_LM_DEVICE", device)
+        device_map = getattr(dit_handler, "device_map", None) if dit_handler is not None else None
+        if device_map is not None and device_map.lm is not None:
+            lm_device = device_map.lm
         lm_offload_env = os.getenv("ACESTEP_LM_OFFLOAD_TO_CPU")
         lm_offload = env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False) if lm_offload_env is not None else offload_to_cpu
 

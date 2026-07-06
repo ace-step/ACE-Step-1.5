@@ -153,6 +153,19 @@ class AutoLayoutTests(unittest.TestCase):
         self.assertIsInstance(layout, LayoutError)
         self.assertIn("No GPU has", layout.message)
 
+    def test_compute_auto_device_map_rejects_same_gpu_lm_without_headroom(self):
+        """Co-located LM fallback must reserve the DiT footprint on the shared GPU."""
+        gpus = [GpuInfo(0, "GPU0", 24.0, 22.0)]
+        layout = compute_auto_device_map(
+            LayoutRequest(
+                gpus=gpus,
+                dit_type="xl_base",
+                lm_model_path="acestep-5Hz-lm-4B",
+            )
+        )
+        self.assertIsInstance(layout, LayoutError)
+        self.assertIn("No GPU has", layout.message)
+
     def test_estimate_helpers_use_config_profiles(self):
         self.assertGreater(estimate_dit_peak_gb("xl_base", batch_size=2), estimate_dit_peak_gb("turbo", 1))
         self.assertGreater(

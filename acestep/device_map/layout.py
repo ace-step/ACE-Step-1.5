@@ -52,6 +52,13 @@ def _sort_gpus_for_layout(gpus: List[GpuInfo]) -> List[GpuInfo]:
     )
 
 
+def _lm_free_vram_gb(gpu: GpuInfo, dit_gpu: GpuInfo, dit_need_gb: float) -> float:
+    """Return free VRAM on *gpu* available for LM after reserving the DiT stack."""
+    if gpu.logical_index != dit_gpu.logical_index:
+        return gpu.free_vram_gb
+    return max(0.0, gpu.free_vram_gb - dit_need_gb)
+
+
 def compute_auto_device_map(request: LayoutRequest) -> Union[ComponentDeviceMap, LayoutError]:
     """Place components across visible CUDA devices based on free VRAM."""
     gpus = _sort_gpus_for_layout(request.gpus)
@@ -80,7 +87,14 @@ def compute_auto_device_map(request: LayoutRequest) -> Union[ComponentDeviceMap,
         lm_need_gb = estimate_lm_total_gb(request.lm_model_path)
         lm_candidates = [gpu for gpu in gpus if gpu.logical_index != dit_gpu.logical_index]
         lm_candidates.extend(gpu for gpu in gpus if gpu.logical_index == dit_gpu.logical_index)
-        lm_gpu = next((gpu for gpu in lm_candidates if gpu.free_vram_gb >= lm_need_gb), None)
+        lm_gpu = next(
+            (
+                gpu
+                for gpu in lm_candidates
+                if _lm_free_vram_gb(gpu, dit_gpu, dit_need_gb) >= lm_need_gb
+            ),
+            None,
+        )
         if lm_gpu is None:
             return LayoutError(
                 f"No GPU has {lm_need_gb:.1f}GB free for LM ({request.lm_model_path or 'default'})",

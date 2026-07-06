@@ -82,7 +82,7 @@ When components run on different GPUs, ACE-Step routes tensors at stage boundari
 
 Typical auto layout for XL SFT + 4B LM:
 
-```
+```text
 dit:0, vae:0, text_encoder:0, lm:1
 ```
 

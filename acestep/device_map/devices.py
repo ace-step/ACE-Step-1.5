@@ -16,7 +16,11 @@ def cuda_device_index(device: str) -> int:
     if normalized == "cuda":
         return 0
     if normalized.startswith("cuda:"):
-        return int(normalized.split(":", 1)[1])
+        suffix = normalized.split(":", 1)[1]
+        try:
+            return int(suffix)
+        except ValueError as exc:
+            raise DeviceMapError(f"Not a CUDA device string: {device!r}") from exc
     raise DeviceMapError(f"Not a CUDA device string: {device!r}")
 
 

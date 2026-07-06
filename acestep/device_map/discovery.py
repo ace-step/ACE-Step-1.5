@@ -20,7 +20,7 @@ def discover_gpus() -> List[GpuInfo]:
         free_bytes, total_bytes = torch.cuda.mem_get_info(index)
         try:
             capability = torch.cuda.get_device_capability(index)
-        except Exception:
+        except RuntimeError:
             capability = None
         gpus.append(
             GpuInfo(

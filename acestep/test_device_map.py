@@ -108,6 +108,10 @@ class DeviceMapResolutionTests(unittest.TestCase):
         self.assertEqual(cuda_device_index("cuda"), 0)
         self.assertEqual(cuda_device_index("cuda:2"), 2)
 
+    def test_cuda_device_index_raises_device_map_error_for_malformed_index(self):
+        with self.assertRaises(DeviceMapError):
+            cuda_device_index("cuda:x")
+
 
 if __name__ == "__main__":
     unittest.main()

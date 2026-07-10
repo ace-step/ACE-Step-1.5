@@ -15,6 +15,7 @@ class LabelAllMixin:
         skip_metas: bool = False,
         only_unlabeled: bool = False,
         progress_callback=None,
+        sample_labeled_callback=None,
     ) -> Tuple[List[AudioSample], str]:
         """Label all samples in the dataset."""
         if not self.samples:
@@ -52,6 +53,9 @@ class LabelAllMixin:
                 success_count += 1
             else:
                 fail_count += 1
+
+            if sample_labeled_callback:
+                sample_labeled_callback(i, sample, status)
 
         status_msg = f"✅ Labeled {success_count}/{total} samples"
         if fail_count > 0:

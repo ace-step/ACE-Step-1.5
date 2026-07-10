@@ -162,8 +162,6 @@ def register_training_dataset_auto_label_async_route(
                         transcribe_lyrics=request.transcribe_lyrics,
                         skip_metas=request.skip_metas,
                         only_unlabeled=request.only_unlabeled,
-                        chunk_size=request.chunk_size,
-                        batch_size=request.batch_size,
                         progress_callback=progress_callback,
                         sample_labeled_callback=sample_labeled_callback,
                     )

@@ -66,6 +66,8 @@ class _LastLossAccessor:
 
 logger = logging.getLogger(__name__)
 
+_VALID_PRECISIONS = {"auto", "fp32", "fp16", "bf16"}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,7 +82,29 @@ def _normalize_device_type(device: Any) -> str:
     return str(device)
 
 
-def _select_compute_dtype(device_type: str) -> torch.dtype:
+def _normalize_requested_precision(requested_precision: str | None) -> str:
+    """Normalize and validate a requested precision token."""
+    value = (requested_precision or "auto").lower()
+    if value not in _VALID_PRECISIONS:
+        raise ValueError(
+            f"Unsupported precision '{requested_precision}'. "
+            f"Expected one of {sorted(_VALID_PRECISIONS)}."
+        )
+    return value
+
+
+def _select_compute_dtype(
+    device_type: str,
+    requested_precision: str | None = "auto",
+) -> torch.dtype:
+    """Select tensor compute dtype from requested precision or device defaults."""
+    requested_precision = _normalize_requested_precision(requested_precision)
+    if requested_precision == "fp32":
+        return torch.float32
+    if requested_precision == "fp16":
+        return torch.float16
+    if requested_precision == "bf16":
+        return torch.bfloat16
     if device_type in ("cuda", "xpu"):
         return torch.bfloat16
     if device_type == "mps":
@@ -88,7 +112,18 @@ def _select_compute_dtype(device_type: str) -> torch.dtype:
     return torch.float32
 
 
-def _select_fabric_precision(device_type: str) -> str:
+def _select_fabric_precision(
+    device_type: str,
+    requested_precision: str | None = "auto",
+) -> str:
+    """Select Lightning Fabric precision from requested precision or device defaults."""
+    requested_precision = _normalize_requested_precision(requested_precision)
+    if requested_precision == "fp32":
+        return "32-true"
+    if requested_precision == "fp16":
+        return "16-mixed"
+    if requested_precision == "bf16":
+        return "bf16-mixed"
     if device_type in ("cuda", "xpu"):
         return "bf16-mixed"
     if device_type == "mps":
@@ -131,7 +166,7 @@ class FixedLoRAModule(nn.Module):
         self.training_config = training_config
         self.device = torch.device(device) if isinstance(device, str) else device
         self.device_type = _normalize_device_type(self.device)
-        self.dtype = _select_compute_dtype(self.device_type)
+        self.dtype = dtype
         self.transfer_non_blocking = self.device_type in ("cuda", "xpu")
 
         # LyCORIS network reference (only set for LoKR)
@@ -246,7 +281,7 @@ class FixedLoRAModule(nn.Module):
             Scalar loss tensor (``float32`` for stable backward).
         """
         # Mixed-precision context
-        if self.device_type in ("cuda", "xpu", "mps"):
+        if self.device_type in ("cuda", "xpu", "mps") and self.dtype != torch.float32:
             autocast_ctx = torch.autocast(
                 device_type=self.device_type, dtype=self.dtype
             )

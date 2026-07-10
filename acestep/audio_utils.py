@@ -247,14 +247,44 @@ class AudioSaver:
         if int(input_sample_rate) != int(target_sample_rate):
             tensor_to_save = torchaudio.functional.resample(audio_tensor, int(input_sample_rate), int(target_sample_rate))
 
-        self._save_via_ffmpeg(
-            tensor_to_save,
-            output_path,
-            int(target_sample_rate),
-            codec='libmp3lame',
-            extra_args=['-b:a', bitrate],
-            label=f'mp3, {bitrate}',
-        )
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+            temp_wav_path = Path(temp_wav.name)
+
+        try:
+            import soundfile as sf
+
+            audio_np = tensor_to_save.detach().cpu()
+            if audio_np.dim() == 2:
+                audio_np = audio_np.transpose(0, 1)
+            audio_np = audio_np.contiguous()
+            sf.write(
+                str(temp_wav_path),
+                audio_np.numpy(),
+                int(target_sample_rate),
+                format="WAV",
+            )
+            cmd = [
+                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                '-i', str(temp_wav_path),
+                '-codec:a', 'libmp3lame',
+                '-ar', str(int(target_sample_rate)),
+                '-b:a', bitrate,
+                str(output_path),
+            ]
+            subprocess.run(cmd, check=True, capture_output=True, timeout=120)
+            logger.debug(f"[AudioSaver] Saved audio to {output_path} (mp3, {target_sample_rate}Hz, {bitrate})")
+        except FileNotFoundError as e:
+            raise RuntimeError("ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files.") from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError("ffmpeg MP3 export timed out after 120 seconds.") from e
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else str(e)
+            raise RuntimeError(f"ffmpeg MP3 export failed: {stderr}") from e
+        finally:
+            try:
+                temp_wav_path.unlink(missing_ok=True)
+            except Exception:
+                logger.warning(f"[AudioSaver] Failed to remove temporary WAV file: {temp_wav_path}")
 
     def save_audio(
         self,
@@ -735,4 +765,3 @@ def save_audio(
         mp3_bitrate,
         mp3_sample_rate,
     )
-

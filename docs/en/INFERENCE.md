@@ -350,6 +350,16 @@ class FormatSampleResult:
 
 ### Generation Parameters
 
+> **💡 Turbo parameter handling.** The defaults in the tables below (`guidance_scale=7.0`, `shift=1.0`) target the **base/SFT** models. When you select a **turbo** model (`acestep-v15-turbo`, `acestep-v15-xl-turbo`), note that the two CFG/timestep parameters are handled differently:
+>
+> | Parameter | Turbo behavior |
+> |-----------|----------------|
+> | `inference_steps` | `8` is already the turbo default. |
+> | `guidance_scale` | **Auto-corrected** to `1.0` by the pipeline — turbo bakes guidance into distillation and does not use CFG, so any value you pass is overridden (see `acestep/core/generation/handler/generate_music.py`). No action needed. |
+> | `shift` | **Not** auto-corrected. The default `1.0` is applied as-is; set **`shift=3.0`** for turbo (as the `shift` row below recommends). |
+>
+> In other words, the only timestep/guidance parameter you need to set manually for turbo is `shift=3.0`.
+
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `inference_steps` | `int` | `8` | Number of denoising steps. Turbo model: 1-20 (recommended 8). Base model: 1-200 (recommended 32-64). Higher = better quality but slower. |

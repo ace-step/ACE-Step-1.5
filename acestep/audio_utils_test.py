@@ -149,14 +149,16 @@ class AudioSaverFormatTests(unittest.TestCase):
         output_path = Path(self.temp_dir) / "test.mp3"
 
         with (
-            patch.object(AudioSaver, '_write_wav_via_soundfile') as mock_write_wav,
+            patch('soundfile.write') as mock_soundfile_write,
             patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run,
         ):
             saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
 
-            mock_write_wav.assert_called_once()
-            write_args = mock_write_wav.call_args[0]
+            mock_soundfile_write.assert_called_once()
+            write_args = mock_soundfile_write.call_args[0]
+            self.assertTrue(write_args[1].flags["C_CONTIGUOUS"])
             self.assertEqual(write_args[2], 48000)
+            self.assertEqual(mock_soundfile_write.call_args[1]["format"], "WAV")
 
             cmd = mock_subprocess_run.call_args[0][0]
             self.assertIn('libmp3lame', cmd)
@@ -171,7 +173,7 @@ class AudioSaverFormatTests(unittest.TestCase):
 
         with (
             patch('acestep.audio_utils.torchaudio.functional.resample', return_value=self.sample_audio) as mock_resample,
-            patch.object(AudioSaver, '_write_wav_via_soundfile') as mock_write_wav,
+            patch('soundfile.write') as mock_soundfile_write,
             patch('acestep.audio_utils.subprocess.run') as mock_subprocess_run,
         ):
             saver._save_mp3(
@@ -183,9 +185,10 @@ class AudioSaverFormatTests(unittest.TestCase):
             )
 
             mock_resample.assert_called_once_with(self.sample_audio, 48000, 44100)
-            mock_write_wav.assert_called_once()
-            write_args = mock_write_wav.call_args[0]
+            mock_soundfile_write.assert_called_once()
+            write_args = mock_soundfile_write.call_args[0]
             self.assertEqual(write_args[2], 44100)
+            self.assertEqual(mock_soundfile_write.call_args[1]["format"], "WAV")
 
             cmd = mock_subprocess_run.call_args[0][0]
             self.assertIn('320k', cmd)

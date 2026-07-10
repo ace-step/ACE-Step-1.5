@@ -124,7 +124,10 @@ class FixedLoRATrainer:
 
             # -- Build module -----------------------------------------------
             device = torch.device(cfg.device)
-            dtype = _select_compute_dtype(_normalize_device_type(device))
+            dtype = _select_compute_dtype(
+                _normalize_device_type(device),
+                getattr(cfg, "precision", "auto"),
+            )
 
             self.module = FixedLoRAModule(
                 model=self.model,
@@ -226,7 +229,10 @@ class FixedLoRATrainer:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         device_type = self.module.device_type
-        precision = _select_fabric_precision(device_type)
+        precision = _select_fabric_precision(
+            device_type,
+            getattr(cfg, "precision", "auto"),
+        )
         accelerator = device_type if device_type in ("cuda", "xpu", "mps", "cpu") else "auto"
 
         # -- Fabric init ----------------------------------------------------

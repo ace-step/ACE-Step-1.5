@@ -554,8 +554,6 @@ class LLMHandler:
                 else:
                     logger.warning("[initialize] CUDA requested but unavailable. Falling back to CPU.")
                     device = "cpu"
-            elif is_cuda_device(device):
-                device = normalize_component_device(device)
             elif device == "mps" and not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
                 if torch.cuda.is_available():
                     logger.warning("[initialize] MPS requested but unavailable. Falling back to CUDA.")
@@ -576,6 +574,10 @@ class LLMHandler:
                 else:
                     logger.warning("[initialize] XPU requested but unavailable. Falling back to CPU.")
                     device = "cpu"
+
+            # Normalize bare "cuda" → "cuda:0" and preserve mapped "cuda:N".
+            if is_cuda_device(device):
+                device = normalize_component_device(device)
 
             self.device = device
             self.offload_to_cpu = offload_to_cpu
@@ -659,9 +661,10 @@ class LLMHandler:
             #   RuntimeError: Offset increment outside graph capture encountered unexpectedly
             is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
             is_jetson = False
-            if device == "cuda" and torch.cuda.is_available():
+            if is_cuda_device(device) and torch.cuda.is_available():
                 try:
-                    dev_name = torch.cuda.get_device_name(0).lower()
+                    dit_idx = cuda_device_index(device)
+                    dev_name = torch.cuda.get_device_name(dit_idx).lower()
                     is_jetson = any(k in dev_name for k in ("orin", "xavier", "tegra"))
                     if is_jetson:
                         logger.info(f"Jetson GPU detected ({dev_name}): disabling CUDA graph capture for nano-vllm")
@@ -720,7 +723,7 @@ class LLMHandler:
                     status_msg = f"✅ 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
                     return status_msg, True
 
-            if backend == "vllm" and device != "cuda":
+            if backend == "vllm" and not is_cuda_device(device):
                 logger.info(
                     f"[initialize] vllm backend requires CUDA, using PyTorch backend for device={device}."
                 )
@@ -738,19 +741,23 @@ class LLMHandler:
             # Initialize based on user-selected backend
             if backend == "vllm":
                 _warn_if_prerelease_python()
-                total_gb = get_gpu_memory_gb() if device == "cuda" else 0.0
+                total_gb = 0.0
                 free_gb = 0.0
-                if device == "cuda" and torch.cuda.is_available():
+                if is_cuda_device(device) and torch.cuda.is_available():
                     try:
+                        device_index = cuda_device_index(device)
+                        total_gb = get_gpu_memory_gb()
                         if hasattr(torch.cuda, "mem_get_info"):
-                            free_bytes, _ = torch.cuda.mem_get_info()
+                            free_bytes, _ = torch.cuda.mem_get_info(device_index)
                             free_gb = free_bytes / (1024**3)
                         else:
-                            total_bytes = torch.cuda.get_device_properties(0).total_memory
-                            free_gb = (total_bytes - torch.cuda.memory_reserved(0)) / (1024**3)
+                            total_bytes = torch.cuda.get_device_properties(device_index).total_memory
+                            free_gb = (
+                                total_bytes - torch.cuda.memory_reserved(device_index)
+                            ) / (1024**3)
                     except Exception:
                         free_gb = 0.0
-                if device == "cuda" and free_gb < VRAM_SAFE_FREE_GB:
+                if is_cuda_device(device) and free_gb < VRAM_SAFE_FREE_GB:
                     logger.warning(
                         f"vLLM disabled due to insufficient free VRAM (total={total_gb:.2f}GB, free={free_gb:.2f}GB, need>={VRAM_SAFE_FREE_GB}GB free) — falling back to PyTorch backend"
                     )

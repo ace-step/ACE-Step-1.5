@@ -3,6 +3,8 @@
 import importlib
 import sys
 
+from acestep.device_map import is_cuda_device
+
 
 def _has_working_triton_installation() -> bool:
     """Return whether the Triton modules required by nano-vllm import cleanly."""
@@ -25,7 +27,7 @@ def get_vllm_preflight_warning(*, device: str, platform: str | None = None) -> s
         A warning string when vLLM should fall back to PyTorch, otherwise ``None``.
     """
     active_platform = sys.platform if platform is None else platform
-    if device != "cuda" or active_platform != "win32":
+    if not is_cuda_device(device) or active_platform != "win32":
         return None
     if _has_working_triton_installation():
         return None

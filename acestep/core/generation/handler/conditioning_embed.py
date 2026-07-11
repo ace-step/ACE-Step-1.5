@@ -75,12 +75,20 @@ class ConditioningEmbedMixin:
         return refer_audio_latents, refer_audio_order_mask
 
     def infer_text_embeddings(self, text_token_idss):
-        """Infer text-token embeddings via text encoder."""
+        """Infer text-token embeddings via text encoder.
+
+        Token ids are often built on the DiT device; move them onto the
+        text-encoder device so split maps like ``text_encoder:3`` work.
+        """
+        encoder_device = self._get_component_device("text_encoder")
+        text_token_idss = text_token_idss.to(encoder_device)
         with torch.inference_mode():
             return self.text_encoder(input_ids=text_token_idss, lyric_attention_mask=None).last_hidden_state
 
     def infer_lyric_embeddings(self, lyric_token_ids):
         """Infer lyric-token embeddings via text encoder embedding table."""
+        encoder_device = self._get_component_device("text_encoder")
+        lyric_token_ids = lyric_token_ids.to(encoder_device)
         with torch.inference_mode():
             return self.text_encoder.embed_tokens(lyric_token_ids)
 

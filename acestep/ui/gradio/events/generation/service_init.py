@@ -86,23 +86,8 @@ def init_service_wrapper(
             quantization = False
             quant_value = None
 
-    # Compute lm_device only when initializing the LLM to avoid overwriting a
-    # previously-resolved device (e.g. "cuda") with the raw UI value ("auto").
-    # "auto" is resolved to the concrete device inside llm_handler.initialize().
-    if init_llm:
-        if not gpu_config.available_lm_models:
-            logger.warning(
-                f"⚠️ GPU tier {gpu_config.tier} ({gpu_config.gpu_memory_gb:.1f}GB) does not support LM on GPU. "
-                "Falling back to CPU for LM initialization."
-            )
-            lm_device = "cpu"
-        else:
-            device_map = getattr(dit_handler, "device_map", None)
-            if device_map is not None and device_map.lm is not None:
-                lm_device = device_map.lm
-            else:
-                lm_device = device
-
+    # Tier / backend checks can run before DiT init; LM device must be resolved
+    # after initialize_service so device_map.lm from ACESTEP_GPU_MAPPING is set.
     if init_llm and lm_model_path and gpu_config.available_lm_models:
         if not is_lm_model_size_allowed(lm_model_path, gpu_config.available_lm_models):
             logger.warning(
@@ -136,6 +121,21 @@ def init_service_wrapper(
         vae_checkpoint=vae_checkpoint,
         gpu_mapping=os.environ.get("ACESTEP_GPU_MAPPING"),
     )
+
+    lm_device = device
+    if init_llm:
+        if not gpu_config.available_lm_models:
+            logger.warning(
+                f"⚠️ GPU tier {gpu_config.tier} ({gpu_config.gpu_memory_gb:.1f}GB) does not support LM on GPU. "
+                "Falling back to CPU for LM initialization."
+            )
+            lm_device = "cpu"
+        else:
+            device_map = getattr(dit_handler, "device_map", None)
+            if device_map is not None and device_map.lm is not None:
+                lm_device = device_map.lm
+            else:
+                lm_device = device
 
     if init_llm:
         checkpoint_dir = os.path.join(project_root, "checkpoints")

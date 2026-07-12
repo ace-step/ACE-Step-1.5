@@ -25,7 +25,12 @@ from transformers.generation.logits_process import (
 from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.gpu_config import (
+    DEBUG_MAX_CUDA_VRAM_ENV,
+    get_lm_gpu_memory_ratio,
+    get_lm_model_size,
+    get_global_gpu_config,
+)
 from acestep.device_map import (
     cuda_device_index,
     is_cuda_device,
@@ -746,14 +751,21 @@ class LLMHandler:
                 if is_cuda_device(device) and torch.cuda.is_available():
                     try:
                         device_index = cuda_device_index(device)
-                        total_gb = get_gpu_memory_gb()
+                        debug_vram = os.environ.get(DEBUG_MAX_CUDA_VRAM_ENV)
+                        if debug_vram is not None:
+                            total_gb = float(debug_vram)
+                        else:
+                            props = torch.cuda.get_device_properties(device_index)
+                            total_gb = props.total_memory / (1024**3)
                         if hasattr(torch.cuda, "mem_get_info"):
                             free_bytes, _ = torch.cuda.mem_get_info(device_index)
                             free_gb = free_bytes / (1024**3)
                         else:
-                            total_bytes = torch.cuda.get_device_properties(device_index).total_memory
                             free_gb = (
-                                total_bytes - torch.cuda.memory_reserved(device_index)
+                                torch.cuda.get_device_properties(
+                                    device_index
+                                ).total_memory
+                                - torch.cuda.memory_reserved(device_index)
                             ) / (1024**3)
                     except Exception:
                         free_gb = 0.0

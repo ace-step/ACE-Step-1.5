@@ -12,11 +12,13 @@ class _FakeTextEncoder:
     """Minimal text encoder stub for preprocess tests."""
 
     def __call__(self, input_ids, lyric_attention_mask=None):
+        """Return a zero embedding matching the input sequence length."""
         del lyric_attention_mask
         b, t = input_ids.shape
         return type("O", (), {"last_hidden_state": torch.zeros(b, t, 6, dtype=torch.float32)})
 
     def embed_tokens(self, token_ids):
+        """Return zero token embeddings with a fixed hidden size."""
         b, t = token_ids.shape
         return torch.zeros(b, t, 6, dtype=torch.float32)
 
@@ -25,6 +27,7 @@ class _Host(ConditioningEmbedMixin):
     """Minimal host implementing ConditioningEmbedMixin dependencies."""
 
     def __init__(self, text_encoder_device="cpu", dit_device="cpu"):
+        """Build a host with optional per-component device placement."""
         self.device = dit_device
         self.dtype = torch.float32
         self.silence_latent = torch.zeros(1, 128, 6, dtype=torch.float32)
@@ -38,16 +41,20 @@ class _Host(ConditioningEmbedMixin):
         }
 
     def _get_component_device(self, component):
+        """Return the stub device string for a named component."""
         return self._devices[component]
 
     def _ensure_silence_latent_on_device(self):
+        """No-op silence-latent placement for unit tests."""
         return None
 
     @contextmanager
     def _load_model_context(self, _name):
+        """Yield without loading real model weights."""
         yield
 
     def tiled_encode(self, audio, offload_latent_to_cpu=True):
+        """Record encode calls and return a zero latent of matching length."""
         del offload_latent_to_cpu
         self.tiled_encode_calls += 1
         t = max(1, audio.shape[-1] // 1920)
@@ -128,7 +135,10 @@ class ConditioningEmbedMixinTests(unittest.TestCase):
         seen = {}
 
         class _DeviceCheckingEncoder(_FakeTextEncoder):
+            """Text encoder stub that records the device of incoming token ids."""
+
             def __call__(self, input_ids, lyric_attention_mask=None):
+                """Record ``input_ids.device`` then delegate to the fake encoder."""
                 seen["device"] = str(input_ids.device)
                 return super().__call__(input_ids, lyric_attention_mask)
 

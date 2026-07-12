@@ -34,7 +34,7 @@ def apply_startup_mode_defaults(args: argparse.Namespace, gpu_memory_gb: float) 
         print(f"  DiT model: {args.config_path}")
         print(f"  LM model: {args.lm_model_path}")
 
-    if not args.offload_to_cpu and args.lm_model_path and "4B" in args.lm_model_path:
+    if not args.offload_to_cpu and args.lm_model_path and "-4B" in args.lm_model_path:
         if 0 < gpu_memory_gb <= 24:
             args.offload_to_cpu = True
             print(
@@ -43,8 +43,8 @@ def apply_startup_mode_defaults(args: argparse.Namespace, gpu_memory_gb: float) 
             )
 
     if args.lm_model_path and 0 < gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB:
-        if "4B" in args.lm_model_path:
-            fallback = args.lm_model_path.replace("4B", "1.7B")
+        if "-4B" in args.lm_model_path:
+            fallback = args.lm_model_path.replace("-4B", "-1.7B")
             print(
                 f"WARNING: 4B LM model is too large for {gpu_memory_gb:.0f}GB GPU. "
                 f"Downgrading to 1.7B variant: {fallback}"

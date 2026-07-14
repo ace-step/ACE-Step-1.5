@@ -5,6 +5,22 @@ from __future__ import annotations
 from typing import Any, Callable
 
 
+def _sequential_seed_slices(config: Any, sequential_runs: int) -> list:
+    """Split requested seeds into per-run slices for sequential cover mode.
+
+    Runs beyond the provided seed list fall back to ``None`` so downstream
+    seed preparation draws a random seed, matching batched behavior.
+    """
+    if getattr(config, "use_random_seed", True):
+        return [getattr(config, "seeds", None)] * sequential_runs
+    seeds = getattr(config, "seeds", None)
+    if isinstance(seeds, int):
+        seeds = [seeds]
+    if not isinstance(seeds, list) or len(seeds) == 0:
+        return [seeds] * sequential_runs
+    return [[seeds[run_idx]] if run_idx < len(seeds) else None for run_idx in range(sequential_runs)]
+
+
 def run_generation_with_optional_sequential_cover_mode(
     *,
     req: Any,
@@ -42,10 +58,12 @@ def run_generation_with_optional_sequential_cover_mode(
     """
 
     sequential_runs = 1
+    sequential_seed_slices = None
     if req.task_type in ("cover", "cover-nofsq") and handler_device == "mps":
         if config.batch_size is not None and config.batch_size > 1:
             sequential_runs = int(config.batch_size)
             config.batch_size = 1
+            sequential_seed_slices = _sequential_seed_slices(config, sequential_runs)
             log_fn(
                 f"[API Server] Job {job_id}: MPS cover sequential mode enabled "
                 f"(runs={sequential_runs})"
@@ -75,6 +93,11 @@ def run_generation_with_optional_sequential_cover_mode(
     aggregated_result = None
     all_audios = []
     for run_idx in range(sequential_runs):
+        if sequential_seed_slices is not None:
+            # Each sequential batch-1 run must consume its own seed; reusing the
+            # full seed list makes prepare_seeds pick the first seed every run
+            # and produces identical variants.
+            config.seeds = sequential_seed_slices[run_idx]
         if sequential_runs > 1:
             log_fn(f"[API Server] Job {job_id}: Sequential cover run {run_idx + 1}/{sequential_runs}")
         if sequential_runs > 1:

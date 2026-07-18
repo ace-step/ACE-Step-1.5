@@ -100,13 +100,19 @@ def init_service_wrapper(
             )
             lm_device = "cpu"
         else:
-            from acestep.core.generation.device_mapping import (
-                resolve_component_device_map,
-                validate_component_device_map,
-            )
-            _dev_map = resolve_component_device_map()
-            validate_component_device_map(_dev_map)
-            lm_device = _dev_map.lm or device
+            # Only consult the CUDA component map for a CUDA/auto device; an explicit
+            # cpu/mps/xpu selection must not be silently placed onto a cuda:N card.
+            _device_kind = str(device).split(":", 1)[0]
+            if _device_kind in {"auto", "cuda"}:
+                from acestep.core.generation.device_mapping import (
+                    resolve_component_device_map,
+                    validate_component_device_map,
+                )
+                _dev_map = resolve_component_device_map()
+                validate_component_device_map(_dev_map)
+                lm_device = _dev_map.lm or device
+            else:
+                lm_device = device
 
     if init_llm and lm_model_path and gpu_config.available_lm_models:
         if not is_lm_model_size_allowed(lm_model_path, gpu_config.available_lm_models):

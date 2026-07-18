@@ -214,7 +214,7 @@ class InitServiceOrchestratorMixin:
             self.last_init_params = {
                 "project_root": project_root,
                 "config_path": config_path,
-                "device": dit_device,
+                "device": resolved_device,
                 "dit_device": dit_device,
                 "vae_device": vae_device,
                 "use_flash_attention": use_flash_attention,

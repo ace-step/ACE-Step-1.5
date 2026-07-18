@@ -430,9 +430,20 @@ def main():
     # the DiT (via ACESTEP_*_DEVICE overrides OR free-VRAM auto-ranking), the LM no
     # longer competes for the DiT's VRAM, so the single-GPU offload/downgrade
     # heuristics below do not apply.
-    from acestep.core.generation.device_mapping import resolve_component_device_map as _rcdm
-    _cmap = _rcdm()
-    _multi_gpu_lm = bool(_cmap.dit and _cmap.lm and _cmap.lm != _cmap.dit)
+    # Resolve the component->device map ONCE here (before the DiT is loaded) and
+    # reuse it for the LM placement below so both stay consistent. Only consult the
+    # CUDA map when a CUDA/auto device is requested: an explicit cpu/mps/xpu device
+    # must not be silently overridden onto a cuda:N card. Validate env overrides
+    # (e.g. ACESTEP_LM_DEVICE=cuda:9) up front so they fail with a clear message.
+    from acestep.core.generation.device_mapping import (
+        resolve_component_device_map as _rcdm,
+        validate_component_device_map as _vcdm,
+    )
+    _device_kind = str(args.device).split(":", 1)[0]
+    _cmap = _rcdm() if _device_kind in {"auto", "cuda"} else None
+    if _cmap is not None:
+        _vcdm(_cmap)
+    _multi_gpu_lm = bool(_cmap and _cmap.dit and _cmap.lm and _cmap.lm != _cmap.dit)
 
     # Auto-enable CPU offload for tier6 GPUs (16-24GB) when using the 4B LM model
     # The 4B LM (~8GB) + DiT (~4.7GB) + VAE + text encoder exceeds 16-20GB with activations
@@ -574,11 +585,10 @@ def main():
                             file=sys.stderr,
                         )
 
-                    from acestep.core.generation.device_mapping import (
-                        resolve_component_device_map,
-                    )
-                    _dev_map = resolve_component_device_map()
-                    _lm_device = _dev_map.lm or args.device
+                    # Reuse the map resolved above (None when a non-CUDA device was
+                    # requested); re-resolving here would re-rank GPUs by free VRAM
+                    # after the DiT load and could disagree with the placement above.
+                    _lm_device = (_cmap.lm if _cmap is not None else None) or args.device
                     # In multi-GPU mode the LM has its own dedicated card, so it must
                     # stay resident there (do NOT offload it to CPU even if the DiT
                     # handler offloads VAE/text-encoder to free the DiT's VRAM).

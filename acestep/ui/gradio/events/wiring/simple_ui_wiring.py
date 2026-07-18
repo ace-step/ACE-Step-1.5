@@ -354,7 +354,7 @@ def _simple_generate_wrapper(
         params["latent_shift"], params["latent_rescale"],
         params["repaint_mode"], params["repaint_strength"],
         params["retake_variance"], params["retake_seed"],
-        _ignore_progress,
+        progress=_ignore_progress,
     )
 
     # Forward intermediate yields so Gradio 6 streams audio updates live
@@ -495,11 +495,22 @@ def _save_audio_js() -> str:
     """Return JS for downloading audio."""
     return """(audio) => {
         if (!audio) return;
-        let path = typeof audio === 'string' ? audio : (audio.path || audio.name || '');
-        if (!path) return;
+        let target = '';
+        let filename = 'audio';
+        if (typeof audio === 'object') {
+            target = audio.url || audio.data || audio.path || audio.name || '';
+            filename = audio.orig_name || audio.name || audio.path || filename;
+        } else {
+            target = audio;
+            filename = audio;
+        }
+        if (!target) return;
+        if (target.startsWith('/tmp/') || target.startsWith('/home/')) {
+            target = '/gradio_api/file=' + encodeURI(target);
+        }
         let a = document.createElement('a');
-        a.href = path;
-        a.download = path.split('/').pop() || 'audio';
+        a.href = target;
+        a.download = filename.split(/[\\/]/).pop().split('?')[0] || 'audio';
         a.style.display = 'none';
         document.body.appendChild(a);
         a.click();

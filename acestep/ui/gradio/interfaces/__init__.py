@@ -555,6 +555,21 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             justify-content: space-between !important;
             gap: 0.75rem !important;
         }
+        .simple-remix-nav {
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            margin-top: 0.75rem !important;
+        }
+        .simple-remix-nav .simple-back-btn,
+        .simple-remix-nav #simple-create-btn {
+            flex: 1 1 0 !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            height: 48px !important;
+            padding: 0.5rem 1.25rem !important;
+            font-size: 0.95rem !important;
+            border-radius: 10px !important;
+        }
 
         /* ── Buttons ── */
         .simple-random-btn {
@@ -637,6 +652,11 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
         }
 
         /* ── Upload Area (Step 3) ── */
+        .simple-upload-label-wrap {
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            min-height: 0 !important;
+        }
         .simple-upload-label {
             font-size: 0.9rem;
             font-weight: 600;
@@ -651,8 +671,11 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             transition: all 0.2s ease !important;
             text-align: center !important;
             min-height: 0 !important;
+            height: 190px !important;
+            max-height: 190px !important;
         }
         .simple-upload-area > div:first-child {
+            height: 100% !important;
             min-height: 0 !important;
             padding: 0.25rem 0 !important;
         }
@@ -680,13 +703,14 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
         /* ── Create Button (Step 3) ── */
         #simple-create-btn {
             width: 100% !important;
-            padding: 1rem 2rem !important;
-            font-size: 1.15rem !important;
+            height: 48px !important;
+            padding: 0.5rem 1.25rem !important;
+            font-size: 0.95rem !important;
             font-weight: 700 !important;
             letter-spacing: 0.01em;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            border: none !important;
-            border-radius: 14px !important;
+            border: 2px solid transparent !important;
+            border-radius: 10px !important;
             color: #ffffff !important;
             box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35) !important;
             transition: transform 0.12s ease, box-shadow 0.12s ease !important;

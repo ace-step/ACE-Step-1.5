@@ -157,7 +157,8 @@ def _build_step_remix() -> tuple[gr.Column, dict[str, Any]]:
     """Build Step 3: Remix / Create."""
     with gr.Column(visible=False, elem_id="simple-step-3", elem_classes="simple-step") as col:
         gr.HTML(
-            '<div class="simple-upload-label">Upload a song to remix? (optional)</div>'
+            '<div class="simple-upload-label">Upload a song to remix? (optional)</div>',
+            elem_classes=["simple-upload-label-wrap"],
         )
         simple_src_audio = gr.Audio(
             label="Click to upload, or drag a file here",
@@ -165,7 +166,7 @@ def _build_step_remix() -> tuple[gr.Column, dict[str, Any]]:
             sources=["upload"],
             elem_classes=["simple-upload-area"],
         )
-        with gr.Row(elem_classes="simple-nav-row"):
+        with gr.Row(elem_classes=["simple-nav-row", "simple-remix-nav"]):
             simple_step3_back_btn = gr.Button(
                 "  Back",
                 variant="secondary",
@@ -175,7 +176,7 @@ def _build_step_remix() -> tuple[gr.Column, dict[str, Any]]:
             simple_create_btn = gr.Button(
                 "  Create Music",
                 variant="primary",
-                size="lg",
+                size="sm",
                 elem_id="simple-create-btn",
                 elem_classes=["simple-create-btn"],
             )

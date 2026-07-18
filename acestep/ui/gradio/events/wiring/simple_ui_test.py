@@ -23,6 +23,7 @@ from acestep.ui.gradio.events.wiring.simple_ui_wiring import (
     _instrumental_lyrics_update,
     _completion_message,
     _ignore_progress,
+    _save_audio_js,
 )
 
 
@@ -127,6 +128,11 @@ class TestSimpleUIHelpers(unittest.TestCase):
     def test_simple_progress_callback_is_silent(self):
         self.assertIsNone(_ignore_progress(0.5, desc="Generating"))
 
+    def test_save_audio_prefers_gradio_url_with_local_path_fallback(self):
+        javascript = _save_audio_js()
+        self.assertIn("audio.url || audio.data || audio.path", javascript)
+        self.assertIn("/gradio_api/file=", javascript)
+
 
 class TestSimpleUIStartGeneration(unittest.TestCase):
     """_start_generation should return values matching generation outputs."""
@@ -201,6 +207,7 @@ class TestSimpleUIGenerateWrapper(unittest.TestCase):
         self.assertEqual(len(step1), 14)
         step2 = next(gen)
         self.assertEqual(len(step2), 14)
+        self.assertIs(mock_gen.call_args.kwargs["progress"], _ignore_progress)
 
     @patch("acestep.ui.gradio.events.wiring.simple_ui_wiring.generate_with_progress")
     def test_generate_wrapper_with_audio_sets_cover_task(self, mock_gen):
@@ -327,6 +334,12 @@ class TestSimpleMenu(unittest.TestCase):
             components = build_simple_ui()
 
         self.assertTrue(components["simple_column"].visible)
+
+    def test_remix_create_button_uses_compact_size(self):
+        with gr.Blocks():
+            components = build_simple_ui()
+
+        self.assertEqual(components["simple_create_btn"].size, "sm")
 
 
 if __name__ == "__main__":

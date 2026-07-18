@@ -97,7 +97,11 @@ def init_service_wrapper(
             )
             lm_device = "cpu"
         else:
-            lm_device = device
+            from acestep.core.generation.device_mapping import (
+                resolve_component_device_map,
+            )
+            _dev_map = resolve_component_device_map()
+            lm_device = _dev_map.lm or device
 
     if init_llm and lm_model_path and gpu_config.available_lm_models:
         if not is_lm_model_size_allowed(lm_model_path, gpu_config.available_lm_models):
@@ -135,12 +139,14 @@ def init_service_wrapper(
     if init_llm:
         checkpoint_dir = os.path.join(project_root, "checkpoints")
 
+        # Multi-GPU: keep the LM resident on its dedicated card (no CPU offload).
+        _lm_offload = False if os.getenv("ACESTEP_LM_DEVICE") else offload_to_cpu
         lm_status, lm_success = llm_handler.initialize(
             checkpoint_dir=checkpoint_dir,
             lm_model_path=lm_model_path,
             backend=backend,
             device=lm_device,
-            offload_to_cpu=offload_to_cpu,
+            offload_to_cpu=_lm_offload,
             dtype=None,
         )
 

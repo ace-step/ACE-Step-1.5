@@ -9,6 +9,11 @@ import torch
 from loguru import logger
 
 from acestep import gpu_config
+from acestep.core.generation.device_mapping import (
+    ComponentDeviceMap,
+    resolve_component_device_map,
+    validate_component_device_map,
+)
 
 _ROCM_DTYPE_MAP = {
     "float32": torch.float32,
@@ -50,6 +55,7 @@ class InitServiceOrchestratorMixin:
         project_root: str,
         config_path: str,
         device: str = "auto",
+        component_device_map: Optional[ComponentDeviceMap] = None,
         use_flash_attention: bool = False,
         compile_model: bool = False,
         offload_to_cpu: bool = False,
@@ -72,7 +78,19 @@ class InitServiceOrchestratorMixin:
                 )
 
             resolved_device = self._resolve_initialize_device(device)
-            self.device = resolved_device
+            if component_device_map is None:
+                component_device_map = resolve_component_device_map()
+            validate_component_device_map(component_device_map)
+            dit_device = component_device_map.dit or resolved_device
+            vae_device = component_device_map.vae or resolved_device
+            logger.info(
+                "[initialize_service] Resolved component GPU map: DiT={}, VAE={}, LM={}",
+                dit_device,
+                vae_device,
+                component_device_map.lm or resolved_device,
+            )
+
+            self.device = dit_device
             self.offload_to_cpu = offload_to_cpu
             self.offload_dit_to_cpu = offload_dit_to_cpu
 
@@ -155,24 +173,24 @@ class InitServiceOrchestratorMixin:
             model_path = os.path.join(checkpoint_dir, config_path)
             self._load_main_model_from_checkpoint(
                 model_checkpoint_path=model_path,
-                device=resolved_device,
+                device=dit_device,
                 use_flash_attention=use_flash_attention,
                 compile_model=normalized_compile,
                 quantization=self.quantization,
             )
             vae_path = self._load_vae_model(
                 checkpoint_dir=checkpoint_dir,
-                device=resolved_device,
+                device=vae_device,
                 compile_model=normalized_compile,
                 vae_variant=resolved_vae_variant,
             )
             text_encoder_path = self._load_text_encoder_and_tokenizer(
                 checkpoint_dir=checkpoint_dir,
-                device=resolved_device,
+                device=dit_device,
             )
 
             mlx_dit_status, mlx_vae_status = self._initialize_mlx_backends(
-                device=resolved_device,
+                device=dit_device,
                 use_mlx_dit=use_mlx_dit,
                 mlx_compile_requested=mlx_compile_requested,
             )
@@ -196,7 +214,9 @@ class InitServiceOrchestratorMixin:
             self.last_init_params = {
                 "project_root": project_root,
                 "config_path": config_path,
-                "device": resolved_device,
+                "device": dit_device,
+                "dit_device": dit_device,
+                "vae_device": vae_device,
                 "use_flash_attention": use_flash_attention,
                 "compile_model": normalized_compile,
                 "offload_to_cpu": offload_to_cpu,

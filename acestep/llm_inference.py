@@ -401,7 +401,10 @@ class LLMHandler:
     def _load_pytorch_model(self, model_path: str, device: str) -> Tuple[bool, str]:
         """Load PyTorch model from path and return (success, status_message)"""
         try:
-            self.llm = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
+            _pt_load_kwargs = {"trust_remote_code": True}
+            if self.dtype is not None:
+                _pt_load_kwargs["dtype"] = self.dtype
+            self.llm = AutoModelForCausalLM.from_pretrained(model_path, **_pt_load_kwargs)
             if not self.offload_to_cpu:
                 self.llm = self.llm.to(device).to(self.dtype)
             else:
@@ -569,7 +572,7 @@ class LLMHandler:
             # produce NaN/inf when naively converted to float16 (different exponent range).
             # The DiT and VAE use float16 on MPS where it actually helps throughput.
             if dtype is None:
-                if device in ["cuda", "xpu"]:
+                if device.split(":")[0] in ["cuda", "xpu"]:
                     self.dtype = torch.bfloat16
                 else:
                     self.dtype = torch.float32

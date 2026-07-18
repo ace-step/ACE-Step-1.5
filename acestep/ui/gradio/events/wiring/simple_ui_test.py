@@ -24,6 +24,7 @@ from acestep.ui.gradio.events.wiring.simple_ui_wiring import (
     _completion_message,
     _ignore_progress,
     _save_audio_js,
+    _initialize_simple_ui_models,
 )
 
 
@@ -140,6 +141,24 @@ class TestSimpleUIHelpers(unittest.TestCase):
         javascript = _save_audio_js()
         self.assertIn("audio.url || audio.data || audio.path", javascript)
         self.assertIn("/gradio_api/file=", javascript)
+
+    @patch("acestep.ui.gradio.events.wiring.simple_ui_wiring._init_llm_for_simple_ui")
+    def test_create_button_enables_after_dit_initializes(self, mock_init):
+        mock_init.return_value = ""
+        dit_handler = MagicMock()
+        dit_handler.model = MagicMock()
+        update = _initialize_simple_ui_models(MagicMock(), dit_handler)
+        self.assertTrue(update["interactive"])
+        self.assertIn("Create Music", update["value"])
+
+    @patch("acestep.ui.gradio.events.wiring.simple_ui_wiring._init_llm_for_simple_ui")
+    def test_create_button_stays_disabled_after_init_failure(self, mock_init):
+        mock_init.return_value = "initialization failed"
+        dit_handler = MagicMock()
+        dit_handler.model = None
+        update = _initialize_simple_ui_models(MagicMock(), dit_handler)
+        self.assertFalse(update["interactive"])
+        self.assertEqual(update["value"], "Models unavailable")
 
 
 class TestSimpleUIStartGeneration(unittest.TestCase):
@@ -348,6 +367,7 @@ class TestSimpleMenu(unittest.TestCase):
             components = build_simple_ui()
 
         self.assertEqual(components["simple_create_btn"].size, "sm")
+        self.assertFalse(components["simple_create_btn"].interactive)
 
 
 if __name__ == "__main__":

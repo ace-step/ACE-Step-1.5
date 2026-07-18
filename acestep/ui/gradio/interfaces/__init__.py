@@ -741,6 +741,15 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             transform: translateY(0) !important;
             box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3) !important;
         }
+        #simple-create-btn:disabled,
+        #simple-create-btn[aria-disabled="true"] {
+            background: #a8a8b3 !important;
+            border-color: #a8a8b3 !important;
+            box-shadow: none !important;
+            color: #f4f4f6 !important;
+            cursor: not-allowed !important;
+            transform: none !important;
+        }
 
         /* ── Creating Step (Step 4) ── */
         .simple-creating-icon {
@@ -1186,7 +1195,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
 
         # Wire compact mode switch (Advanced → Simple)
         from acestep.ui.gradio.events.wiring.simple_ui_wiring import (
-            _init_llm_for_simple_ui,
+            _initialize_simple_ui_models,
         )
 
         advanced_mode_switch.click(
@@ -1198,15 +1207,16 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             inputs=[],
             outputs=[simple_section["simple_column"], advanced_column, simple_mode_state],
         ).then(
-            fn=lambda: _init_llm_for_simple_ui(llm_handler, dit_handler),
+            fn=lambda: _initialize_simple_ui_models(llm_handler, dit_handler),
             inputs=[],
-            outputs=[],
+            outputs=[simple_section["simple_create_btn"]],
+            show_progress="hidden",
         )
 
         demo.load(
-            fn=lambda: _init_llm_for_simple_ui(llm_handler, dit_handler),
+            fn=lambda: _initialize_simple_ui_models(llm_handler, dit_handler),
             inputs=[],
-            outputs=[],
+            outputs=[simple_section["simple_create_btn"]],
             show_progress="hidden",
         )
 

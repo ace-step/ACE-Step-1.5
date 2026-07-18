@@ -200,6 +200,19 @@ def _init_llm_for_simple_ui(
         return str(e)
 
 
+def _initialize_simple_ui_models(
+    llm_handler: Any = None,
+    dit_handler: Any = None,
+) -> dict:
+    """Initialize Simple UI models and update the Create button readiness."""
+    status = _init_llm_for_simple_ui(llm_handler, dit_handler)
+    is_ready = bool(dit_handler and getattr(dit_handler, "model", None) is not None)
+    if is_ready:
+        return gr.update(interactive=True, value="  Create Music")
+    logger.warning(f"Simple UI remains disabled because model initialization failed: {status}")
+    return gr.update(interactive=False, value="Models unavailable")
+
+
 def _start_generation() -> tuple:
     """Non-generator setup: navigate to step 4 (Creating...)."""
     return (

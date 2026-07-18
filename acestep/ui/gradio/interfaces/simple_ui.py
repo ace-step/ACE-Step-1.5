@@ -174,9 +174,10 @@ def _build_step_remix() -> tuple[gr.Column, dict[str, Any]]:
                 elem_classes=["simple-back-btn"],
             )
             simple_create_btn = gr.Button(
-                "  Create Music",
+                "Loading models…",
                 variant="primary",
                 size="sm",
+                interactive=False,
                 elem_id="simple-create-btn",
                 elem_classes=["simple-create-btn"],
             )

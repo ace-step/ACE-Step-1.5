@@ -91,6 +91,12 @@ def _instrumental_lyrics_update(instrumental: bool) -> dict:
     return gr.update(interactive=not instrumental)
 
 
+def _completion_message() -> str:
+    """Return a translated completion message with an English fallback."""
+    message = t("messages.generation_complete")
+    return "Generation complete" if message == "messages.generation_complete" else message
+
+
 def _navigate_to(target: int, current_step: int) -> tuple:
     """Navigate to a step — returns visibility updates for each column.
 
@@ -478,10 +484,7 @@ def _simple_generate_wrapper(
     meta_1 = _build_metadata_html(0, params["audio_format"])
     meta_2 = _build_metadata_html(0, params["audio_format"])
 
-    gen_status = _build_status_html(
-        t("messages.generation_complete"),
-        True,
-    )
+    gen_status = _build_status_html(_completion_message(), True)
 
     yield (
         gr.update(value=audio_1),  # 0

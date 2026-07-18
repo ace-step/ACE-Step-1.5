@@ -244,7 +244,8 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             margin: 0 auto;
             padding: 0 1rem 2rem;
             background: #faf8f6;
-            min-height: 80vh;
+            min-height: 0;
+            height: auto;
             overflow: hidden;
         }
         #simple-ui-column > div:empty {
@@ -784,7 +785,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             flex: 0 0 auto !important;
             width: 100% !important;
-            align-items: flex-start !important;
+            align-items: stretch !important;
             gap: 0.75rem !important;
             margin-bottom: 0.5rem !important;
         }
@@ -800,6 +801,10 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
 
         .simple-best-badge {
             display: inline-flex;
+            position: absolute;
+            top: 0.75rem;
+            left: 0.75rem;
+            z-index: 2;
             align-items: center;
             gap: 4px;
             background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
@@ -810,7 +815,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             letter-spacing: 0.05em;
             padding: 3px 10px;
             border-radius: 20px;
-            margin-bottom: 2px;
+            margin: 0;
         }
 
         .simple-audio {

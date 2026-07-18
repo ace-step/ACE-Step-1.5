@@ -22,6 +22,7 @@ from acestep.ui.gradio.events.wiring.simple_ui_wiring import (
     _result_card_updates,
     _resolve_simple_lyrics,
     _instrumental_lyrics_update,
+    _completion_message,
 )
 
 
@@ -122,6 +123,11 @@ class TestSimpleUIHelpers(unittest.TestCase):
     def test_instrumental_mode_disables_lyrics_input(self):
         self.assertFalse(_instrumental_lyrics_update(True)["interactive"])
         self.assertTrue(_instrumental_lyrics_update(False)["interactive"])
+
+    @patch("acestep.ui.gradio.events.wiring.simple_ui_wiring.t")
+    def test_completion_message_falls_back_when_translation_is_missing(self, mock_t):
+        mock_t.return_value = "messages.generation_complete"
+        self.assertEqual(_completion_message(), "Generation complete")
 
 
 class TestSimpleUIStartGeneration(unittest.TestCase):

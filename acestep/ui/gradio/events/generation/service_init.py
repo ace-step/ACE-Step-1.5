@@ -89,6 +89,9 @@ def init_service_wrapper(
     # Compute lm_device only when initializing the LLM to avoid overwriting a
     # previously-resolved device (e.g. "cuda") with the raw UI value ("auto").
     # "auto" is resolved to the concrete device inside llm_handler.initialize().
+    # Resolved once here (before the DiT is loaded) and reused for the offload
+    # decision below so both stay consistent; None means "not resolved / CPU LM".
+    _dev_map = None
     if init_llm:
         if not gpu_config.available_lm_models:
             logger.warning(
@@ -144,9 +147,12 @@ def init_service_wrapper(
         # Multi-GPU: keep the LM resident when it is mapped to a different GPU than
         # the DiT (env override OR free-VRAM auto-ranking) - it no longer competes
         # for the DiT card's VRAM, so it must not be offloaded to CPU.
-        from acestep.core.generation.device_mapping import resolve_component_device_map
-        _cmap = resolve_component_device_map()
-        _multi_gpu_lm = bool(_cmap.dit and _cmap.lm and _cmap.lm != _cmap.dit)
+        # Reuse the device map resolved above (before the DiT was loaded): re-resolving
+        # here would re-rank GPUs by free VRAM after the DiT occupies its card and could
+        # disagree with where the LM was actually placed, wrongly forcing offload off.
+        _multi_gpu_lm = bool(
+            _dev_map and _dev_map.dit and _dev_map.lm and _dev_map.lm != _dev_map.dit
+        )
         _lm_offload = False if _multi_gpu_lm else offload_to_cpu
         lm_status, lm_success = llm_handler.initialize(
             checkpoint_dir=checkpoint_dir,

@@ -255,6 +255,10 @@ def _build_step_results() -> tuple[gr.Column, dict[str, Any]]:
                         elem_classes=["simple-save-btn"],
                     )
             with gr.Column(scale=1, elem_classes="simple-result-col") as simple_result_col_2:
+                gr.HTML(
+                    '<div class="simple-best-badge simple-best-badge-placeholder">'
+                    'Best Pick</div>'
+                )
                 simple_generated_audio_2 = gr.Audio(
                     label="",
                     type="filepath",

@@ -198,7 +198,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
         /* Prevent tooltip CSS from hiding content inside .no-tooltip components */
         .no-tooltip span[data-testid="block-info"] + div,
         .no-tooltip span[data-testid="block-info"] + span {
-            display: block !important;
+            display: block;
             position: static !important;
             background: none !important;
             padding: 0 !important;
@@ -240,6 +240,8 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
 
         /* ── Container ── */
         #simple-ui-column {
+            display: block !important;
+            position: relative;
             max-width: 680px;
             margin: 0 auto;
             padding: 0 1rem 2rem;
@@ -466,6 +468,11 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
 
         /* ── Step Indicator ── */
         .simple-step-indicator {
+            display: block !important;
+            flex: none !important;
+            height: 70px !important;
+            min-height: 70px !important;
+            max-height: 70px !important;
             margin: 0 0 1.5rem;
             overflow: visible !important;
             contain: none !important;
@@ -825,10 +832,6 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
 
         .simple-best-badge {
             display: inline-flex;
-            position: absolute;
-            top: 0.75rem;
-            left: 0.75rem;
-            z-index: 2;
             align-items: center;
             gap: 4px;
             background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
@@ -839,7 +842,11 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             letter-spacing: 0.05em;
             padding: 3px 10px;
             border-radius: 20px;
-            margin: 0;
+            margin: 0 0 2px;
+        }
+        .simple-best-badge-placeholder {
+            visibility: hidden;
+            pointer-events: none;
         }
 
         .simple-audio {

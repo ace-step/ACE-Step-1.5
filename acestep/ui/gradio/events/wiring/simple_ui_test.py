@@ -75,6 +75,14 @@ class TestSimpleUINavigation(unittest.TestCase):
         results_rule = css_source.split(".simple-results-row {", 1)[1].split("}", 1)[0]
         self.assertIn("grid-template-columns: repeat(2", results_rule)
 
+    def test_simple_root_uses_content_height_block_layout(self):
+        """Simple screens should not distribute viewport height between sections."""
+        interface_path = Path(__file__).parents[2] / "interfaces" / "__init__.py"
+        css_source = interface_path.read_text(encoding="utf-8")
+        root_rule = css_source.split("#simple-ui-column {", 1)[1].split("}", 1)[0]
+        self.assertIn("display: block", root_rule)
+        self.assertIn("min-height: 0", root_rule)
+
 
 class TestSimpleUIHelpers(unittest.TestCase):
     """Utility functions should produce expected output."""

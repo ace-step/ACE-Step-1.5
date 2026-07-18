@@ -36,6 +36,11 @@ from acestep.ui.gradio.events.results.lrc_utils import lrc_to_vtt_file
 from acestep.ui.gradio.events.results.session_artifacts import persist_sample_session_artifacts
 
 
+def _lyrics_are_instrumental(lyrics: str | None) -> bool:
+    """Return whether lyrics contain the generator's instrumental sentinel."""
+    return (lyrics or "").strip().lower() == "[instrumental]"
+
+
 def generate_with_progress(
     dit_handler, llm_handler,
     captions, lyrics, bpm, key_scale, time_signature, vocal_language,
@@ -140,7 +145,7 @@ def generate_with_progress(
         audio_codes=text2music_audio_code_string if not think_checkbox else "",
         caption=captions or "",
         lyrics=lyrics or "",
-        instrumental=False,
+        instrumental=_lyrics_are_instrumental(lyrics),
         vocal_language=vocal_language,
         bpm=bpm,
         keyscale=key_scale,

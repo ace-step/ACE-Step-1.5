@@ -3,6 +3,7 @@ Gradio UI Event Handlers Module
 Main entry point for setting up all event handlers
 """
 # Import handler modules
+from .wiring.simple_ui_wiring import register_simple_ui_handlers as setup_simple_ui_handlers
 from .wiring import (
     GenerationWiringContext,
     TrainingWiringContext,

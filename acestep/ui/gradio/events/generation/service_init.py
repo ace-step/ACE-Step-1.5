@@ -99,8 +99,10 @@ def init_service_wrapper(
         else:
             from acestep.core.generation.device_mapping import (
                 resolve_component_device_map,
+                validate_component_device_map,
             )
             _dev_map = resolve_component_device_map()
+            validate_component_device_map(_dev_map)
             lm_device = _dev_map.lm or device
 
     if init_llm and lm_model_path and gpu_config.available_lm_models:
@@ -139,8 +141,13 @@ def init_service_wrapper(
     if init_llm:
         checkpoint_dir = os.path.join(project_root, "checkpoints")
 
-        # Multi-GPU: keep the LM resident on its dedicated card (no CPU offload).
-        _lm_offload = False if os.getenv("ACESTEP_LM_DEVICE") else offload_to_cpu
+        # Multi-GPU: keep the LM resident when it is mapped to a different GPU than
+        # the DiT (env override OR free-VRAM auto-ranking) - it no longer competes
+        # for the DiT card's VRAM, so it must not be offloaded to CPU.
+        from acestep.core.generation.device_mapping import resolve_component_device_map
+        _cmap = resolve_component_device_map()
+        _multi_gpu_lm = bool(_cmap.dit and _cmap.lm and _cmap.lm != _cmap.dit)
+        _lm_offload = False if _multi_gpu_lm else offload_to_cpu
         lm_status, lm_success = llm_handler.initialize(
             checkpoint_dir=checkpoint_dir,
             lm_model_path=lm_model_path,

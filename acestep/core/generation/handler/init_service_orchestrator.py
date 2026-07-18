@@ -82,7 +82,7 @@ class InitServiceOrchestratorMixin:
                 component_device_map = resolve_component_device_map()
             validate_component_device_map(component_device_map)
             dit_device = component_device_map.dit or resolved_device
-            vae_device = component_device_map.vae or resolved_device
+            vae_device = component_device_map.vae or dit_device
             logger.info(
                 "[initialize_service] Resolved component GPU map: DiT={}, VAE={}, LM={}",
                 dit_device,

@@ -426,10 +426,13 @@ def main():
     if args.service_mode:
         print(f"  Backend: {args.backend}")
 
-    # Multi-GPU component placement (ACESTEP_LM_DEVICE): when the LM is pinned to
-    # its own dedicated GPU, the single-GPU offload/downgrade heuristics below do
-    # not apply (the LM no longer competes for the DiT's VRAM).
-    _multi_gpu_lm = bool(os.getenv("ACESTEP_LM_DEVICE"))
+    # Multi-GPU component placement: when the LM is mapped to a different GPU than
+    # the DiT (via ACESTEP_*_DEVICE overrides OR free-VRAM auto-ranking), the LM no
+    # longer competes for the DiT's VRAM, so the single-GPU offload/downgrade
+    # heuristics below do not apply.
+    from acestep.core.generation.device_mapping import resolve_component_device_map as _rcdm
+    _cmap = _rcdm()
+    _multi_gpu_lm = bool(_cmap.dit and _cmap.lm and _cmap.lm != _cmap.dit)
 
     # Auto-enable CPU offload for tier6 GPUs (16-24GB) when using the 4B LM model
     # The 4B LM (~8GB) + DiT (~4.7GB) + VAE + text encoder exceeds 16-20GB with activations

@@ -107,7 +107,16 @@ class InitServiceOrchestratorMixin:
                     "(set ACESTEP_ROCM_DTYPE=bfloat16 or float16 to override)"
                 )
             elif resolved_device == "cuda":
-                if gpu_config.cuda_supports_bfloat16():
+                # Query bfloat16 support on the DiT's mapped card (e.g. cuda:1) rather
+                # than the current/default device, so the shared DiT/text-encoder dtype
+                # matches the real hardware on mixed-generation multi-GPU rigs.
+                _dit_str = str(dit_device)
+                _dit_index = (
+                    int(_dit_str.split(":", 1)[1])
+                    if _dit_str.startswith("cuda:") and _dit_str.split(":", 1)[1].isdigit()
+                    else None
+                )
+                if gpu_config.cuda_supports_bfloat16(_dit_index):
                     self.dtype = torch.bfloat16
                 else:
                     self.dtype = torch.float16

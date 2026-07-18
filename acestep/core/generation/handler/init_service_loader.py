@@ -141,9 +141,14 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
                     exc,
                 )
 
+        # Query bfloat16 support on the *mapped* CUDA device (e.g. cuda:1), not the
+        # current/default device, so mixed-generation multi-GPU rigs select the right
+        # attention backend. A bare "cuda" parses to index None (= current device).
+        _device_kind, _, _device_index = str(device).partition(":")
+        _cuda_index = int(_device_index) if _device_index.isdigit() else None
         if use_flash_attention and self.is_flash_attention_available(device):
             attn_implementation = "flash_attention_2"
-        elif str(device).split(":", 1)[0] == "cuda" and not gpu_config.cuda_supports_bfloat16():
+        elif _device_kind == "cuda" and not gpu_config.cuda_supports_bfloat16(_cuda_index):
             # Pre-Ampere GPUs (compute capability < 8.0) run in float16 which
             # can overflow in SDPA's fused softmax with longer sequences,
             # producing NaN/Inf latents (see issues #924, #927).  Eager

@@ -1106,12 +1106,12 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
         simple_section = build_simple_ui()
         
         # Mode state shared between Simple and Advanced toggle buttons
-        simple_mode_state = gr.State(value="Advanced")
+        simple_mode_state = gr.State(value="Simple")
 
         # ═══════════════════════════════════════════
         # Advanced UI Column (visible when "Advanced" selected)
         # ═══════════════════════════════════════════
-        with gr.Column(visible=True) as advanced_column:
+        with gr.Column(visible=False) as advanced_column:
             # Compact mode toggle at the top of the Advanced column
             with gr.Row(elem_classes="advanced-mode-row"):
                 gr.HTML(
@@ -1170,6 +1170,13 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             fn=lambda: _init_llm_for_simple_ui(llm_handler, dit_handler),
             inputs=[],
             outputs=[],
+        )
+
+        demo.load(
+            fn=lambda: _init_llm_for_simple_ui(llm_handler, dit_handler),
+            inputs=[],
+            outputs=[],
+            show_progress="hidden",
         )
 
         # Connect event handlers

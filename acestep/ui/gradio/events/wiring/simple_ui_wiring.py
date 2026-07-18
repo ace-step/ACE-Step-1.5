@@ -73,14 +73,6 @@ def _build_status_html(message: str, is_success: bool) -> str:
     )
 
 
-def _result_card_updates(audio_1: str | None, audio_2: str | None) -> tuple:
-    """Return visibility updates for result cards with available audio."""
-    return (
-        gr.update(visible=audio_1 is not None),
-        gr.update(visible=audio_2 is not None),
-    )
-
-
 def _resolve_simple_lyrics(lyrics: str, instrumental: bool) -> str:
     """Return the generator lyrics value for the selected vocal mode."""
     return "[Instrumental]" if instrumental else (lyrics or "")
@@ -95,6 +87,10 @@ def _completion_message() -> str:
     """Return a translated completion message with an English fallback."""
     message = t("messages.generation_complete")
     return "Generation complete" if message == "messages.generation_complete" else message
+
+
+def _ignore_progress(*args: Any, **kwargs: Any) -> None:
+    """Suppress native Gradio progress when the Simple UI renders its own status."""
 
 
 def _navigate_to(target: int, current_step: int) -> tuple:
@@ -218,8 +214,6 @@ def _start_generation() -> tuple:
         gr.skip(),  # 8: metadata 1
         gr.skip(),  # 9: metadata 2
         gr.skip(), gr.skip(), gr.skip(), gr.skip(),  # 10-13: batch state
-        gr.update(visible=False),  # 14: result card 1
-        gr.update(visible=False),  # 15: result card 2
     )
 
 
@@ -234,7 +228,6 @@ def _simple_generate_wrapper(
     total_batches: int,
     batch_queue: dict,
     generation_params_state: dict,
-    progress: gr.Progress = gr.Progress(track_tqdm=True),
 ):
     """Generate music and stream progress through steps 4 and 5."""
     gc.collect()
@@ -260,7 +253,6 @@ def _simple_generate_wrapper(
             gr.update(value='<div class="simple-progress-status">Generating lyrics...</div>'),  # 6
             gr.skip(), gr.skip(), gr.skip(),  # 7-9: gen_info, metadata_1, metadata_2
             gr.skip(), gr.skip(), gr.skip(), gr.skip(),  # 10-13: batch state
-            gr.skip(), gr.skip(),  # 14-15: result cards
         )
         result = create_sample(
             llm_handler=llm_handler,
@@ -291,7 +283,6 @@ def _simple_generate_wrapper(
         gr.update(value='<div class="simple-progress-status">Creating your music...</div>'),  # 6
         gr.skip(), gr.skip(), gr.skip(),  # 7-9: gen_info, metadata_1, metadata_2
         gr.skip(), gr.skip(), gr.skip(), gr.skip(),  # 10-13: batch state
-        gr.skip(), gr.skip(),  # 14-15: result cards
     )
 
     params: dict[str, Any] = {}
@@ -363,7 +354,7 @@ def _simple_generate_wrapper(
         params["latent_shift"], params["latent_rescale"],
         params["repaint_mode"], params["repaint_strength"],
         params["retake_variance"], params["retake_seed"],
-        progress,
+        _ignore_progress,
     )
 
     # Forward intermediate yields so Gradio 6 streams audio updates live
@@ -384,7 +375,6 @@ def _simple_generate_wrapper(
             gr.skip(),                                         # 8: metadata 1
             gr.skip(),                                         # 9: metadata 2
             gr.skip(), gr.skip(), gr.skip(), gr.skip(),        # 10-13: batch state
-            gr.skip(), gr.skip(),                              # 14-15: result cards
         )
 
     if final_result is None:
@@ -399,7 +389,6 @@ def _simple_generate_wrapper(
             gr.update(value=_build_status_html("Generation failed. Please try again.", False)),  # 7
             gr.skip(), gr.skip(),  # 8-9: metadata_1, metadata_2
             current_batch_index, total_batches, batch_queue, generation_params_state,  # 10-13
-            gr.update(visible=False), gr.update(visible=False),  # 14-15
         )
         return
 
@@ -420,7 +409,6 @@ def _simple_generate_wrapper(
             gr.update(value=_build_status_html(str(err_msg), False)),  # 7
             gr.skip(), gr.skip(),  # 8-9: metadata_1, metadata_2
             current_batch_index, total_batches, batch_queue, generation_params_state,  # 10-13
-            gr.update(visible=False), gr.update(visible=False),  # 14-15
         )
         return
 
@@ -479,7 +467,6 @@ def _simple_generate_wrapper(
     audio_paths_list = all_audio_paths if isinstance(all_audio_paths, list) else []
     audio_1 = audio_paths_list[0] if len(audio_paths_list) >= 1 else None
     audio_2 = audio_paths_list[2] if len(audio_paths_list) >= 3 else None
-    result_card_updates = _result_card_updates(audio_1, audio_2)
 
     meta_1 = _build_metadata_html(0, params["audio_format"])
     meta_2 = _build_metadata_html(0, params["audio_format"])
@@ -501,7 +488,6 @@ def _simple_generate_wrapper(
         total_batches,  # 11
         batch_queue,  # 12
         saved_params,  # 13
-        *result_card_updates,  # 14-15
     )
 
 
@@ -667,8 +653,6 @@ def register_simple_ui_handlers(
         results_section["total_batches"],         # 11
         results_section["batch_queue"],           # 12
         results_section["generation_params_state"], # 13
-        gs["simple_result_col_1"],                 # 14
-        gs["simple_result_col_2"],                 # 15
     ]
 
     _gen_shared_inputs = [
@@ -693,10 +677,12 @@ def register_simple_ui_handlers(
         fn=_start_generation,
         inputs=[],
         outputs=_gen_outputs,
+        show_progress="hidden",
     ).then(
         fn=_gen_wrapper,
         inputs=_gen_shared_inputs,
         outputs=_gen_outputs,
+        show_progress="hidden",
     )
 
     # ── Save Buttons ──

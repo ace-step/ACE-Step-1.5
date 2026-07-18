@@ -313,7 +313,7 @@ def build_simple_ui() -> dict[str, Any]:
     Returns:
         A merged component map for all simple-UI controls.
     """
-    with gr.Column(visible=False, elem_id="simple-ui-column") as simple_column:
+    with gr.Column(visible=True, elem_id="simple-ui-column") as simple_column:
         gr.HTML(_build_header())
 
         # ── Hamburger toggle button ──

@@ -19,10 +19,10 @@ from acestep.ui.gradio.events.wiring.simple_ui_wiring import (
     _build_metadata_html,
     _format_duration,
     _go_random,
-    _result_card_updates,
     _resolve_simple_lyrics,
     _instrumental_lyrics_update,
     _completion_message,
+    _ignore_progress,
 )
 
 
@@ -105,11 +105,6 @@ class TestSimpleUIHelpers(unittest.TestCase):
         html = _build_status_html("Generation failed", False)
         self.assertNotIn("success", html)
 
-    def test_result_cards_follow_available_audio(self):
-        first, second = _result_card_updates("first.flac", None)
-        self.assertTrue(first["visible"])
-        self.assertFalse(second["visible"])
-
     def test_instrumental_mode_replaces_lyrics_with_sentinel(self):
         self.assertEqual(_resolve_simple_lyrics("written lyrics", True), "[Instrumental]")
 
@@ -129,13 +124,16 @@ class TestSimpleUIHelpers(unittest.TestCase):
         mock_t.return_value = "messages.generation_complete"
         self.assertEqual(_completion_message(), "Generation complete")
 
+    def test_simple_progress_callback_is_silent(self):
+        self.assertIsNone(_ignore_progress(0.5, desc="Generating"))
+
 
 class TestSimpleUIStartGeneration(unittest.TestCase):
     """_start_generation should return values matching generation outputs."""
 
-    def test_returns_16_values(self):
+    def test_returns_14_values(self):
         result = _start_generation()
-        self.assertEqual(len(result), 16)
+        self.assertEqual(len(result), 14)
 
     def test_step_3_hidden(self):
         result = _start_generation()
@@ -154,11 +152,6 @@ class TestSimpleUIStartGeneration(unittest.TestCase):
         html = result[2]["value"]
         self.assertIn("Creating", html)
         self.assertIn('filter="url(#glow)"', html)
-
-    def test_result_cards_hidden_while_generating(self):
-        result = _start_generation()
-        self.assertFalse(result[14]["visible"])
-        self.assertFalse(result[15]["visible"])
 
 
 class TestSimpleUIGenerateWrapper(unittest.TestCase):
@@ -187,9 +180,9 @@ class TestSimpleUIGenerateWrapper(unittest.TestCase):
         )
 
         step1 = next(gen)
-        self.assertEqual(len(step1), 16)
+        self.assertEqual(len(step1), 14)
         step2 = next(gen)
-        self.assertEqual(len(step2), 16)
+        self.assertEqual(len(step2), 14)
 
     @patch("acestep.ui.gradio.events.wiring.simple_ui_wiring.generate_with_progress")
     def test_generate_wrapper_with_lyrics_skips_sample_creation(self, mock_gen):
@@ -205,9 +198,9 @@ class TestSimpleUIGenerateWrapper(unittest.TestCase):
         )
 
         step1 = next(gen)
-        self.assertEqual(len(step1), 16)
+        self.assertEqual(len(step1), 14)
         step2 = next(gen)
-        self.assertEqual(len(step2), 16)
+        self.assertEqual(len(step2), 14)
 
     @patch("acestep.ui.gradio.events.wiring.simple_ui_wiring.generate_with_progress")
     def test_generate_wrapper_with_audio_sets_cover_task(self, mock_gen):
@@ -223,9 +216,9 @@ class TestSimpleUIGenerateWrapper(unittest.TestCase):
         )
 
         step1 = next(gen)
-        self.assertEqual(len(step1), 16)
+        self.assertEqual(len(step1), 14)
         step2 = next(gen)
-        self.assertEqual(len(step2), 16)
+        self.assertEqual(len(step2), 14)
 
     @patch("acestep.ui.gradio.events.wiring.simple_ui_wiring.generate_with_progress")
     @patch("acestep.ui.gradio.events.wiring.simple_ui_wiring.get_global_gpu_config")
@@ -256,11 +249,11 @@ class TestSimpleUIGenerateWrapper(unittest.TestCase):
 
         # First yield: LLM init progress
         step1 = next(gen)
-        self.assertEqual(len(step1), 16)
+        self.assertEqual(len(step1), 14)
 
         # Second yield (and onwards): LLM init happens + rest of generation
         step2 = next(gen)
-        self.assertEqual(len(step2), 16)
+        self.assertEqual(len(step2), 14)
 
         # The initialize() method should have been called
         self.llm.initialize.assert_called_once()
@@ -292,9 +285,9 @@ class TestSimpleUIGenerateWrapper(unittest.TestCase):
         )
 
         step1 = next(gen)
-        self.assertEqual(len(step1), 16)
+        self.assertEqual(len(step1), 14)
         step2 = next(gen)
-        self.assertEqual(len(step2), 16)
+        self.assertEqual(len(step2), 14)
 
 
 class TestAboutOverlay(unittest.TestCase):
@@ -328,6 +321,12 @@ class TestSimpleMenu(unittest.TestCase):
             button = components[key]
             self.assertEqual(button.value, label)
             self.assertIn(icon_class, button.elem_classes)
+
+    def test_simple_ui_is_visible_by_default(self):
+        with gr.Blocks():
+            components = build_simple_ui()
+
+        self.assertTrue(components["simple_column"].visible)
 
 
 if __name__ == "__main__":

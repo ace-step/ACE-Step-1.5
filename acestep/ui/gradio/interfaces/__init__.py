@@ -239,13 +239,19 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
            ═══════════════════════════════════════════ */
 
         /* ── Container ── */
+        body:has(#simple-ui-column),
+        .gradio-container:has(#simple-ui-column) {
+            background: #f1f0f5 !important;
+        }
         #simple-ui-column {
             display: block !important;
             position: relative;
-            max-width: 680px;
+            width: min(880px, calc(100vw - 2rem));
+            max-width: 880px;
             margin: 0 auto;
             padding: 0 1rem 2rem;
             background: #faf8f6;
+            box-shadow: 0 18px 50px rgba(31, 35, 48, 0.12);
             min-height: 0;
             height: auto;
             overflow: hidden;
@@ -996,6 +1002,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
         /* ── Responsive ── */
         @media (max-width: 640px) {
             #simple-ui-column {
+                width: calc(100vw - 1rem);
                 padding: 0 0.5rem 2rem;
             }
             .simple-header {

@@ -83,6 +83,15 @@ class TestSimpleUINavigation(unittest.TestCase):
         root_rule = css_source.split("#simple-ui-column {", 1)[1].split("}", 1)[0]
         self.assertIn("display: block", root_rule)
         self.assertIn("min-height: 0", root_rule)
+        self.assertIn("width: min(880px", root_rule)
+
+    def test_simple_ui_uses_neutral_outer_canvas(self):
+        """The desktop canvas should complement the light Simple UI card."""
+        interface_path = Path(__file__).parents[2] / "interfaces" / "__init__.py"
+        css_source = interface_path.read_text(encoding="utf-8")
+
+        self.assertIn(".gradio-container:has(#simple-ui-column)", css_source)
+        self.assertIn("background: #f1f0f5 !important", css_source)
 
 
 class TestSimpleUIHelpers(unittest.TestCase):

@@ -129,20 +129,51 @@ class IoAudioMixin:
         if audio_file is None:
             return None
 
+        # ------------------------------------------------------------------
+        # 前置校验：文件存在性 + 大小，在尝试解码前快速失败并给出明确原因
+        # ------------------------------------------------------------------
+        import os as _os
+        if not _os.path.exists(audio_file):
+            logger.error(
+                "[process_reference_audio] File does not exist: {path}",
+                path=audio_file,
+            )
+            return None
+
+        file_size = _os.path.getsize(audio_file)
+        if file_size == 0:
+            logger.error(
+                "[process_reference_audio] File is empty (0 bytes): {path}",
+                path=audio_file,
+            )
+            return None
+
+        logger.debug(
+            "[process_reference_audio] Starting processing: path={path}, size={size} bytes",
+            path=audio_file,
+            size=file_size,
+        )
+
         try:
             audio_np, sr = _read_audio_file(audio_file)
             audio = self._numpy_to_channels_first(audio_np)
 
             logger.debug(
-                f"[process_reference_audio] Reference audio shape: {audio.shape}"
-            )
-            logger.debug(f"[process_reference_audio] Reference audio sample rate: {sr}")
-            logger.debug(
-                f"[process_reference_audio] Reference audio duration: {audio.shape[-1] / sr:.6f} seconds"
+                "[process_reference_audio] Loaded: shape={shape}, sr={sr}, "
+                "duration={dur:.3f}s, path={path}",
+                shape=audio.shape,
+                sr=sr,
+                dur=audio.shape[-1] / sr if sr > 0 else 0.0,
+                path=audio_file,
             )
 
             audio = self._normalize_audio_to_stereo_48k(audio, sr)
             if self.is_silence(audio):
+                logger.warning(
+                    "[process_reference_audio] Audio is silent (all zeros), "
+                    "ignoring reference: {path}",
+                    path=audio_file,
+                )
                 return None
 
             target_frames = 30 * 48000
@@ -169,9 +200,16 @@ class IoAudioMixin:
             back_audio = audio[:, back_start : back_start + segment_frames]
 
             return torch.cat([front_audio, middle_audio, back_audio], dim=-1)
+
         except Exception as exc:
-            logger.warning(
-                f"[process_reference_audio] Invalid or unsupported reference audio: {exc}"
+            # logger.exception 会自动附加完整 traceback（loguru 语义）
+            logger.exception(
+                "[process_reference_audio] Failed to process reference audio: "
+                "path={path}, size={size} bytes, error_type={etype}, error={exc}",
+                path=audio_file,
+                size=file_size,
+                etype=type(exc).__name__,
+                exc=exc,
             )
             return None
 

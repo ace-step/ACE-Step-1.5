@@ -18,6 +18,7 @@ import torch
 
 from acestep.audio_utils import AudioSaver, apply_fade, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
 from acestep.constants import BPM_MIN, BPM_MAX, DURATION_MAX, TASK_TYPES, VALID_TIME_SIGNATURES
+from library.log.log import server_logger
 
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
@@ -544,11 +545,16 @@ def generate_music(
                     audio_codes_list = result.get("audio_codes", [])
                     all_metadata_list.extend(metadata_list)
                     all_audio_codes_list.extend(audio_codes_list)
+
+                    server_logger.error(content=f"生成metadata: {metadata_list}", robot=True)
+
                 else:
                     metadata = result.get("metadata", {})
                     audio_codes = result.get("audio_codes", "")
                     all_metadata_list.append(metadata)
                     all_audio_codes_list.append(audio_codes)
+
+                    server_logger.error(content=f"生成metadata: {metadata}", robot=True)
 
                 # Collect time costs from LM extra_outputs
                 lm_extra = result.get("extra_outputs", {})

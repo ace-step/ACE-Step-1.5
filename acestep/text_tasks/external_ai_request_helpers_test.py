@@ -127,6 +127,24 @@ class ExternalAIRequestHelpersTests(unittest.TestCase):
         self.assertEqual(payload["stop"], ["```"])
         self.assertNotIn("thinking", payload)
 
+    def test_build_request_for_protocol_requests_json_output_for_minimax_format(self) -> None:
+        """MiniMax format-mode requests should use OpenAI-compatible JSON output flags."""
+
+        payload, _headers = build_request_for_protocol(
+            protocol="openai_chat",
+            provider="minimax",
+            api_key="test-key",
+            model="MiniMax-M3",
+            messages=[{"role": "system", "content": "s"}, {"role": "user", "content": "u"}],
+            base_url="https://api.minimax.io/v1/chat/completions",
+            max_tokens=768,
+            require_json_output=True,
+        )
+
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["stop"], ["```"])
+        self.assertNotIn("thinking", payload)
+
     def test_build_request_for_protocol_disables_zai_thinking_and_requests_json(self) -> None:
         """Z.ai format calls should disable thinking and request JSON output."""
 

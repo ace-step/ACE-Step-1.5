@@ -507,6 +507,18 @@ def _default_instruction_for_task(task_type: str, tracks: Optional[List[str]] = 
     return DEFAULT_DIT_INSTRUCTION
 
 
+def _is_turbo_model(config_path: Optional[str]) -> bool:
+    """Check whether a DiT config path refers to a turbo (distilled) model.
+
+    Mirrors the Gradio UI's turbo detection (acestep/ui/gradio/events/generation
+    /model_config.py::_has_token) so CLI/API runs pick the same DCW default as
+    the UI instead of always inheriting GenerationParams.dcw_enabled=True.
+    """
+    if not config_path:
+        return False
+    return re.search(r"(^|[\\/._-])turbo($|[\\/._-])", str(config_path).lower()) is not None
+
+
 def _apply_optional_defaults(args, params_defaults: GenerationParams, config_defaults: GenerationConfig) -> None:
     optional_defaults = {
         "duration": params_defaults.duration,
@@ -1106,6 +1118,14 @@ def main():
         "seed": params_defaults.seed,
         "guidance_scale": params_defaults.guidance_scale,
         "use_adg": params_defaults.use_adg,
+        # dcw_enabled is left unset (None) here: it is resolved from the selected
+        # model (turbo vs non-turbo) once config_path is known, unless a TOML
+        # config or the wizard explicitly overrides it. See issue #1259.
+        "dcw_enabled": None,
+        "dcw_mode": params_defaults.dcw_mode,
+        "dcw_scaler": params_defaults.dcw_scaler,
+        "dcw_high_scaler": params_defaults.dcw_high_scaler,
+        "dcw_wavelet": params_defaults.dcw_wavelet,
         "shift": 3.0,
         "infer_method": params_defaults.infer_method,
         "timesteps": None,
@@ -1625,6 +1645,18 @@ def main():
             preloaded_prompt = None
         _install_prompt_edit_hook(llm_handler, instruction_path, preloaded_prompt=preloaded_prompt)
 
+    # DCW defaults to enabled in GenerationParams, but that only sounds clean on
+    # turbo models; on non-turbo (base/sft) models it produces distorted output
+    # (see issue #1259). The Gradio UI already turns DCW off for non-turbo models
+    # (acestep/ui/gradio/events/generation/model_config.py); mirror that here
+    # unless the user (via TOML config) explicitly set dcw_enabled themselves.
+    if args.dcw_enabled is None:
+        args.dcw_enabled = _is_turbo_model(args.config_path)
+        print(
+            f"INFO: dcw_enabled not set explicitly; defaulting to {args.dcw_enabled} "
+            f"for model '{args.config_path}' (set dcw_enabled in your TOML config to override)."
+        )
+
     # --- Configure Generation ---
     params = GenerationParams(
         task_type=args.task_type,
@@ -1644,6 +1676,11 @@ def main():
         seed=args.seed,
         guidance_scale=args.guidance_scale,
         use_adg=args.use_adg,
+        dcw_enabled=args.dcw_enabled,
+        dcw_mode=args.dcw_mode,
+        dcw_scaler=args.dcw_scaler,
+        dcw_high_scaler=args.dcw_high_scaler,
+        dcw_wavelet=args.dcw_wavelet,
         cfg_interval_start=args.cfg_interval_start,
         cfg_interval_end=args.cfg_interval_end,
         shift=args.shift,

@@ -106,11 +106,12 @@ class GenerateMusicRequestMixin:
         actual_batch_size: int,
         task_type: str,
         flow_edit_morph: bool = False,
+        seed: Optional[int] = None,
     ) -> Tuple[Optional[List[List[torch.Tensor]]], Optional[torch.Tensor], Optional[Dict[str, Any]]]:
         """Prepare reference/source audio tensors and return early error payload when invalid."""
         if reference_audio is not None:
             logger.info("[generate_music] Processing reference audio...")
-            processed_ref_audio = self.process_reference_audio(reference_audio)
+            processed_ref_audio = self.process_reference_audio(reference_audio, seed=seed)
             if processed_ref_audio is None:
                 return None, None, {
                     "audios": [],

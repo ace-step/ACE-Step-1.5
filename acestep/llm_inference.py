@@ -915,6 +915,11 @@ class LLMHandler:
             torch.manual_seed(seeds[0])
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seeds[0])
+            if len(set(seeds)) > 1:
+                logger.info(
+                    "_run_vllm: per-item seeds are not supported by the vllm backend; "
+                    f"seeding the whole batch with the first seed ({seeds[0]})"
+                )
 
         # Determine effective temperature for sampler
         # Batch mode doesn't support phase temperatures, so use simple temperature
@@ -1332,8 +1337,10 @@ class LLMHandler:
             use_cot_language: Whether to generate language in CoT (default True).
             batch_size: Optional batch size for batch generation. If None or 1, returns single result.
                        If > 1, returns batch results (lists).
-            seeds: Optional list of seeds for batch generation (for reproducibility).
-                  Only used when batch_size > 1. TODO: not used yet
+            seeds: Optional list of per-item seeds for reproducible sampling.
+                  Applied to CoT and codes generation on all backends. The
+                  vllm backend cannot seed per item (all prompts share one
+                  sampling stream), so it seeds once per call with seeds[0].
 
         Returns:
             Dictionary containing:
@@ -4063,9 +4070,12 @@ class LLMHandler:
             logger.info(f"MLX batch: using sequential mode (batch_size={batch_size})")
             output_texts = []
             for i, formatted_prompt in enumerate(formatted_prompt_list):
-                # Set MLX seed for reproducibility
+                # Set MLX seed for reproducibility. Also seed torch: the
+                # hybrid fallback samples via torch.multinomial
+                # (_sample_tokens), which mx.random.seed does not cover.
                 if seeds and i < len(seeds):
                     mx.random.seed(seeds[i])
+                    torch.manual_seed(seeds[i])
 
                 output_text = self._run_mlx_single(
                     formatted_prompt=formatted_prompt,
@@ -4093,9 +4103,11 @@ class LLMHandler:
 
         # Single mode
         formatted_prompt = formatted_prompt_list[0]
-        # Set MLX seed for reproducibility (mirrors the sequential batch path)
+        # Set MLX seed for reproducibility (mirrors the sequential batch path).
+        # Also seed torch for the hybrid fallback's torch.multinomial sampling.
         if seeds:
             mx.random.seed(seeds[0])
+            torch.manual_seed(seeds[0])
         return self._run_mlx_single(
             formatted_prompt=formatted_prompt,
             temperature=temperature,

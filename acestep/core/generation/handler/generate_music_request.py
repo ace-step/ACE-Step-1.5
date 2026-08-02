@@ -108,7 +108,11 @@ class GenerateMusicRequestMixin:
         flow_edit_morph: bool = False,
         seed: Optional[int] = None,
     ) -> Tuple[Optional[List[List[torch.Tensor]]], Optional[torch.Tensor], Optional[Dict[str, Any]]]:
-        """Prepare reference/source audio tensors and return early error payload when invalid."""
+        """Prepare reference/source audio tensors and return early error payload when invalid.
+
+        ``seed`` makes the reference-audio segment sampling deterministic so
+        same-seed generations condition on the same reference slices.
+        """
         if reference_audio is not None:
             logger.info("[generate_music] Processing reference audio...")
             processed_ref_audio = self.process_reference_audio(reference_audio, seed=seed)

@@ -907,6 +907,15 @@ class LLMHandler:
         formatted_prompt_list, is_batch = self._normalize_batch_input(formatted_prompts)
         batch_size = len(formatted_prompt_list)
 
+        # Seed torch RNG for reproducibility. nano-vllm's sampler draws from the
+        # global torch generator; it samples all prompts in a single stream, so
+        # per-item seeding is not possible — seeding once with the first seed
+        # still makes same-seed runs reproducible.
+        if seeds:
+            torch.manual_seed(seeds[0])
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seeds[0])
+
         # Determine effective temperature for sampler
         # Batch mode doesn't support phase temperatures, so use simple temperature
         # Single mode supports phase temperatures
@@ -1220,6 +1229,14 @@ class LLMHandler:
         # Single mode: process the formatted prompt
         formatted_prompt = formatted_prompt_list[0]
 
+        # Set seed for reproducibility (mirrors the batch path above)
+        if seeds:
+            torch.manual_seed(seeds[0])
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seeds[0])
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                torch.mps.manual_seed(seeds[0])
+
         return self._run_pt_single(
             formatted_prompt=formatted_prompt,
             temperature=temperature,
@@ -1397,6 +1414,7 @@ class LLMHandler:
                     # Pass context for building unconditional prompt in CoT phase
                     "caption": caption,
                     "lyrics": lyrics,
+                    "seeds": seeds,
                 },
                 use_constrained_decoding=use_constrained_decoding,
                 constrained_decoding_debug=constrained_decoding_debug,
@@ -1619,6 +1637,7 @@ class LLMHandler:
                     "caption": caption,
                     "lyrics": lyrics,
                     "cot_text": cot_text,
+                    "seeds": seeds,
                 },
                 use_constrained_decoding=use_constrained_decoding,
                 constrained_decoding_debug=constrained_decoding_debug,
@@ -2379,6 +2398,7 @@ class LLMHandler:
                 - top_k (int), top_p (float), repetition_penalty (float)
                 - target_duration (float): Target duration in seconds for codes generation
                 - generation_phase (str): "cot" or "codes" for phase-aware CFG
+                - seeds (List[int]): Optional seeds for reproducible sampling
             use_constrained_decoding: Whether to use FSM-based constrained decoding
             constrained_decoding_debug: Whether to enable debug logging for constrained decoding
             stop_at_reasoning: If True, stop generation immediately after </think> tag (no audio codes)
@@ -2416,6 +2436,7 @@ class LLMHandler:
         caption = cfg.get("caption", "")
         lyrics = cfg.get("lyrics", "")
         cot_text = cfg.get("cot_text", "")
+        seeds = cfg.get("seeds")  # Optional list of seeds for reproducible sampling
 
         try:
             if self.llm_backend == "vllm":
@@ -2439,6 +2460,7 @@ class LLMHandler:
                     caption=caption,
                     lyrics=lyrics,
                     cot_text=cot_text,
+                    seeds=seeds,
                 )
                 self._clear_accelerator_cache()
                 return output_text, f"✅ Generated successfully (vllm) | length={len(output_text)}"
@@ -2465,6 +2487,7 @@ class LLMHandler:
                     caption=caption,
                     lyrics=lyrics,
                     cot_text=cot_text,
+                    seeds=seeds,
                 )
                 self._clear_accelerator_cache()
                 return output_text, f"✅ Generated successfully (mlx) | length={len(output_text)}"
@@ -2490,6 +2513,7 @@ class LLMHandler:
                 caption=caption,
                 lyrics=lyrics,
                 cot_text=cot_text,
+                seeds=seeds,
             )
             self._clear_accelerator_cache()
             return output_text, f"✅ Generated successfully (pt) | length={len(output_text)}"
@@ -4069,6 +4093,9 @@ class LLMHandler:
 
         # Single mode
         formatted_prompt = formatted_prompt_list[0]
+        # Set MLX seed for reproducibility (mirrors the sequential batch path)
+        if seeds:
+            mx.random.seed(seeds[0])
         return self._run_mlx_single(
             formatted_prompt=formatted_prompt,
             temperature=temperature,

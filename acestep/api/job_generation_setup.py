@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from acestep.inference import GenerationConfig, GenerationParams
+from acestep.model_type import is_turbo_model_path
 
 # Sentinel value indicating the LM should auto-calculate duration from
 # lyrics length and song structure.  Downstream handlers
@@ -117,6 +118,7 @@ def build_generation_setup(
     is_instrumental: Callable[[str], bool],
     default_dit_instruction: str,
     task_instructions: dict[str, str],
+    selected_model_name: Optional[str] = None,
 ) -> GenerationSetup:
     """Build GenerationParams and GenerationConfig from request and prepared LLM inputs.
 
@@ -139,12 +141,19 @@ def build_generation_setup(
         is_instrumental: Instrumental detection callback.
         default_dit_instruction: Default instruction constant.
         task_instructions: Task instruction mapping.
+        selected_model_name: Resolved DiT model name/label for this job, used to
+            default `dcw_enabled` when the request doesn't set it explicitly
+            (see issue #1259). Unknown/unset defaults to DCW off (safe default:
+            never risks reintroducing the distortion bug).
 
     Returns:
         GenerationSetup: Prepared params/config pair for `generate_music`.
     """
 
     parsed_timesteps = parse_timesteps(req.timesteps)
+    dcw_enabled = getattr(req, "dcw_enabled", None)
+    if dcw_enabled is None:
+        dcw_enabled = is_turbo_model_path(selected_model_name)
     instruction_to_use = _resolve_instruction(
         req=req,
         default_dit_instruction=default_dit_instruction,
@@ -170,6 +179,11 @@ def build_generation_setup(
         seed=req.seed,
         guidance_scale=req.guidance_scale,
         use_adg=req.use_adg,
+        dcw_enabled=dcw_enabled,
+        dcw_mode=getattr(req, "dcw_mode", "double"),
+        dcw_scaler=getattr(req, "dcw_scaler", 0.05),
+        dcw_high_scaler=getattr(req, "dcw_high_scaler", 0.02),
+        dcw_wavelet=getattr(req, "dcw_wavelet", "haar"),
         cfg_interval_start=req.cfg_interval_start,
         cfg_interval_end=req.cfg_interval_end,
         shift=req.shift,

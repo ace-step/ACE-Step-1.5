@@ -122,6 +122,7 @@ def run_blocking_generate(
         is_instrumental=is_instrumental,
         default_dit_instruction=default_dit_instruction,
         task_instructions=task_instructions,
+        selected_model_name=selected_model_name,
     )
     params = generation_setup.params
     config = generation_setup.config

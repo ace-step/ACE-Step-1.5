@@ -65,6 +65,7 @@ _configure_logging()
 from acestep.handler import AceStepHandler
 from acestep.llm_inference import LLMHandler
 from acestep.inference import GenerationParams, GenerationConfig, generate_music, create_sample, format_sample
+from acestep.model_type import is_turbo_model_path
 from acestep.constants import DEFAULT_DIT_INSTRUCTION, TASK_INSTRUCTIONS
 from acestep.gpu_config import get_gpu_config, set_global_gpu_config, is_mps_platform
 import torch
@@ -505,18 +506,6 @@ def _default_instruction_for_task(task_type: str, tracks: Optional[List[str]] = 
         tracks_list = ", ".join(tracks) if tracks else "drums, bass, guitar"
         return TASK_INSTRUCTIONS["complete"].format(TRACK_CLASSES=tracks_list)
     return DEFAULT_DIT_INSTRUCTION
-
-
-def _is_turbo_model(config_path: Optional[str]) -> bool:
-    """Check whether a DiT config path refers to a turbo (distilled) model.
-
-    Mirrors the Gradio UI's turbo detection (acestep/ui/gradio/events/generation
-    /model_config.py::_has_token) so CLI/API runs pick the same DCW default as
-    the UI instead of always inheriting GenerationParams.dcw_enabled=True.
-    """
-    if not config_path:
-        return False
-    return re.search(r"(^|[\\/._-])turbo($|[\\/._-])", str(config_path).lower()) is not None
 
 
 def _apply_optional_defaults(args, params_defaults: GenerationParams, config_defaults: GenerationConfig) -> None:
@@ -1651,7 +1640,7 @@ def main():
     # (acestep/ui/gradio/events/generation/model_config.py); mirror that here
     # unless the user (via TOML config) explicitly set dcw_enabled themselves.
     if args.dcw_enabled is None:
-        args.dcw_enabled = _is_turbo_model(args.config_path)
+        args.dcw_enabled = is_turbo_model_path(args.config_path)
         print(
             f"INFO: dcw_enabled not set explicitly; defaulting to {args.dcw_enabled} "
             f"for model '{args.config_path}' (set dcw_enabled in your TOML config to override)."

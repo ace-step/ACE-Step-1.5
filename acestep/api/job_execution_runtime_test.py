@@ -33,7 +33,13 @@ class JobExecutionRuntimeTests(unittest.IsolatedAsyncioTestCase):
         update_terminal_job_cache_fn = MagicMock()
         build_blocking_result_fn = MagicMock(return_value={"status_message": "Success"})
         loop_mock = MagicMock()
-        loop_mock.run_in_executor = AsyncMock(return_value={"status_message": "Success"})
+
+        # Handler selection runs inside the executor callable (it may load a
+        # model on demand), so the mock must actually invoke the callable.
+        async def _run_in_executor(_executor, fn):
+            return fn()
+
+        loop_mock.run_in_executor = AsyncMock(side_effect=_run_in_executor)
 
         with patch("acestep.api.job_execution_runtime.asyncio.get_running_loop", return_value=loop_mock):
             await run_one_job_runtime(

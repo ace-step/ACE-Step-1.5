@@ -93,8 +93,10 @@ def do_model_initialization(
     app.state._initialized = True
     # Captured for on-demand model switching (ACESTEP_ON_DEMAND_MODEL_LOAD):
     # a later request for an unloaded model re-runs initialize_service on the
-    # primary handler with these same kwargs.
-    app.state._model_init_kwargs = {
+    # primary handler with these same kwargs. Named distinctly from the
+    # lazy-init kwargs some runtimes store as _model_init_kwargs, which have
+    # an incompatible do_model_initialization(**kwargs) shape.
+    app.state._service_init_kwargs = {
         "project_root": project_root,
         "device": device,
         "use_flash_attention": use_flash_attention,

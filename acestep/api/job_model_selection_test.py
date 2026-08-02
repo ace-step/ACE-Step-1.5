@@ -105,7 +105,7 @@ class OnDemandModelLoadTests(unittest.TestCase):
             _initialized3=False,
             _config_path="acestep-v15-turbo",
             _checkpoint_dir="/ckpt",
-            _model_init_kwargs={"device": "auto"},
+            _service_init_kwargs={"device": "auto"},
             _ensure_model_downloaded=MagicMock(),
         )
         state.handler.initialize_service = MagicMock(return_value=("ok", True))
@@ -120,7 +120,11 @@ class OnDemandModelLoadTests(unittest.TestCase):
             log_fn=logger or MagicMock(),
         )
 
-    _ENV_ON = {"ACESTEP_ON_DEMAND_MODEL_LOAD": "true"}
+    _ENV_ON = {
+        "ACESTEP_ON_DEMAND_MODEL_LOAD": "true",
+        "ACESTEP_QUEUE_WORKERS": "1",
+        "ACESTEP_API_WORKERS": "1",
+    }
 
     @patch.dict(os.environ, _ENV_ON, clear=False)
     def test_loads_requested_model_when_enabled(self) -> None:
@@ -166,18 +170,68 @@ class OnDemandModelLoadTests(unittest.TestCase):
         self.assertIn("failed", logger.call_args[0][0])
 
     @patch.dict(os.environ, _ENV_ON, clear=False)
-    def test_load_failure_falls_back_to_primary(self) -> None:
-        """A failed initialize_service should fall back and keep the config path."""
+    def test_load_failure_fails_the_job_and_clears_config_path(self) -> None:
+        """A failed initialize_service may leave the handler torn: the job
+        must fail (no silent fallback), and the cleared config path forces the
+        next request through a full reload instead of short-circuiting."""
 
         app_state = self._app_state()
         app_state.handler.initialize_service = MagicMock(return_value=("boom", False))
+
+        with self.assertRaises(RuntimeError):
+            self._select(app_state, "acestep-v15-sft")
+        self.assertEqual("", app_state._config_path)
+
+    @patch.dict(os.environ, _ENV_ON, clear=False)
+    def test_download_failure_falls_back_safely_and_caches_name(self) -> None:
+        """Download failures precede any handler mutation, so fallback is safe;
+        the failed name is cached so repeated requests fail fast."""
+
+        app_state = self._app_state()
+        app_state._ensure_model_downloaded = MagicMock(side_effect=OSError("net down"))
+        logger = MagicMock()
+
+        handler, model = self._select(app_state, "acestep-v15-sft", logger)
+        self.assertIs(handler, app_state.handler)
+        self.assertEqual("acestep-v15-turbo", model)
+        app_state.handler.initialize_service.assert_not_called()
+        self.assertIn("failed", logger.call_args[0][0])
+
+        handler, model = self._select(app_state, "acestep-v15-sft", logger)
+        self.assertEqual("acestep-v15-turbo", model)
+        app_state._ensure_model_downloaded.assert_called_once()
+
+    @patch.dict(
+        os.environ,
+        {**_ENV_ON, "ACESTEP_API_WORKERS": "2"},
+        clear=False,
+    )
+    def test_disabled_with_multiple_api_workers(self) -> None:
+        """The /models init route can reinitialize the handler from another
+        API executor thread, so on-demand loading requires a single one."""
+
+        app_state = self._app_state()
         logger = MagicMock()
         handler, model = self._select(app_state, "acestep-v15-sft", logger)
 
-        self.assertIs(handler, app_state.handler)
         self.assertEqual("acestep-v15-turbo", model)
-        self.assertEqual("acestep-v15-turbo", app_state._config_path)
-        self.assertIn("failed", logger.call_args[0][0])
+        app_state.handler.initialize_service.assert_not_called()
+        self.assertIn("not found", logger.call_args[0][0])
+
+    @patch.dict(
+        os.environ,
+        {**_ENV_ON, "ACESTEP_QUEUE_WORKERS": "0"},
+        clear=False,
+    )
+    def test_worker_count_zero_counts_as_single(self) -> None:
+        """The runtime normalizes worker count with max(1, …); the gate must
+        apply the same normalization so 0 still enables the feature."""
+
+        app_state = self._app_state()
+        handler, model = self._select(app_state, "acestep-v15-sft")
+
+        self.assertEqual("acestep-v15-sft", model)
+        app_state.handler.initialize_service.assert_called_once()
 
     @patch.dict(
         os.environ,

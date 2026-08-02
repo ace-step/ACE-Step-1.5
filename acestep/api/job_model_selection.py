@@ -9,20 +9,62 @@ from typing import Any, Callable, Optional, Tuple
 _ON_DEMAND_MODEL_RE = re.compile(r"^acestep-v15-[A-Za-z0-9_-]+$")
 
 
+def _single_worker(env_name: str) -> bool:
+    """True when ``env_name`` resolves to one worker after the same
+    ``max(1, …)`` normalization the runtime applies; unparsable values count
+    as multiple so the feature stays off rather than guessing."""
+    try:
+        return max(1, int(os.getenv(env_name, "1"))) == 1
+    except (TypeError, ValueError):
+        return False
+
+
 def _on_demand_load_enabled() -> bool:
     """Whether a requested-but-unloaded model may be loaded at request time.
 
-    Only safe with a single queue worker: the shared executor serializes
-    generations, so no other job can be mid-generation on the handler
-    being reloaded.
+    Only safe when generations and API-triggered initializations are both
+    serialized: one queue worker (the shared executor serializes generation
+    jobs) and one API executor thread (the ``/models`` init route can run
+    ``initialize_service`` on the same handler without taking a lock this
+    executor thread could share).
     """
     enabled = os.getenv("ACESTEP_ON_DEMAND_MODEL_LOAD", "false").lower() in (
         "1", "true", "yes",
     )
-    return enabled and int(os.getenv("ACESTEP_QUEUE_WORKERS", "1")) == 1
+    return (
+        enabled
+        and _single_worker("ACESTEP_QUEUE_WORKERS")
+        and _single_worker("ACESTEP_API_WORKERS")
+    )
 
 
-def _load_model_on_demand(
+def _prepare_on_demand_model(app_state: Any, requested_model: str) -> None:
+    """Validate and fetch ``requested_model`` without touching the handler.
+
+    Any failure here is safe to fall back from — the primary handler has not
+    been mutated. Download failures are cached so a repeatedly requested
+    unavailable name fails fast instead of stalling the queue on every job.
+    """
+    if not _ON_DEMAND_MODEL_RE.match(requested_model):
+        raise ValueError(f"unknown model name: {requested_model!r}")
+    failed = getattr(app_state, "_on_demand_failed_models", None)
+    if failed is None:
+        failed = set()
+        app_state._on_demand_failed_models = failed
+    if requested_model in failed:
+        raise RuntimeError(f"a previous fetch of {requested_model!r} failed")
+    if getattr(app_state, "_service_init_kwargs", None) is None:
+        raise RuntimeError("service init kwargs were not captured at startup")
+    ensure_downloaded = getattr(app_state, "_ensure_model_downloaded", None)
+    if ensure_downloaded is not None:
+        try:
+            ensure_downloaded(requested_model, app_state._checkpoint_dir)
+        except Exception:
+            failed.add(requested_model)
+            raise
+
+
+def _swap_primary_model(
     *,
     app_state: Any,
     requested_model: str,
@@ -30,27 +72,30 @@ def _load_model_on_demand(
     job_id: str,
     log_fn: Callable[[str], None],
 ) -> Tuple[Any, str]:
-    """Replace the primary model with ``requested_model``, downloading it first
-    if needed. Runs in the generation executor thread (model loads block for
-    tens of seconds; downloads for minutes)."""
-    if not _ON_DEMAND_MODEL_RE.match(requested_model):
-        raise ValueError(f"unknown model name: {requested_model!r}")
-    init_kwargs = getattr(app_state, "_model_init_kwargs", None)
-    if init_kwargs is None:
-        raise RuntimeError("model init kwargs were not captured at startup")
-    ensure_downloaded = getattr(app_state, "_ensure_model_downloaded", None)
-    if ensure_downloaded is not None:
-        ensure_downloaded(requested_model, app_state._checkpoint_dir)
+    """Replace the primary model with the already-downloaded
+    ``requested_model``. Runs in the generation executor thread (loads block
+    for tens of seconds).
+
+    ``initialize_service`` mutates the primary handler in place, so a failure
+    here may leave it torn: the job must fail rather than fall back to a
+    handler in unknown state. The config path is cleared so subsequent
+    requests re-attempt a full load instead of short-circuiting onto it.
+    """
     previous = get_model_name(app_state._config_path)
     log_fn(
         f"[API Server] Job {job_id}: Loading model on demand: "
         f"{requested_model} (replacing {previous})"
     )
-    status_msg, ok = app_state.handler.initialize_service(
-        config_path=requested_model, **init_kwargs
-    )
+    try:
+        status_msg, ok = app_state.handler.initialize_service(
+            config_path=requested_model, **app_state._service_init_kwargs
+        )
+    except Exception:
+        app_state._config_path = ""
+        raise
     if not ok:
-        raise RuntimeError(status_msg)
+        app_state._config_path = ""
+        raise RuntimeError(f"on-demand load of {requested_model!r} failed: {status_msg}")
     app_state._config_path = requested_model
     log_fn(f"[API Server] Job {job_id}: Model loaded on demand: {requested_model}")
     return app_state.handler, requested_model
@@ -109,20 +154,23 @@ def select_generation_handler(
     if not model_matched:
         if _on_demand_load_enabled():
             try:
-                return _load_model_on_demand(
-                    app_state=app_state,
-                    requested_model=requested_model,
-                    get_model_name=get_model_name,
-                    job_id=job_id,
-                    log_fn=log_fn,
-                )
+                _prepare_on_demand_model(app_state, requested_model)
             except Exception as exc:
                 log_fn(
-                    f"[API Server] Job {job_id}: On-demand load of "
+                    f"[API Server] Job {job_id}: On-demand fetch of "
                     f"'{requested_model}' failed ({exc}); using primary: "
                     f"{selected_model_name}"
                 )
                 return selected_handler, selected_model_name
+            # Past this point the primary handler gets mutated in place;
+            # failures propagate and fail the job (see _swap_primary_model).
+            return _swap_primary_model(
+                app_state=app_state,
+                requested_model=requested_model,
+                get_model_name=get_model_name,
+                job_id=job_id,
+                log_fn=log_fn,
+            )
         available_models = [get_model_name(app_state._config_path)]
         if app_state.handler2 and getattr(app_state, "_initialized2", False):
             available_models.append(get_model_name(app_state._config_path2))

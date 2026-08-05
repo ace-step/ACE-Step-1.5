@@ -17,6 +17,22 @@ from acestep.api.job_result_payload import build_generation_success_response
 from acestep.api.job_generation_setup import build_generation_setup
 
 
+def _safe_is_turbo_model(selected_handler: Any) -> Any:
+    """Read selected_handler.is_turbo_model(), tolerating handlers that lack it.
+
+    Returns None (unknown) rather than raising, so a handler stub without the
+    method - as used in some tests - doesn't break generation.
+    """
+
+    is_turbo_model = getattr(selected_handler, "is_turbo_model", None)
+    if is_turbo_model is None:
+        return None
+    try:
+        return is_turbo_model()
+    except Exception:
+        return None
+
+
 def run_blocking_generate(
     *,
     app_state: Any,
@@ -123,6 +139,7 @@ def run_blocking_generate(
         default_dit_instruction=default_dit_instruction,
         task_instructions=task_instructions,
         selected_model_name=selected_model_name,
+        is_turbo=_safe_is_turbo_model(selected_handler),
     )
     params = generation_setup.params
     config = generation_setup.config

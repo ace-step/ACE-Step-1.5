@@ -411,6 +411,13 @@ def mlx_generate_diffusion(
             "[MLX-DiT] DCW enabled (mode={}, scaler={:.3f}, high_scaler={:.3f}, wavelet={}, backend={}).",
             dcw_mode, dcw_scaler, dcw_high_scaler, dcw_wavelet, _backend,
         )
+    elif not dcw_enabled:
+        logger.info("[MLX-DiT] DCW disabled (dcw_enabled=False).")
+    else:
+        logger.info(
+            "[MLX-DiT] DCW disabled (scalers are zero: scaler={:.3f}, high_scaler={:.3f}).",
+            dcw_scaler, dcw_high_scaler,
+        )
 
     for step_idx in tqdm(range(num_steps), desc="MLX DiT diffusion", disable=disable_tqdm):
         current_t = t_schedule_list[step_idx]

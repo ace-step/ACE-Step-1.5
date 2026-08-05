@@ -119,11 +119,15 @@ def build_generation_setup(
     default_dit_instruction: str,
     task_instructions: dict[str, str],
     selected_model_name: Optional[str] = None,
+    is_turbo: Optional[bool] = None,
 ) -> GenerationSetup:
     """Build GenerationParams and GenerationConfig from request and prepared LLM inputs.
 
     Args:
-        req: Request object for music generation.
+        req: Request object for music generation (a GenerateMusicRequest in
+            production; fields are accessed directly rather than via getattr
+            so this doesn't quietly restate GenerateMusicRequest's own
+            defaults in a second place).
         caption: Final caption text to generate from.
         lyrics: Final lyrics text to generate from.
         bpm: Optional BPM metadata.
@@ -141,19 +145,25 @@ def build_generation_setup(
         is_instrumental: Instrumental detection callback.
         default_dit_instruction: Default instruction constant.
         task_instructions: Task instruction mapping.
-        selected_model_name: Resolved DiT model name/label for this job, used to
-            default `dcw_enabled` when the request doesn't set it explicitly
-            (see issue #1259). Unknown/unset defaults to DCW off (safe default:
-            never risks reintroducing the distortion bug).
+        selected_model_name: Resolved DiT model name/label for this job. Used as a
+            fallback for the `dcw_enabled` default (see issue #1259) only when
+            `is_turbo` is unavailable.
+        is_turbo: Whether the resolved DiT handler reports itself as a turbo
+            model (`AceStepHandler.is_turbo_model()`, read from the checkpoint's
+            own config.json) - the authoritative source for the `dcw_enabled`
+            default when the request doesn't set it explicitly. Falls back to
+            guessing from `selected_model_name` only if this isn't provided.
+            Unknown/unset defaults to DCW off (safe default: never risks
+            reintroducing the distortion bug).
 
     Returns:
         GenerationSetup: Prepared params/config pair for `generate_music`.
     """
 
     parsed_timesteps = parse_timesteps(req.timesteps)
-    dcw_enabled = getattr(req, "dcw_enabled", None)
+    dcw_enabled = req.dcw_enabled
     if dcw_enabled is None:
-        dcw_enabled = is_turbo_model_path(selected_model_name)
+        dcw_enabled = is_turbo if is_turbo is not None else is_turbo_model_path(selected_model_name)
     instruction_to_use = _resolve_instruction(
         req=req,
         default_dit_instruction=default_dit_instruction,
@@ -180,10 +190,10 @@ def build_generation_setup(
         guidance_scale=req.guidance_scale,
         use_adg=req.use_adg,
         dcw_enabled=dcw_enabled,
-        dcw_mode=getattr(req, "dcw_mode", "double"),
-        dcw_scaler=getattr(req, "dcw_scaler", 0.05),
-        dcw_high_scaler=getattr(req, "dcw_high_scaler", 0.02),
-        dcw_wavelet=getattr(req, "dcw_wavelet", "haar"),
+        dcw_mode=req.dcw_mode,
+        dcw_scaler=req.dcw_scaler,
+        dcw_high_scaler=req.dcw_high_scaler,
+        dcw_wavelet=req.dcw_wavelet,
         cfg_interval_start=req.cfg_interval_start,
         cfg_interval_end=req.cfg_interval_end,
         shift=req.shift,

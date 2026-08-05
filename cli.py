@@ -1155,6 +1155,12 @@ def main():
         for key, value in config_from_file.items():
             setattr(args, key, value)
         args.config = cli_args.config
+        # Track whether the config file itself set use_random_seed, so an
+        # explicit `seed = 42` (singular) without it can auto-disable random
+        # seeding below instead of being silently ignored (see issue #1259).
+        # Only relevant for the TOML-config path: the wizard already prompts
+        # for seed and use_random_seed together, so it can't hit this case.
+        args._use_random_seed_explicit = "use_random_seed" in config_from_file
 
     # CLI --backend overrides config file and auto-detection
     if cli_args.backend is not None:
@@ -1217,6 +1223,22 @@ def main():
         args.batch_size = len(args.seeds)
         args.use_random_seed = False
         args.seed = -1
+    elif (
+        args.config
+        and not getattr(args, "_use_random_seed_explicit", False)
+        and args.seed is not None
+        and args.seed != -1
+        and args.use_random_seed
+    ):
+        # A TOML config gave an explicit singular `seed` without also setting
+        # use_random_seed - without this, use_random_seed's True default wins
+        # and the seed is silently ignored (see issue #1259). Mirrors the
+        # args.seeds handling above, which already does this for seed lists.
+        args.use_random_seed = False
+        print(
+            f"INFO: use_random_seed not set explicitly while seed={args.seed} was provided in "
+            f"'{args.config}'; defaulting use_random_seed to False so the seed takes effect."
+        )
 
     if args.instrumental and not args.lyrics:
         args.lyrics = "[Instrumental]"
@@ -1640,7 +1662,14 @@ def main():
     # (acestep/ui/gradio/events/generation/model_config.py); mirror that here
     # unless the user (via TOML config) explicitly set dcw_enabled themselves.
     if args.dcw_enabled is None:
-        args.dcw_enabled = is_turbo_model_path(args.config_path)
+        # Prefer the loaded model's own config.is_turbo flag (authoritative -
+        # it's read from the checkpoint's config.json) over guessing from the
+        # config_path string, which breaks for custom paths that don't
+        # literally contain "turbo" (e.g. a directory alias).
+        try:
+            args.dcw_enabled = dit_handler.is_turbo_model()
+        except Exception:
+            args.dcw_enabled = is_turbo_model_path(args.config_path)
         print(
             f"INFO: dcw_enabled not set explicitly; defaulting to {args.dcw_enabled} "
             f"for model '{args.config_path}' (set dcw_enabled in your TOML config to override)."

@@ -39,6 +39,11 @@ def _base_req() -> SimpleNamespace:
         constrained_decoding_debug=False,
         track_classes=None,
         track_name="",
+        dcw_enabled=None,
+        dcw_mode="double",
+        dcw_scaler=0.05,
+        dcw_high_scaler=0.02,
+        dcw_wavelet="haar",
     )
 
 
@@ -256,6 +261,38 @@ class JobGenerationSetupTests(unittest.TestCase):
             default_dit_instruction="default instruction",
             task_instructions={},
             selected_model_name="acestep-v15-sft",
+        )
+
+        self.assertTrue(setup.params.dcw_enabled)
+
+    def test_dcw_enabled_prefers_is_turbo_flag_over_model_name_guess(self) -> None:
+        """The authoritative handler flag must win over the name-based fallback
+        (e.g. a custom checkpoint path whose basename doesn't contain "turbo")."""
+
+        req = _base_req()
+        setup = build_generation_setup(
+            req=req,
+            caption="cap",
+            lyrics="lyr",
+            bpm=None,
+            key_scale="",
+            time_signature="",
+            audio_duration=None,
+            thinking=False,
+            sample_mode=False,
+            format_has_duration=False,
+            use_cot_caption=False,
+            use_cot_language=False,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False,
+            default_dit_instruction="default instruction",
+            task_instructions={},
+            # Name-based guess would say "not turbo" for this basename, but the
+            # handler-reported flag says it is - the handler flag must win.
+            selected_model_name="current",
+            is_turbo=True,
         )
 
         self.assertTrue(setup.params.dcw_enabled)

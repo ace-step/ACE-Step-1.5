@@ -605,11 +605,16 @@ def generate_music(
             use_random_seed_for_dit = False
 
         # LM-based Chain-of-Thought reasoning
-        # Skip LM for cover/repaint/extract tasks - these tasks use reference/src audio directly
-        # and don't need LM to generate audio codes or metadata.
+        # Skip LM for cover/repaint/extract/complete/lego tasks - these tasks use
+        # reference/src audio directly and don't need LM to generate audio codes or metadata.
         # For extract tasks, LLM-generated captions can conflict with the extract instruction
         # and cause the DiT model to reconstruct input audio instead of extracting stems.
-        skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract"}
+        # complete/lego were previously NOT skipped, so with thinking=True the LM
+        # generated audio codes from text alone (no src_audio conditioning at the LM
+        # stage). Those codes then pre-empted real src_audio processing downstream in
+        # ``_prepare_reference_and_source_audio`` (the "Audio codes provided, ignoring
+        # src_audio" branch), so the DiT never saw the source audio.
+        skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract", "complete", "lego"}
         # Flow-edit overlay on text2music must NOT trigger LM Phase 1.
         # Even if Think is on, the LM-generated codes would be routed
         # into ``conditioning_target`` which replaces target_wavs with
@@ -806,8 +811,8 @@ def generate_music(
             if params.use_cot_language:
                 dit_input_vocal_language = lm_generated_metadata.get("vocal_language", dit_input_vocal_language)
 
-        # Repaint/cover/extract: no LM run, so conditioning must come from params (caption + lyrics from GUI).
-        if params.task_type in ("repaint", "cover", "cover-nofsq", "extract"):
+        # Repaint/cover/extract/complete/lego: no LM run, so conditioning must come from params (caption + lyrics from GUI).
+        if params.task_type in ("repaint", "cover", "cover-nofsq", "extract", "complete", "lego"):
             dit_input_caption = params.caption or dit_input_caption
             dit_input_lyrics = params.lyrics if params.lyrics is not None else dit_input_lyrics
             logger.info(f"[generate_music] {params.task_type} task: using params.caption='{params.caption}', params.lyrics='{params.lyrics}'")

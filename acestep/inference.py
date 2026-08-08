@@ -26,6 +26,17 @@ from acestep.constants import BPM_MIN, BPM_MAX, DURATION_MAX, TASK_TYPES, VALID_
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
 
+# Task types conditioned directly on reference/source audio rather than on
+# LM-generated audio codes.  Two decisions must stay in lockstep for these:
+#   1. the LM is skipped entirely (its codes would pre-empt src_audio
+#      downstream in ``_prepare_reference_and_source_audio``), and
+#   2. caption/lyrics conditioning therefore has to come from ``params``,
+#      since no LM ran to produce them.
+# Keeping one set means a task added here can never be half-applied.
+DIRECT_CONDITIONING_TASKS = frozenset(
+    {"cover", "cover-nofsq", "repaint", "extract", "complete", "lego"}
+)
+
 def _get_spaces_gpu_decorator(duration=180):
     """
     Get the @spaces.GPU decorator if running in HuggingFace Space environment.
@@ -605,8 +616,8 @@ def generate_music(
             use_random_seed_for_dit = False
 
         # LM-based Chain-of-Thought reasoning
-        # Skip LM for cover/repaint/extract/complete/lego tasks - these tasks use
-        # reference/src audio directly and don't need LM to generate audio codes or metadata.
+        # Skip LM for the direct-conditioning tasks - these use reference/src audio
+        # directly and don't need LM to generate audio codes or metadata.
         # For extract tasks, LLM-generated captions can conflict with the extract instruction
         # and cause the DiT model to reconstruct input audio instead of extracting stems.
         # complete/lego were previously NOT skipped, so with thinking=True the LM
@@ -614,7 +625,7 @@ def generate_music(
         # stage). Those codes then pre-empted real src_audio processing downstream in
         # ``_prepare_reference_and_source_audio`` (the "Audio codes provided, ignoring
         # src_audio" branch), so the DiT never saw the source audio.
-        skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract", "complete", "lego"}
+        skip_lm_tasks = DIRECT_CONDITIONING_TASKS
         # Flow-edit overlay on text2music must NOT trigger LM Phase 1.
         # Even if Think is on, the LM-generated codes would be routed
         # into ``conditioning_target`` which replaces target_wavs with
@@ -811,8 +822,8 @@ def generate_music(
             if params.use_cot_language:
                 dit_input_vocal_language = lm_generated_metadata.get("vocal_language", dit_input_vocal_language)
 
-        # Repaint/cover/extract/complete/lego: no LM run, so conditioning must come from params (caption + lyrics from GUI).
-        if params.task_type in ("repaint", "cover", "cover-nofsq", "extract", "complete", "lego"):
+        # Direct-conditioning tasks: no LM run, so conditioning must come from params (caption + lyrics from GUI).
+        if params.task_type in DIRECT_CONDITIONING_TASKS:
             dit_input_caption = params.caption or dit_input_caption
             dit_input_lyrics = params.lyrics if params.lyrics is not None else dit_input_lyrics
             logger.info(f"[generate_music] {params.task_type} task: using params.caption='{params.caption}', params.lyrics='{params.lyrics}'")

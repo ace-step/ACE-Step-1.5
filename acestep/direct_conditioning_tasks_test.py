@@ -37,12 +37,24 @@ class RecordingDitHandler:
     """
 
     def __init__(self):
+        """Initialize with no captured call; ``generate_kwargs`` stays None until called."""
         self.generate_kwargs = None
         self.lora_loaded = False
         self.use_lora = False
         self.lora_scale = 1.0
 
     def prepare_seeds(self, batch_size, seed, use_random_seed):
+        """Return a fixed seed list so the run is deterministic.
+
+        Args:
+            batch_size: Number of seeds the caller expects.
+            seed: Ignored; the real handler parses a comma-separated string here.
+            use_random_seed: Ignored; seeds are fixed regardless.
+
+        Returns:
+            ``(seeds, None)`` — a list of ``batch_size`` identical seeds, and the
+            padding info the real handler returns and ``generate_music`` discards.
+        """
         return [1234] * batch_size, None
 
     def generate_music(
@@ -54,6 +66,23 @@ class RecordingDitHandler:
         audio_code_string=None,
         **kwargs,
     ):
+        """Record the conditioning kwargs and stop the pipeline.
+
+        Args:
+            captions: Caption reaching the DiT — ``params.caption`` on a
+                direct-conditioning task, LM-generated otherwise.
+            lyrics: Lyrics reaching the DiT, same origin as ``captions``.
+            src_audio: Source audio path; the value under test.
+            task_type: Task the orchestrator resolved.
+            audio_code_string: LM-generated codes. Non-empty here means codes
+                pre-empted ``src_audio`` downstream.
+            **kwargs: Remaining DiT arguments, captured but not asserted on.
+
+        Returns:
+            A failure result (``success=False``), which makes ``generate_music``
+            return early — so no model runs and nothing is written to disk.
+            The captured kwargs are left on ``self.generate_kwargs``.
+        """
         self.generate_kwargs = {
             "captions": captions,
             "lyrics": lyrics,
@@ -103,10 +132,12 @@ class CompleteTaskSkipsLmTests(unittest.TestCase):
     """``complete`` must reach the DiT with source conditioning, not LM codes."""
 
     def test_lm_is_not_invoked(self):
+        """An initialized LM with every CoT flag on must still be skipped."""
         _, llm_handler, _ = _run("complete")
         llm_handler.generate_with_stop_condition.assert_not_called()
 
     def test_dit_receives_source_audio_and_params_conditioning(self):
+        """With no LM run, src_audio and params caption/lyrics must reach the DiT."""
         dit_handler, _, params = _run("complete")
         self.assertIsNotNone(dit_handler.generate_kwargs, "DiT handler was never called")
         self.assertEqual(params.src_audio, dit_handler.generate_kwargs["src_audio"])
@@ -123,10 +154,12 @@ class LegoTaskSkipsLmTests(unittest.TestCase):
     """``lego`` shares the path but is asserted independently on purpose."""
 
     def test_lm_is_not_invoked(self):
+        """Asserted separately from ``complete``: only that one is behaviour-verified."""
         _, llm_handler, _ = _run("lego")
         llm_handler.generate_with_stop_condition.assert_not_called()
 
     def test_dit_receives_source_audio_and_params_conditioning(self):
+        """With no LM run, src_audio and params caption/lyrics must reach the DiT."""
         dit_handler, _, params = _run("lego")
         self.assertIsNotNone(dit_handler.generate_kwargs, "DiT handler was never called")
         self.assertEqual(params.src_audio, dit_handler.generate_kwargs["src_audio"])
@@ -134,6 +167,7 @@ class LegoTaskSkipsLmTests(unittest.TestCase):
         self.assertEqual(params.lyrics, dit_handler.generate_kwargs["lyrics"])
 
     def test_no_audio_codes_pre_empt_source_audio(self):
+        """Empty codes are what keep the source-audio branch reachable downstream."""
         dit_handler, _, _ = _run("lego")
         self.assertFalse((dit_handler.generate_kwargs["audio_code_string"] or "").strip())
 
@@ -142,12 +176,14 @@ class DirectConditioningTaskSetTests(unittest.TestCase):
     """The LM gate and the params fallback must not be able to diverge."""
 
     def test_every_direct_conditioning_task_skips_the_lm(self):
+        """Membership in the set must imply the LM gate, for every task in it."""
         for task_type in sorted(DIRECT_CONDITIONING_TASKS):
             with self.subTest(task_type=task_type):
                 _, llm_handler, _ = _run(task_type)
                 llm_handler.generate_with_stop_condition.assert_not_called()
 
     def test_every_direct_conditioning_task_conditions_from_params(self):
+        """And must imply the params fallback — the half the LM gate would otherwise strand."""
         for task_type in sorted(DIRECT_CONDITIONING_TASKS):
             with self.subTest(task_type=task_type):
                 dit_handler, _, params = _run(task_type)

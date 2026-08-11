@@ -193,6 +193,7 @@ class GenerationParams:
     
     repainting_start: float = 0.0
     repainting_end: float = -1
+    chunk_mask_mode: str = "auto"
     audio_cover_strength: float = 1.0
     
     # 5Hz Language Model Parameters
@@ -388,6 +389,7 @@ class FormatSampleResult:
 | `audio_codes` | `str` | `""` | Pre-extracted 5Hz audio semantic codes as a string. Advanced use only. |
 | `repainting_start` | `float` | `0.0` | Repainting start time in seconds (for repaint/lego tasks). |
 | `repainting_end` | `float` | `-1` | Repainting end time in seconds. Use `-1` for end of audio. |
+| `chunk_mask_mode` | `str` | `"auto"` | Chunk-mask conditioning mode. Use `"explicit"` to send the 0/1 mask derived from `repainting_start`/`repainting_end`; `"auto"` lets the model decide chunk boundaries. |
 | `audio_cover_strength` | `float` | `1.0` | Strength of audio cover/codes influence (0.0-1.0). Set smaller (0.2) for style transfer tasks. |
 
 ### 5Hz Language Model Parameters
@@ -515,9 +517,14 @@ params = GenerationParams(
     src_audio="original.mp3",
     repainting_start=10.0,  # seconds
     repainting_end=20.0,    # seconds
+    chunk_mask_mode="explicit",
     caption="smooth transition with piano solo",
 )
 ```
+
+`chunk_mask_mode="explicit"` forwards the selected time range as a 0/1 mask to model
+conditioning. The default `"auto"` sends a 2.0 sentinel so the model decides the chunk
+boundaries.
 
 **Required**:
 - `src_audio`: Path to source audio file

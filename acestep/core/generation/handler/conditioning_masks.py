@@ -35,6 +35,8 @@ class ConditioningMaskMixin:
 
         Returns:
             Tuple of (chunk_masks, spans, is_covers, src_latents, repaint_mask).
+            ``chunk_masks`` is floating point: explicit masks contain 0/1,
+            while auto-mode masks contain the 2.0 model-decided sentinel.
             ``repaint_mask`` is a boolean ``[B, T]`` tensor (True = generate,
             False = preserve source) when any item uses repainting, else ``None``.
         """
@@ -70,7 +72,7 @@ class ConditioningMaskMixin:
             is_cover = (task_type == "cover") or has_code_hint
             is_covers.append(is_cover)
 
-        chunk_masks_tensor = torch.stack(chunk_masks)
+        chunk_masks_tensor = torch.stack(chunk_masks).to(torch.float32)
         if chunk_mask_modes:
             for i, mode in enumerate(chunk_mask_modes):
                 if mode == "auto":

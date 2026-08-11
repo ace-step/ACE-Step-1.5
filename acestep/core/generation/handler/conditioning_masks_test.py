@@ -32,6 +32,7 @@ def _build(
     target_latents: Optional[torch.Tensor] = None,
     repainting_start: Optional[List[float]] = None,
     repainting_end: Optional[List[float]] = None,
+    chunk_mask_modes: Optional[List[str]] = None,
     task_type: str = "",
 ):
     """Call _build_chunk_masks_and_src_latents with sensible defaults."""
@@ -55,8 +56,42 @@ def _build(
         repainting_start=repainting_start,
         repainting_end=repainting_end,
         silence_latent_tiled=silence_latent_tiled,
+        chunk_mask_modes=chunk_mask_modes,
         task_type=task_type,
     )
+
+
+class ConditioningMaskModeTests(unittest.TestCase):
+    """Verify model-facing values for explicit and automatic chunk masks."""
+
+    def test_auto_chunk_mask_uses_model_decided_sentinel(self):
+        """Auto mode should send the documented 2.0 sentinel to the model."""
+        host = _make_host()
+        chunk_masks, _spans, _is_covers, _src_latents, repaint_mask = _build(
+            host,
+            repainting_start=[1.0],
+            repainting_end=[2.0],
+            chunk_mask_modes=["auto"],
+        )
+
+        self.assertTrue(torch.is_floating_point(chunk_masks))
+        torch.testing.assert_close(chunk_masks, torch.full_like(chunk_masks, 2.0))
+        self.assertEqual(repaint_mask.dtype, torch.bool)
+
+    def test_explicit_chunk_mask_keeps_repainting_range(self):
+        """Explicit mode should preserve the interval-derived 0/1 mask."""
+        host = _make_host()
+        chunk_masks, *_ = _build(
+            host,
+            repainting_start=[1.0],
+            repainting_end=[2.0],
+            chunk_mask_modes=["explicit"],
+        )
+
+        self.assertTrue(torch.is_floating_point(chunk_masks))
+        self.assertTrue(torch.all(chunk_masks[0, :25] == 0.0))
+        self.assertTrue(torch.all(chunk_masks[0, 25:50] == 1.0))
+        self.assertTrue(torch.all(chunk_masks[0, 50:] == 0.0))
 
 
 class ConditioningMaskLegoBehaviorTests(unittest.TestCase):

@@ -2,7 +2,10 @@
 
 import unittest
 
-from acestep.ui.gradio.events.results.generation_task_type import resolve_no_fsq_task_type
+from acestep.ui.gradio.events.results.generation_task_type import (
+    resolve_chunk_mask_mode,
+    resolve_no_fsq_task_type,
+)
 
 
 class GenerationTaskTypeTests(unittest.TestCase):
@@ -20,6 +23,16 @@ class GenerationTaskTypeTests(unittest.TestCase):
         """Hidden checked state should not alter other generation modes."""
         self.assertEqual(resolve_no_fsq_task_type("repaint", True), "repaint")
         self.assertEqual(resolve_no_fsq_task_type("text2music", True), "text2music")
+
+    def test_repaint_uses_explicit_chunk_mask(self):
+        """Repaint should forward its selected interval to model conditioning."""
+        self.assertEqual(resolve_chunk_mask_mode("repaint"), "explicit")
+
+    def test_non_repaint_tasks_keep_auto_chunk_mask(self):
+        """The Repaint fix should not change masking for other UI tasks."""
+        for task_type in ("text2music", "cover", "cover-nofsq", "lego", "extract", "complete"):
+            with self.subTest(task_type=task_type):
+                self.assertEqual(resolve_chunk_mask_mode(task_type), "auto")
 
 
 if __name__ == "__main__":

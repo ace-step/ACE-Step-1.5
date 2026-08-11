@@ -27,7 +27,10 @@ from acestep.ui.gradio.events.results.generation_info import (
     DEFAULT_RESULTS_DIR,
     _build_generation_info,
 )
-from acestep.ui.gradio.events.results.generation_task_type import resolve_no_fsq_task_type
+from acestep.ui.gradio.events.results.generation_task_type import (
+    resolve_chunk_mask_mode,
+    resolve_no_fsq_task_type,
+)
 from acestep.ui.gradio.events.results.audio_playback_updates import (
     build_audio_slot_update,
 )
@@ -164,6 +167,7 @@ def generate_with_progress(
         timesteps=parsed_timesteps,
         repainting_start=repainting_start,
         repainting_end=repainting_end,
+        chunk_mask_mode=resolve_chunk_mask_mode(task_type),
         audio_cover_strength=audio_cover_strength,
         cover_noise_strength=cover_noise_strength,
         thinking=think_checkbox,

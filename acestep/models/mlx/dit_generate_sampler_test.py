@@ -88,6 +88,28 @@ class EulerSamplerTests(unittest.TestCase):
         self.assertIn("target_latents", result)
         self.assertFalse(np.any(np.isnan(result["target_latents"])))
 
+    def test_50_step_non_turbo_schedule_is_repeatable_without_dcw(self):
+        """The non-Turbo 50-step MLX path should remain deterministic with DCW off."""
+        kwargs = {
+            "encoder_hidden_states_np": np.zeros((1, 2, 4), dtype=np.float32),
+            "context_latents_np": np.zeros((1, 4, 4), dtype=np.float32),
+            "src_latents_shape": (1, 4, 4),
+            "seed": 1259,
+            "infer_steps": 50,
+            "shift": 1.0,
+            "dcw_enabled": False,
+            "disable_tqdm": True,
+        }
+        first_decoder = _make_fake_decoder()
+        second_decoder = _make_fake_decoder()
+
+        first = mlx_generate_diffusion(mlx_decoder=first_decoder, **kwargs)
+        second = mlx_generate_diffusion(mlx_decoder=second_decoder, **kwargs)
+
+        self.assertEqual(first_decoder.call_count, 50)
+        self.assertEqual(second_decoder.call_count, 50)
+        np.testing.assert_array_equal(first["target_latents"], second["target_latents"])
+
 
 class HeunSamplerTests(unittest.TestCase):
     """Verify Heun (second-order) sampler produces valid output."""

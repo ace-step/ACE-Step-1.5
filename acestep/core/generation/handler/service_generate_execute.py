@@ -61,6 +61,14 @@ class ServiceGenerateExecuteMixin:
             return seed_list
         return random.randint(0, 2**32 - 1)
 
+    def _resolve_service_dcw_enabled(self, generate_kwargs: Dict[str, Any]) -> bool:
+        """Return an explicit or loaded-model DCW value for backend execution."""
+        dcw_enabled = generate_kwargs.get("dcw_enabled")
+        if dcw_enabled is not None:
+            return bool(dcw_enabled)
+        config = getattr(self, "config", None)
+        return bool(getattr(config, "is_turbo", False))
+
     def _build_service_generate_kwargs(
         self,
         payload: Dict[str, Any],
@@ -80,7 +88,7 @@ class ServiceGenerateExecuteMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
-        dcw_enabled: bool = True,
+        dcw_enabled: Optional[bool] = None,
         dcw_mode: str = "double",
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
@@ -148,6 +156,10 @@ class ServiceGenerateExecuteMixin:
         flow_edit_ctx: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], torch.Tensor, torch.Tensor, torch.Tensor]:
         """Execute condition preparation and diffusion using MLX or PyTorch backend."""
+        generate_kwargs = {
+            **generate_kwargs,
+            "dcw_enabled": self._resolve_service_dcw_enabled(generate_kwargs),
+        }
         if flow_edit_ctx is not None and flow_edit_ctx.get("morph"):
             from .service_generate_flow_edit import dispatch_flow_edit_overlay
 
@@ -183,7 +195,8 @@ class ServiceGenerateExecuteMixin:
                 )
 
                 if self.use_mlx_dit and self.mlx_decoder is not None:
-                    if generate_kwargs.get("dcw_enabled") and generate_kwargs.get("dcw_wavelet", "haar") != "haar":
+                    dcw_enabled = generate_kwargs["dcw_enabled"]
+                    if dcw_enabled and generate_kwargs.get("dcw_wavelet", "haar") != "haar":
                         logger.info(
                             "[service_generate] DCW enabled on MLX path with "
                             "wavelet='{}'; non-Haar wavelets use the PyTorch "
@@ -238,7 +251,7 @@ class ServiceGenerateExecuteMixin:
                             sampler_mode=generate_kwargs.get("sampler_mode", "euler"),
                             velocity_norm_threshold=generate_kwargs.get("velocity_norm_threshold", 0.0),
                             velocity_ema_factor=generate_kwargs.get("velocity_ema_factor", 0.0),
-                            dcw_enabled=generate_kwargs.get("dcw_enabled", True),
+                            dcw_enabled=dcw_enabled,
                             dcw_mode=generate_kwargs.get("dcw_mode", "double"),
                             dcw_scaler=generate_kwargs.get("dcw_scaler", 0.05),
                             dcw_high_scaler=generate_kwargs.get("dcw_high_scaler", 0.02),

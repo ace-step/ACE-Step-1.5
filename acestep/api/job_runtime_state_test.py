@@ -95,6 +95,7 @@ class JobRuntimeStateTests(unittest.IsolatedAsyncioTestCase):
         init_threads: list[threading.Thread] = []
 
         def _blocking_init(*_args: object, **_kwargs: object) -> None:
+            """Record the calling thread, then block until the event loop sets the event."""
             init_threads.append(threading.current_thread())
             if not loop_alive_during_init.wait(timeout=0.5):
                 raise RuntimeError(

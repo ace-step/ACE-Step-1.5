@@ -97,7 +97,17 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
 
 
 def setup_training_event_handlers(demo, dit_handler, llm_handler, training_section):
-    """Setup event handlers for the training tab (dataset builder and LoRA training)"""
+    """Setup event handlers for the training tab (dataset builder and LoRA training).
+
+    Args:
+        demo (Any): Root Gradio demo/container used to register events.
+        dit_handler (Any): Inference service used by preprocess/training callbacks.
+        llm_handler (Any): LLM service used by dataset-builder callbacks.
+        training_section (dict[str, Any]): Training UI component map.
+
+    Returns:
+        None: Registers event handlers in-place on the supplied components.
+    """
     from .wiring import (
         TrainingWiringContext,
         register_training_dataset_builder_handlers,

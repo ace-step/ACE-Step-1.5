@@ -78,7 +78,7 @@ are forwarded through the generation handler chain into the base model's
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `dcw_enabled` | `bool` | `True` | Master switch. Set to `False` for a clean A/B against the uncorrected sampler. |
+| `dcw_enabled` | `Optional[bool]` | `None` | Enabled by default for Turbo and disabled by default for non-Turbo after the model is loaded. |
 | `dcw_mode` | `str` | `"double"` | One of `"low"`, `"high"`, `"double"`, `"pix"`. |
 | `dcw_scaler` | `float` | `0.05` | Low-band correction strength (or the single scaler for `"high"` / `"pix"`). Usable range `0–0.1`. |
 | `dcw_high_scaler` | `float` | `0.02` | High-band correction strength (used only when `dcw_mode == "double"`). Usable range `0–0.1`. |
@@ -139,22 +139,22 @@ result = generate_music(
 
 Open the standard Gradio UI, expand **Advanced DiT** → **🧪 DCW – Differential
 Correction in Wavelet domain (experimental)**, and tune the four
-sliders/dropdowns inside. **Enable DCW** is on by default with
-`mode="double"` and `wavelet="haar"` — uncheck it to A/B against the
-uncorrected sampler.  The default strengths follow the current Think state:
+sliders/dropdowns inside. **Enable DCW** defaults on for Turbo and off for
+non-Turbo models; set it explicitly to A/B against the uncorrected sampler.
+The default strengths follow the current Think state:
 non-Think uses `scaler=0.05`, `high_scaler=0.02`, while Think uses
 `scaler=0.02`, `high_scaler=0.06`.
 
 ## Recommended starting values
 
-The defaults come from a grid search on the pure-DiT path (no LLM
+The opt-in parameter values come from a grid search on the pure-DiT path (no LLM
 think-CoT): `dcw_mode="double"`, `dcw_scaler=0.05`,
 `dcw_high_scaler=0.02`, `dcw_wavelet="haar"`.  In LLM-think mode the
 overall DCW gain is small and the optimum band drifts slightly, so Gradio
 switches to `dcw_scaler=0.02` and `dcw_high_scaler=0.06` when Think is
 enabled.  Direct Python callers can override these values on
-`GenerationParams`; the HTTP generation routes currently use the
-`GenerationParams` defaults and do not expose per-request `dcw_*` fields.
+`GenerationParams`; HTTP generation routes use the same model-aware default and
+do not expose per-request `dcw_*` fields.
 
 - `"low"` alone (`dcw_scaler=0.02`) is a safer, more conservative
   setting if `"double"` sounds too aggressive for a given track.

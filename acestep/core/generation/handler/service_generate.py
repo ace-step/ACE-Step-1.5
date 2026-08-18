@@ -51,7 +51,7 @@ class ServiceGenerateMixin:
         sampler_mode: str = "euler",
         velocity_norm_threshold: float = 0.0,
         velocity_ema_factor: float = 0.0,
-        dcw_enabled: bool = True,
+        dcw_enabled: Optional[bool] = None,
         dcw_mode: str = "double",
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
@@ -74,6 +74,8 @@ class ServiceGenerateMixin:
         conditioning; ``cfg_interval_*`` / ``sampler_mode`` /
         ``velocity_*`` / ``dcw_*`` are sampler tweaks; ``flow_edit_morph``
         layers the V_delta overlay on top of cover/cover-nofsq dispatch.
+        ``dcw_enabled=None`` defers to the loaded model family, while an
+        explicit boolean overrides that default.
 
         Returns:
             Dict[str, Any]: Service output payload containing generated latents,

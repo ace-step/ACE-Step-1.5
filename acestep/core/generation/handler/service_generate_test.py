@@ -139,6 +139,7 @@ class ServiceGenerateMixinTests(unittest.TestCase):
         self.assertEqual(build_kwargs["cover_noise_strength"], 0.2)
         self.assertTrue(build_kwargs["use_adg"])
         self.assertEqual(build_kwargs["timesteps"], custom_timesteps)
+        self.assertIsNone(build_kwargs["dcw_enabled"])
         self.assertFalse(host.calls["_attach_service_generate_outputs"]["return_intermediate"])
         execute_kwargs = host.calls["_execute_service_generate_diffusion"]
         self.assertEqual(execute_kwargs["infer_method"], "sde")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Optional
 
@@ -14,6 +15,10 @@ async def ensure_models_initialized(app_state: Any) -> None:
     If models were already loaded at startup (``ACESTEP_NO_INIT=false``), this
     returns immediately.  Otherwise it performs on-demand initialization using
     the kwargs stored on ``app_state._model_init_kwargs`` during lifespan setup.
+
+    Initialization runs on ``app_state.executor`` rather than inline: it is
+    slow, blocking work that would otherwise freeze the event loop and hang
+    every other in-flight request (e.g. ``/health``) until it finishes.
 
     Args:
         app_state: Application state object containing initialization flags.
@@ -58,7 +63,11 @@ async def ensure_models_initialized(app_state: Any) -> None:
             def __init__(self, state: Any) -> None:
                 self.state = state
 
-        do_model_initialization(app=_AppProxy(app_state), **init_kwargs)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            app_state.executor,
+            lambda: do_model_initialization(app=_AppProxy(app_state), **init_kwargs),
+        )
 
 
 async def cleanup_job_temp_files(app_state: Any, job_id: str) -> None:

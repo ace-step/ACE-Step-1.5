@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -49,11 +51,14 @@ class JobRuntimeStateTests(unittest.IsolatedAsyncioTestCase):
 
         handler = MagicMock()
         handler.initialize_service.return_value = ("ok", True)
+        executor = ThreadPoolExecutor(max_workers=1)
+        self.addCleanup(executor.shutdown, wait=False)
 
         app_state = SimpleNamespace(
             _init_error=None,
             _initialized=False,
             _init_lock=asyncio.Lock(),
+            executor=executor,
             _model_init_kwargs=dict(
                 handler=handler,
                 llm_handler=MagicMock(),
@@ -75,6 +80,67 @@ class JobRuntimeStateTests(unittest.IsolatedAsyncioTestCase):
         with patch("acestep.api.startup_model_init.do_model_initialization") as mock_init:
             await ensure_models_initialized(app_state)
             mock_init.assert_called_once()
+
+    async def test_ensure_models_initialized_does_not_block_event_loop(self) -> None:
+        """Regression for the blocking-init bug: the fake init blocks on a
+        ``threading.Event`` that only this coroutine -- running on the event
+        loop -- can set. If init were executed inline on the loop, ``set()``
+        could never run before init finishes (the loop's single thread would
+        be stuck inside ``wait()``), so ``wait()`` would time out and init
+        would raise. Deterministic in both directions: no timing race.
+        """
+
+        loop_thread = threading.current_thread()
+        loop_alive_during_init = threading.Event()
+        init_threads: list[threading.Thread] = []
+
+        def _blocking_init(*_args: object, **_kwargs: object) -> None:
+            """Record the calling thread, then block until the event loop sets the event."""
+            init_threads.append(threading.current_thread())
+            if not loop_alive_during_init.wait(timeout=0.5):
+                raise RuntimeError(
+                    "event loop never ran while model initialization was in "
+                    "flight -- do_model_initialization is not actually being "
+                    "offloaded to a thread"
+                )
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        self.addCleanup(executor.shutdown, wait=False)
+
+        app_state = SimpleNamespace(
+            _init_error=None,
+            _initialized=False,
+            _init_lock=asyncio.Lock(),
+            executor=executor,
+            _model_init_kwargs=dict(
+                handler=MagicMock(),
+                llm_handler=MagicMock(),
+                handler2=None,
+                handler3=None,
+                config_path2="",
+                config_path3="",
+                get_project_root=MagicMock(return_value="/repo"),
+                get_model_name=MagicMock(return_value="acestep-v15-turbo"),
+                ensure_model_downloaded=MagicMock(),
+                env_bool=lambda _name, default: default,
+            ),
+            gpu_config=SimpleNamespace(gpu_memory_gb=24.0, tier="high"),
+        )
+
+        with patch(
+            "acestep.api.startup_model_init.do_model_initialization", _blocking_init
+        ):
+            init_task = asyncio.create_task(ensure_models_initialized(app_state))
+            await asyncio.sleep(0)  # let the init task start
+            loop_alive_during_init.set()  # only reachable if the loop stayed free
+            await init_task
+
+        self.assertIsNot(
+            init_threads[0],
+            loop_thread,
+            "do_model_initialization ran on the event-loop thread instead of "
+            "a worker thread",
+        )
 
     async def test_cleanup_job_temp_files_removes_tracked_paths(self) -> None:
         """Cleanup helper should remove tracked files and clear job mapping."""

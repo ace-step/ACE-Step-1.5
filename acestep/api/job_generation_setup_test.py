@@ -9,6 +9,7 @@ from acestep.api.job_generation_setup import build_generation_setup
 
 
 def _base_req() -> SimpleNamespace:
+    """Build a minimal GenerateMusicRequest-shaped fixture with legacy-safe defaults."""
     return SimpleNamespace(
         task_type="text2music",
         instruction="default instruction",

@@ -179,11 +179,13 @@ class JobGenerationSetupTests(unittest.TestCase):
         self.assertEqual("<|audio_code_42|>", setup.params.audio_codes)
         self.assertAlmostEqual(0.42, setup.params.cover_noise_strength)
 
-    def test_dcw_enabled_defaults_off_for_non_turbo_model_when_unset(self) -> None:
-        """Regression test for #1259: a request that doesn't set dcw_enabled must
-        not silently get DCW on for a non-turbo (sft/base) model."""
+    def test_dcw_enabled_omitted_forwards_as_none_for_core_to_resolve(self) -> None:
+        """An unset dcw_enabled must forward as None, not a locally-guessed
+        default: core generation resolves it from the loaded model's own
+        config.is_turbo (see #1273). Regression coverage for #1259 now lives
+        at that resolution point instead of here."""
 
-        req = _base_req()  # no dcw_enabled attribute, mirrors legacy request payloads
+        req = _base_req()  # dcw_enabled=None, mirrors an omitted request field
         setup = build_generation_setup(
             req=req,
             caption="cap",
@@ -203,99 +205,40 @@ class JobGenerationSetupTests(unittest.TestCase):
             is_instrumental=lambda _lyrics: False,
             default_dit_instruction="default instruction",
             task_instructions={},
-            selected_model_name="acestep-v15-sft",
         )
 
-        self.assertFalse(setup.params.dcw_enabled)
+        self.assertIsNone(setup.params.dcw_enabled)
 
-    def test_dcw_enabled_defaults_on_for_turbo_model_when_unset(self) -> None:
-        """Turbo models keep DCW on by default when the request doesn't set it."""
+    def test_dcw_enabled_explicit_request_value_forwards_unchanged(self) -> None:
+        """An explicit dcw_enabled in the request passes through unchanged,
+        in either direction, and is never overridden here."""
 
-        req = _base_req()
-        setup = build_generation_setup(
-            req=req,
-            caption="cap",
-            lyrics="lyr",
-            bpm=None,
-            key_scale="",
-            time_signature="",
-            audio_duration=None,
-            thinking=False,
-            sample_mode=False,
-            format_has_duration=False,
-            use_cot_caption=False,
-            use_cot_language=False,
-            lm_top_k=0,
-            lm_top_p=0.9,
-            parse_timesteps=lambda _value: None,
-            is_instrumental=lambda _lyrics: False,
-            default_dit_instruction="default instruction",
-            task_instructions={},
-            selected_model_name="acestep-v15-turbo",
-        )
+        for explicit_value in (True, False):
+            with self.subTest(explicit_value=explicit_value):
+                req = _base_req()
+                req.dcw_enabled = explicit_value
+                setup = build_generation_setup(
+                    req=req,
+                    caption="cap",
+                    lyrics="lyr",
+                    bpm=None,
+                    key_scale="",
+                    time_signature="",
+                    audio_duration=None,
+                    thinking=False,
+                    sample_mode=False,
+                    format_has_duration=False,
+                    use_cot_caption=False,
+                    use_cot_language=False,
+                    lm_top_k=0,
+                    lm_top_p=0.9,
+                    parse_timesteps=lambda _value: None,
+                    is_instrumental=lambda _lyrics: False,
+                    default_dit_instruction="default instruction",
+                    task_instructions={},
+                )
 
-        self.assertTrue(setup.params.dcw_enabled)
-
-    def test_dcw_enabled_explicit_request_value_overrides_model_default(self) -> None:
-        """An explicit dcw_enabled in the request always wins over the model-based default."""
-
-        req = _base_req()
-        req.dcw_enabled = True
-        setup = build_generation_setup(
-            req=req,
-            caption="cap",
-            lyrics="lyr",
-            bpm=None,
-            key_scale="",
-            time_signature="",
-            audio_duration=None,
-            thinking=False,
-            sample_mode=False,
-            format_has_duration=False,
-            use_cot_caption=False,
-            use_cot_language=False,
-            lm_top_k=0,
-            lm_top_p=0.9,
-            parse_timesteps=lambda _value: None,
-            is_instrumental=lambda _lyrics: False,
-            default_dit_instruction="default instruction",
-            task_instructions={},
-            selected_model_name="acestep-v15-sft",
-        )
-
-        self.assertTrue(setup.params.dcw_enabled)
-
-    def test_dcw_enabled_prefers_is_turbo_flag_over_model_name_guess(self) -> None:
-        """The authoritative handler flag must win over the name-based fallback
-        (e.g. a custom checkpoint path whose basename doesn't contain "turbo")."""
-
-        req = _base_req()
-        setup = build_generation_setup(
-            req=req,
-            caption="cap",
-            lyrics="lyr",
-            bpm=None,
-            key_scale="",
-            time_signature="",
-            audio_duration=None,
-            thinking=False,
-            sample_mode=False,
-            format_has_duration=False,
-            use_cot_caption=False,
-            use_cot_language=False,
-            lm_top_k=0,
-            lm_top_p=0.9,
-            parse_timesteps=lambda _value: None,
-            is_instrumental=lambda _lyrics: False,
-            default_dit_instruction="default instruction",
-            task_instructions={},
-            # Name-based guess would say "not turbo" for this basename, but the
-            # handler-reported flag says it is - the handler flag must win.
-            selected_model_name="current",
-            is_turbo=True,
-        )
-
-        self.assertTrue(setup.params.dcw_enabled)
+                self.assertEqual(explicit_value, setup.params.dcw_enabled)
 
     def test_auto_duration_sentinel_passes_through(self) -> None:
         """duration=-1 or None should pass auto-sentinel, not hardcoded 120s."""

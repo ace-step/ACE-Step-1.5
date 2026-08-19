@@ -65,7 +65,6 @@ _configure_logging()
 from acestep.handler import AceStepHandler
 from acestep.llm_inference import LLMHandler
 from acestep.inference import GenerationParams, GenerationConfig, generate_music, create_sample, format_sample
-from acestep.model_type import is_turbo_model_path
 from acestep.constants import DEFAULT_DIT_INSTRUCTION, TASK_INSTRUCTIONS
 from acestep.gpu_config import get_gpu_config, set_global_gpu_config, is_mps_platform
 import torch
@@ -1107,9 +1106,9 @@ def main():
         "seed": params_defaults.seed,
         "guidance_scale": params_defaults.guidance_scale,
         "use_adg": params_defaults.use_adg,
-        # dcw_enabled is left unset (None) here: it is resolved from the selected
-        # model (turbo vs non-turbo) once config_path is known, unless a TOML
-        # config or the wizard explicitly overrides it. See issue #1259.
+        # dcw_enabled is left unset (None) here: core generation resolves it
+        # from the loaded model's own config.is_turbo (see #1273) unless a
+        # TOML config or the wizard explicitly overrides it. See issue #1259.
         "dcw_enabled": None,
         "dcw_mode": params_defaults.dcw_mode,
         "dcw_scaler": params_defaults.dcw_scaler,
@@ -1656,24 +1655,12 @@ def main():
             preloaded_prompt = None
         _install_prompt_edit_hook(llm_handler, instruction_path, preloaded_prompt=preloaded_prompt)
 
-    # DCW defaults to enabled in GenerationParams, but that only sounds clean on
-    # turbo models; on non-turbo (base/sft) models it produces distorted output
-    # (see issue #1259). The Gradio UI already turns DCW off for non-turbo models
-    # (acestep/ui/gradio/events/generation/model_config.py); mirror that here
-    # unless the user (via TOML config) explicitly set dcw_enabled themselves.
-    if args.dcw_enabled is None:
-        # Prefer the loaded model's own config.is_turbo flag (authoritative -
-        # it's read from the checkpoint's config.json) over guessing from the
-        # config_path string, which breaks for custom paths that don't
-        # literally contain "turbo" (e.g. a directory alias).
-        try:
-            args.dcw_enabled = dit_handler.is_turbo_model()
-        except Exception:
-            args.dcw_enabled = is_turbo_model_path(args.config_path)
-        print(
-            f"INFO: dcw_enabled not set explicitly; defaulting to {args.dcw_enabled} "
-            f"for model '{args.config_path}' (set dcw_enabled in your TOML config to override)."
-        )
+    # dcw_enabled is left as None here when the user hasn't set it explicitly
+    # (via TOML config or the wizard): GenerationParams.dcw_enabled=None defers
+    # to generate_music()'s own model-aware default (turbo on / non-turbo off,
+    # resolved from the loaded model's config.is_turbo - see #1273), so the CLI
+    # no longer needs to guess this itself. See issue #1259 for the original
+    # distorted-audio symptom this covers.
 
     # --- Configure Generation ---
     params = GenerationParams(

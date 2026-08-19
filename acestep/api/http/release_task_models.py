@@ -101,10 +101,10 @@ class GenerateMusicRequest(BaseModel):
     dcw_enabled: Optional[bool] = Field(
         default=None,
         description=(
-            "Enable DCW (Differential Correction in Wavelet domain). If unset, defaults to "
-            "True for turbo models and False for non-turbo (sft/base) models, matching the "
-            "Gradio UI's behavior. Non-turbo models with DCW forced on produce distorted "
-            "audio -- see issue #1259."
+            "Enable DCW (Differential Correction in Wavelet domain). If unset, the loaded "
+            "model's own config resolves the default -- True for turbo models, False for "
+            "non-turbo (sft/base) models -- matching the Gradio UI's behavior. Non-turbo "
+            "models with DCW forced on produce distorted audio -- see issue #1259."
         ),
     )
     dcw_mode: Literal["low", "high", "double", "pix"] = "double"

@@ -82,6 +82,11 @@ class GenerationParams:
         
         # Advanced DiT Parameters
         use_adg: Whether to use Adaptive Dual Guidance (only works for base model).
+        guidance_variant: Name of a registered guidance variant (e.g. ``"apg_classic"``, ``"cfg"``, ``"adg"``, ``"adg_w_norm"``, ``"adg_wo_clip"``).
+            ``None`` means "omitted": legacy ``use_adg=True`` resolves to ``"adg"``, otherwise ``"apg_classic"`` is used.  An explicit non-``None`` value always wins over ``use_adg``.
+            Unknown names raise ``ValueError`` from ``acestep.models.common.guidance_registry.get_guidance_fn`` at inference start.
+        guidance_params: Optional per-variant parameter overrides (e.g. ``{"eta": 0.1}`` for ``apg_classic``, ``{"angle_clip": 0.52}`` for ``adg``).
+            Keys and defaults depend on the chosen variant; see ``acestep/models/common/guidance_registry.py``.  ``None`` or ``{}`` means "use variant defaults".
         cfg_interval_start: Start ratio (0.0–1.0) to apply CFG.
         cfg_interval_end: End ratio (0.0–1.0) to apply CFG.
         shift: Timestep shift factor (default 1.0). When != 1.0, applies t = shift * t / (1 + (shift - 1) * t) to timesteps.
@@ -146,6 +151,12 @@ class GenerationParams:
     seed: int = -1
     guidance_scale: float = 7.0
     use_adg: bool = False
+    # Pluggable guidance (see acestep/models/common/guidance_registry.py).
+    # None means "omitted": legacy use_adg=True resolves to 'adg', otherwise
+    # 'apg_classic' is used, reproducing pre-refactor behaviour.  An explicit
+    # string value always takes precedence over use_adg.
+    guidance_variant: Optional[str] = None
+    guidance_params: Optional[Dict[str, Any]] = None
     cfg_interval_start: float = 0.0
     cfg_interval_end: float = 1.0
     shift: float = 1.0
@@ -882,6 +893,8 @@ def generate_music(
             "cover_noise_strength": params.cover_noise_strength,
             "task_type": params.task_type,
             "use_adg": params.use_adg,
+            "guidance_variant": params.guidance_variant,
+            "guidance_params": params.guidance_params,
             "cfg_interval_start": params.cfg_interval_start,
             "cfg_interval_end": params.cfg_interval_end,
             "shift": params.shift,

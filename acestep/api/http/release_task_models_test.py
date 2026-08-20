@@ -33,6 +33,23 @@ class ReleaseTaskModelsTests(unittest.TestCase):
         self.assertEqual("<|audio_code_1|>", req.audio_code_string)
         self.assertAlmostEqual(0.75, req.cover_noise_strength)
 
+    def test_guidance_variant_and_params_defaults(self):
+        """Omitted guidance fields surface as None so callers can distinguish omission from explicit 'apg_classic'."""
+
+        req = GenerateMusicRequest()
+        self.assertIsNone(req.guidance_variant)
+        self.assertIsNone(req.guidance_params)
+
+    def test_guidance_variant_and_params_are_accepted(self):
+        """Model should accept user-supplied guidance_variant and guidance_params."""
+
+        req = GenerateMusicRequest(
+            guidance_variant="adg",
+            guidance_params={"angle_clip": 0.52},
+        )
+        self.assertEqual("adg", req.guidance_variant)
+        self.assertEqual({"angle_clip": 0.52}, req.guidance_params)
+
 
 if __name__ == "__main__":
     unittest.main()

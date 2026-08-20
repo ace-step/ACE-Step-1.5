@@ -53,6 +53,21 @@ class ReleaseTaskParamParserTests(unittest.TestCase):
         parser = RequestParser({"audio_codes": "<|audio_code_42|>"})
         self.assertEqual("<|audio_code_42|>", parser.str("audio_code_string"))
 
+    def test_guidance_variant_and_params_aliases_are_resolved(self):
+        """Parser should resolve snake_case and camelCase aliases for guidance fields."""
+
+        parser_snake = RequestParser(
+            {"guidance_variant": "adg", "guidance_params": {"angle_clip": 0.52}},
+        )
+        self.assertEqual("adg", parser_snake.str("guidance_variant"))
+        self.assertEqual({"angle_clip": 0.52}, parser_snake.get("guidance_params"))
+
+        parser_camel = RequestParser(
+            {"guidanceVariant": "cfg", "guidanceParams": {"eta": 0.1}},
+        )
+        self.assertEqual("cfg", parser_camel.str("guidance_variant"))
+        self.assertEqual({"eta": 0.1}, parser_camel.get("guidance_params"))
+
     def test_non_dict_param_obj_json_is_ignored(self):
         """Parser should ignore parsed param_obj JSON values that are not dictionaries."""
 

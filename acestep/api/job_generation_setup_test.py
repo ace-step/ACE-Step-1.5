@@ -233,6 +233,63 @@ class JobGenerationSetupTests(unittest.TestCase):
         )
         self.assertEqual(45.0, setup.params.duration)
 
+    def test_guidance_variant_and_params_forwarded_into_generation_params(self) -> None:
+        """Guidance fields set on the request should land on GenerationParams unchanged."""
+
+        req = _base_req()
+        req.guidance_variant = "adg"
+        req.guidance_params = {"angle_clip": 0.52}
+        setup = build_generation_setup(
+            req=req,
+            caption="cap",
+            lyrics="lyr",
+            bpm=None,
+            key_scale="",
+            time_signature="",
+            audio_duration=None,
+            thinking=False,
+            sample_mode=False,
+            format_has_duration=False,
+            use_cot_caption=True,
+            use_cot_language=True,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False,
+            default_dit_instruction="default instruction",
+            task_instructions={},
+        )
+        self.assertEqual("adg", setup.params.guidance_variant)
+        self.assertEqual({"angle_clip": 0.52}, setup.params.guidance_params)
+
+    def test_guidance_variant_defaults_to_none_when_missing(self) -> None:
+        """Requests lacking guidance fields surface as None so legacy use_adg resolution still works."""
+
+        req = _base_req()
+        # Deliberately do NOT set req.guidance_variant / req.guidance_params.
+        setup = build_generation_setup(
+            req=req,
+            caption="cap",
+            lyrics="lyr",
+            bpm=None,
+            key_scale="",
+            time_signature="",
+            audio_duration=None,
+            thinking=False,
+            sample_mode=False,
+            format_has_duration=False,
+            use_cot_caption=True,
+            use_cot_language=True,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False,
+            default_dit_instruction="default instruction",
+            task_instructions={},
+        )
+        self.assertIsNone(setup.params.guidance_variant)
+        self.assertIsNone(setup.params.guidance_params)
+
     def test_use_cot_metas_enabled_when_format_has_duration(self) -> None:
         """use_cot_metas should remain True even when format produced duration,
         so the LM can still fill missing bpm/key_scale/time_signature."""

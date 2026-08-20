@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -86,6 +86,22 @@ class GenerateMusicRequest(BaseModel):
     extract_codes_only: bool = False
 
     use_adg: bool = False
+    guidance_variant: Optional[str] = Field(
+        default=None,
+        description=(
+            "Guidance variant name registered in acestep.models.common.guidance_registry. "
+            "When omitted or null, legacy `use_adg=true` selects 'adg'; otherwise 'apg_classic' "
+            "is used, reproducing pre-refactor behaviour. An explicit value always takes "
+            "precedence over `use_adg`. Built-in variants: apg_classic, cfg, adg, adg_w_norm, adg_wo_clip."
+        ),
+    )
+    guidance_params: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Optional per-variant parameter overrides (for example {'eta': 0.1, "
+            "'norm_threshold': 2.5} for apg_classic or {'angle_clip': 0.52} for adg)."
+        ),
+    )
     cfg_interval_start: float = 0.0
     cfg_interval_end: float = 1.0
     infer_method: str = "ode"  # "ode" or "sde" - diffusion inference method

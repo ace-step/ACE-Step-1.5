@@ -53,6 +53,8 @@ class GenerateMusicExecuteMixin:
         flow_edit_n_min: float = 0.0,
         flow_edit_n_max: float = 1.0,
         flow_edit_n_avg: int = 1,
+        guidance_variant: Optional[str] = None,
+        guidance_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Invoke ``service_generate`` while maintaining background progress estimation.
 
@@ -93,6 +95,8 @@ class GenerateMusicExecuteMixin:
                     audio_cover_strength=audio_cover_strength,
                     cover_noise_strength=cover_noise_strength,
                     use_adg=use_adg,
+                    guidance_variant=guidance_variant,
+                    guidance_params=guidance_params,
                     cfg_interval_start=cfg_interval_start,
                     cfg_interval_end=cfg_interval_end,
                     shift=shift,

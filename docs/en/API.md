@@ -212,6 +212,8 @@ User-provided values always win; LM only fills the fields that are empty/missing
 | `infer_method` | string | `"ode"` | Diffusion inference method: `"ode"` (Euler, faster) or `"sde"` (stochastic). |
 | `timesteps` | string | null | Custom timesteps as comma-separated values (e.g., `"0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0"`). Overrides `inference_steps` and `shift`. |
 | `use_adg` | bool | `false` | Use Adaptive Dual Guidance (base model only) |
+| `guidance_variant` | string | `null` | Registered guidance variant name. Built-ins: `apg_classic`, `cfg`, `adg`, `adg_w_norm`, `adg_wo_clip`. When `null` or omitted, legacy `use_adg=true` selects `adg`; otherwise `apg_classic` is used. camelCase alias `guidanceVariant` accepted |
+| `guidance_params` | object | `null` | Per-variant parameter overrides, e.g. `{"eta": 0.1}` for `apg_classic`. Defaults depend on the variant. In `multipart/form-data` requests, send as a JSON-encoded string. camelCase alias `guidanceParams` accepted |
 | `cfg_interval_start` | float | `0.0` | CFG application start ratio (0.0-1.0) |
 | `cfg_interval_end` | float | `1.0` | CFG application end ratio (0.0-1.0) |
 

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import json
+from typing import Any
 
 
 def build_generate_music_request(
@@ -35,6 +36,17 @@ def build_generate_music_request(
     track_classes = parser.get("track_classes")
     if track_classes is not None and isinstance(track_classes, str):
         track_classes = [track_classes]
+
+    guidance_params = parser.get("guidance_params")
+    if isinstance(guidance_params, str):
+        try:
+            parsed_guidance = json.loads(guidance_params)
+        except json.JSONDecodeError:
+            guidance_params = None
+        else:
+            guidance_params = parsed_guidance if isinstance(parsed_guidance, dict) else None
+    elif guidance_params is not None and not isinstance(guidance_params, dict):
+        guidance_params = None
 
     payload = dict(
         prompt=parser.str("prompt"),
@@ -77,6 +89,8 @@ def build_generate_music_request(
         repaint_mode=parser.str("repaint_mode", "balanced"),
         repaint_strength=parser.float("repaint_strength", 0.5),
         use_adg=parser.bool("use_adg"),
+        guidance_variant=parser.str("guidance_variant") or None,
+        guidance_params=guidance_params,
         cfg_interval_start=parser.float("cfg_interval_start", 0.0),
         cfg_interval_end=parser.float("cfg_interval_end", 1.0),
         infer_method=parser.str("infer_method", "ode"),

@@ -14,10 +14,10 @@ class _FakeParser:
 
         self._values = values
 
-    def get(self, key: str):
-        """Return raw value for ``key`` from parser payload."""
+    def get(self, key: str, default=None):
+        """Return raw value for ``key`` with the production parser's fallback."""
 
-        return self._values.get(key)
+        return self._values.get(key, default)
 
     def str(self, key: str, default: str = "") -> str:
         """Return string value for ``key`` with default fallback."""
@@ -135,22 +135,13 @@ class ReleaseTaskRequestBuilderTests(unittest.TestCase):
         self.assertAlmostEqual(0.6, request.cover_noise_strength)
 
 
-class _GuidanceAwareFakeParser(_FakeParser):
-    """Parser stub whose ``get`` accepts a default argument like RequestParser."""
-
-    def get(self, key: str, default=None):
-        """Return raw value for ``key`` or ``default`` when absent."""
-
-        return self._values.get(key, default)
-
-
 class ReleaseTaskRequestBuilderGuidanceTests(unittest.TestCase):
     """Guidance-variant forwarding through the release-task builder."""
 
     def test_guidance_variant_and_params_forwarded_to_request(self):
         """Builder should forward guidance_variant and guidance_params dict."""
 
-        parser = _GuidanceAwareFakeParser(
+        parser = _FakeParser(
             {
                 "guidance_variant": "adg",
                 "guidance_params": {"angle_clip": 0.52},
@@ -171,7 +162,7 @@ class ReleaseTaskRequestBuilderGuidanceTests(unittest.TestCase):
     def test_guidance_params_json_string_is_parsed(self):
         """String-encoded guidance_params JSON must be decoded into a dict."""
 
-        parser = _GuidanceAwareFakeParser(
+        parser = _FakeParser(
             {
                 "guidance_variant": "apg_classic",
                 "guidance_params": '{"eta": 0.1}',
@@ -191,7 +182,7 @@ class ReleaseTaskRequestBuilderGuidanceTests(unittest.TestCase):
     def test_guidance_params_invalid_json_becomes_none(self):
         """Malformed guidance_params JSON must be dropped, not surfaced."""
 
-        parser = _GuidanceAwareFakeParser(
+        parser = _FakeParser(
             {
                 "guidance_variant": "apg_classic",
                 "guidance_params": "not-json",

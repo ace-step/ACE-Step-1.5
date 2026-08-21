@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import unittest
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 from acestep.api.job_model_selection import (
@@ -17,6 +18,8 @@ class OnDemandModelLoadTests(unittest.TestCase):
     """Behavior tests for ACESTEP_ON_DEMAND_MODEL_LOAD request-time loading."""
 
     def _app_state(self) -> SimpleNamespace:
+        """Build an app-state stub with only the primary handler loaded."""
+
         state = SimpleNamespace(
             handler=MagicMock(name="primary"),
             handler2=None,
@@ -32,6 +35,8 @@ class OnDemandModelLoadTests(unittest.TestCase):
         return state
 
     def _select(self, app_state, requested, logger=None):
+        """Run select_generation_handler; returns (handler, model_name)."""
+
         return select_generation_handler(
             app_state=app_state,
             requested_model=requested,
@@ -40,15 +45,14 @@ class OnDemandModelLoadTests(unittest.TestCase):
             log_fn=logger or MagicMock(),
         )
 
-    _ENV_ON = {
+    _ENV_ON: ClassVar[dict[str, str]] = {
         "ACESTEP_ON_DEMAND_MODEL_LOAD": "true",
         "ACESTEP_QUEUE_WORKERS": "1",
         "ACESTEP_API_WORKERS": "1",
     }
 
     def _assert_disabled_falls_back_to_primary(self) -> None:
-        """With the gate off, an unloaded model silently falls back to the
-        untouched primary handler (the pre-feature behavior)."""
+        """Assert an unloaded model falls back to the untouched primary."""
 
         app_state = self._app_state()
         logger = MagicMock()
@@ -104,9 +108,8 @@ class OnDemandModelLoadTests(unittest.TestCase):
 
     @patch.dict(os.environ, _ENV_ON, clear=False)
     def test_load_failure_fails_the_job_and_clears_config_path(self) -> None:
-        """A failed initialize_service may leave the handler torn: the job
-        must fail (no silent fallback), and the cleared config path forces the
-        next request through a full reload instead of short-circuiting."""
+        """A failed initialize_service may leave the handler torn: fail the
+        job and clear the config path to force a full reload next request."""
 
         app_state = self._app_state()
         app_state.handler.initialize_service = MagicMock(return_value=("boom", False))
@@ -117,9 +120,8 @@ class OnDemandModelLoadTests(unittest.TestCase):
 
     @patch.dict(os.environ, _ENV_ON, clear=False)
     def test_download_failure_falls_back_with_traceback_and_fails_fast(self) -> None:
-        """Download failures precede any handler mutation, so fallback is safe;
-        the log carries the full traceback and the failed name is cached so
-        repeated requests inside the cooldown fail fast."""
+        """Download failures fall back safely with a traceback in the log,
+        and the cached name makes repeats inside the cooldown fail fast."""
 
         app_state = self._app_state()
         app_state._ensure_model_downloaded = MagicMock(side_effect=OSError("net down"))
@@ -132,14 +134,13 @@ class OnDemandModelLoadTests(unittest.TestCase):
         self.assertIn("failed", logger.call_args[0][0])
         self.assertIn("Traceback", logger.call_args[0][0])
 
-        handler, model = self._select(app_state, "acestep-v15-sft", logger)
+        _, model = self._select(app_state, "acestep-v15-sft", logger)
         self.assertEqual("acestep-v15-turbo", model)
         app_state._ensure_model_downloaded.assert_called_once()
 
     @patch.dict(os.environ, _ENV_ON, clear=False)
     def test_failed_fetch_retries_after_cooldown(self) -> None:
-        """A cached failure must expire so transient errors recover without a
-        server restart."""
+        """A cached failure must expire so transient errors recover."""
 
         app_state = self._app_state()
         app_state._ensure_model_downloaded = MagicMock(side_effect=OSError("net down"))
@@ -149,7 +150,7 @@ class OnDemandModelLoadTests(unittest.TestCase):
             _FAILED_FETCH_COOLDOWN_SEC + 1.0
         )
         app_state._ensure_model_downloaded = MagicMock()
-        handler, model = self._select(app_state, "acestep-v15-sft")
+        _, model = self._select(app_state, "acestep-v15-sft")
 
         self.assertEqual("acestep-v15-sft", model)
         app_state._ensure_model_downloaded.assert_called_once()
@@ -167,7 +168,7 @@ class OnDemandModelLoadTests(unittest.TestCase):
         apply the same normalization so 0 still enables the feature."""
 
         app_state = self._app_state()
-        handler, model = self._select(app_state, "acestep-v15-sft")
+        _, model = self._select(app_state, "acestep-v15-sft")
 
         self.assertEqual("acestep-v15-sft", model)
         app_state.handler.initialize_service.assert_called_once()

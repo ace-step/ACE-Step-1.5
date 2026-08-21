@@ -174,7 +174,7 @@ def select_generation_handler(
             except Exception as exc:
                 log_fn(
                     f"[API Server] Job {job_id}: On-demand fetch of "
-                    f"'{requested_model}' failed ({exc}); using primary: "
+                    f"{requested_model!r} failed ({exc}); using primary: "
                     f"{selected_model_name}\n{traceback.format_exc()}"
                 )
                 return selected_handler, selected_model_name

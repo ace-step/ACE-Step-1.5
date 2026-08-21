@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import os
 import re
+import time
+import traceback
 from typing import Any, Callable, Optional, Tuple
 
 _ON_DEMAND_MODEL_RE = re.compile(r"^acestep-v15-[A-Za-z0-9_-]+$")
+
+# How long a failed on-demand fetch blocks retries of the same model name.
+# Long enough that a hot request loop fails fast instead of stalling the
+# queue on every job, short enough that transient failures (network blips,
+# registry hiccups) become retryable without a server restart.
+_FAILED_FETCH_COOLDOWN_SEC = 300.0
 
 
 def _single_worker(env_name: str) -> bool:
@@ -42,17 +50,25 @@ def _prepare_on_demand_model(app_state: Any, requested_model: str) -> None:
     """Validate and fetch ``requested_model`` without touching the handler.
 
     Any failure here is safe to fall back from — the primary handler has not
-    been mutated. Download failures are cached so a repeatedly requested
-    unavailable name fails fast instead of stalling the queue on every job.
+    been mutated. Download failures are cached for ``_FAILED_FETCH_COOLDOWN_SEC``
+    so a repeatedly requested unavailable name fails fast instead of stalling
+    the queue on every job, while transient errors stay retryable.
     """
     if not _ON_DEMAND_MODEL_RE.match(requested_model):
         raise ValueError(f"unknown model name: {requested_model!r}")
     failed = getattr(app_state, "_on_demand_failed_models", None)
     if failed is None:
-        failed = set()
+        failed = {}
         app_state._on_demand_failed_models = failed
-    if requested_model in failed:
-        raise RuntimeError(f"a previous fetch of {requested_model!r} failed")
+    failed_at = failed.get(requested_model)
+    if failed_at is not None:
+        elapsed = time.monotonic() - failed_at
+        if elapsed < _FAILED_FETCH_COOLDOWN_SEC:
+            raise RuntimeError(
+                f"a fetch of {requested_model!r} failed {elapsed:.0f}s ago; "
+                f"retry blocked for {_FAILED_FETCH_COOLDOWN_SEC - elapsed:.0f}s"
+            )
+        del failed[requested_model]
     if getattr(app_state, "_service_init_kwargs", None) is None:
         raise RuntimeError("service init kwargs were not captured at startup")
     ensure_downloaded = getattr(app_state, "_ensure_model_downloaded", None)
@@ -60,7 +76,7 @@ def _prepare_on_demand_model(app_state: Any, requested_model: str) -> None:
         try:
             ensure_downloaded(requested_model, app_state._checkpoint_dir)
         except Exception:
-            failed.add(requested_model)
+            failed[requested_model] = time.monotonic()
             raise
 
 
@@ -159,7 +175,7 @@ def select_generation_handler(
                 log_fn(
                     f"[API Server] Job {job_id}: On-demand fetch of "
                     f"'{requested_model}' failed ({exc}); using primary: "
-                    f"{selected_model_name}"
+                    f"{selected_model_name}\n{traceback.format_exc()}"
                 )
                 return selected_handler, selected_model_name
             # Past this point the primary handler gets mutated in place;

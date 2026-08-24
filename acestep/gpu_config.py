@@ -218,6 +218,13 @@ LM_LOW_MEMORY_GPU_THRESHOLD_GB = 8.0
 # the unconditional sequence together, so both hold KV blocks at the same time.
 LM_CFG_SEQUENCE_COUNT = 2
 
+# nano-vllm caps its own KV cache on top of the ratio we hand it (see
+# ``ModelRunner.allocate_kv_cache``): it keeps a fixed reserve free for the
+# other models and spends at most this fraction of the rest.  A ratio that
+# ignores these caps promises the LM a KV cache nano-vllm will not allocate.
+NANO_VLLM_MIN_RESERVE_GB = 1.0
+NANO_VLLM_KV_FRACTION = 0.9
+
 # KV cache element size per checkpoint dtype.
 LM_KV_CACHE_DTYPE_BYTES = {
     "bfloat16": 2, "float16": 2, "half": 2, "float32": 4, "float": 4,
@@ -1033,6 +1040,12 @@ def get_dit_inference_reserve_gb(
     length: on a 24GB card an ``xl_turbo`` DiT needs 1.0GB at 60s but 4.5GB at
     480s.
 
+    One divergence remains: the pre-flight re-derives *dit_key* per request and
+    upgrades a turbo checkpoint to the CFG profile when ``guidance_scale > 1``,
+    which doubles its demand.  The reserve is sized before any request, from the
+    checkpoint alone, so a CFG generation on a turbo model asks for more than
+    was reserved and the pre-flight refuses it.
+
     Args:
         dit_key: DiT profile key, as returned by ``get_dit_type_from_path``.
         batch_size: Number of samples generated in one DiT forward pass.
@@ -1211,8 +1224,8 @@ def get_lm_gpu_memory_ratio(
         Tuple of (gpu_memory_utilization_ratio, target_memory_gb)
 
     Raises:
-        LmKvCacheTooSmallError: The LM cannot hold its weights plus the
-            smallest KV cache its context window needs.
+        LmKvCacheTooSmallError: nano-vllm cannot allocate the smallest KV cache
+            the LM's context window needs next to the resident models.
     """
     model_size = get_lm_model_size(model_path)
 
@@ -1277,15 +1290,22 @@ def get_lm_gpu_memory_ratio(
             # weights -- but never below what a full context window costs.
             minimum_kv_cache_gb = get_lm_kv_cache_floor_gb(model_path, actual_total_gb)
             kv_cache_headroom_gb = free_gb - lm_weights_gb
-            if kv_cache_headroom_gb < minimum_kv_cache_gb:
+            deliverable_kv_cache_gb = (
+                max(0.0, kv_cache_headroom_gb - NANO_VLLM_MIN_RESERVE_GB)
+                * NANO_VLLM_KV_FRACTION
+            )
+            if deliverable_kv_cache_gb < minimum_kv_cache_gb:
                 raise LmKvCacheTooSmallError(
                     f"The {model_size} LM needs {lm_weights_gb:.2f}GB of weights plus a "
                     f"{minimum_kv_cache_gb:.2f}GB KV cache "
                     f"({LM_CFG_SEQUENCE_COUNT} x "
                     f"{get_lm_max_model_len_tokens(actual_total_gb)} tokens, the "
-                    f"classifier-free-guidance pair) but only {free_gb:.2f}GB are free "
-                    f"next to the resident {dit_key} DiT. Use a smaller LM, offload the "
-                    f"DiT, or free VRAM before initializing the LM."
+                    f"classifier-free-guidance pair) next to the resident {dit_key} DiT. "
+                    f"Only {free_gb:.2f}GB are free, of which nano-vllm can spend "
+                    f"{deliverable_kv_cache_gb:.2f}GB on the KV cache (it keeps "
+                    f"{NANO_VLLM_MIN_RESERVE_GB:.1f}GB free and uses "
+                    f"{NANO_VLLM_KV_FRACTION:.0%} of the rest). Use a smaller LM, offload "
+                    f"the DiT, or free VRAM before initializing the LM."
                 )
 
             kv_cache_gb = kv_cache_headroom_gb - dit_reserve_gb

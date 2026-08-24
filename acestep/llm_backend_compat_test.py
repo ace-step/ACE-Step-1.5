@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from acestep.gpu_config import LmKvCacheTooSmallError
 from acestep.llm_backend_compat import get_vllm_preflight_warning
 
 try:
@@ -163,6 +164,56 @@ class LlmInitializeBackendCompatTests(unittest.TestCase):
         self.assertIn("PyTorch fallback", status)
         self.assertIn("working Triton installation", status)
         self.assertNotIn("Traceback", status)
+
+    @patch("torch.cuda.synchronize")
+    @patch("torch.cuda.empty_cache")
+    @patch("torch.cuda.is_available", return_value=True)
+    @patch("acestep.llm_inference.MetadataConstrainedLogitsProcessor")
+    @patch("acestep.llm_inference.get_global_gpu_config")
+    @patch("acestep.llm_inference.AutoTokenizer.from_pretrained")
+    def test_initialize_reports_failure_when_the_kv_cache_does_not_fit(
+        self,
+        mock_tokenizer: MagicMock,
+        mock_gpu_config: MagicMock,
+        _mock_processor: MagicMock,
+        _mock_cuda_available: MagicMock,
+        _mock_empty_cache: MagicMock,
+        _mock_synchronize: MagicMock,
+    ) -> None:
+        """Too little VRAM for the KV cache must fail, not silently switch backends.
+
+        The PyTorch backend has a different memory profile, so falling back to
+        it would trade a clear refusal for an out-of-memory crash later.
+        """
+        handler = LLMHandler()
+        mock_tokenizer.return_value = MagicMock()
+        mock_gpu_config.return_value = SimpleNamespace(max_duration_with_lm=600, tier="tier6")
+
+        with patch("acestep.llm_inference.os.path.exists", return_value=True), patch(
+            "acestep.llm_inference.get_vllm_preflight_warning",
+            return_value=None,
+        ), patch.object(
+            handler,
+            "_initialize_5hz_lm_vllm",
+            side_effect=LmKvCacheTooSmallError(
+                "The 4B LM needs 8.00GB of weights plus a 1.13GB KV cache"
+            ),
+        ) as init_vllm, patch.object(
+            handler, "_load_pytorch_model"
+        ) as load_pytorch_model:
+            status, ok = handler.initialize(
+                checkpoint_dir="/repo/checkpoints",
+                lm_model_path="acestep-5Hz-lm-4B",
+                backend="vllm",
+                device="cuda",
+            )
+
+        self.assertFalse(ok)
+        self.assertTrue(status.startswith("❌"))
+        self.assertIn("KV cache", status)
+        init_vllm.assert_called_once()
+        load_pytorch_model.assert_not_called()
+        self.assertFalse(handler.llm_initialized)
 
 
 if __name__ == "__main__":

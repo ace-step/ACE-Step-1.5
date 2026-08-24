@@ -23,6 +23,8 @@ from acestep.gpu_config import (
     LM_DIT_RESERVE_DURATION_ENV,
     LM_GPU_MEMORY_RATIO_MAX,
     LM_MAX_MODEL_LEN_TOKENS,
+    NANO_VLLM_KV_FRACTION,
+    NANO_VLLM_MIN_RESERVE_GB,
     VRAM_SAFETY_MARGIN_GB,
     LmKvCacheTooSmallError,
     get_dit_inference_reserve_gb,
@@ -315,6 +317,23 @@ class LmGpuMemoryRatioTests(unittest.TestCase):
                 free_gb=8.5, total_gb=23.53, allocated_gb=14.5, duration_s=165
             )
         self.assertIn("KV cache", str(raised.exception))
+
+    def test_lm_init_fails_when_nano_vllm_caps_undercut_the_floor(self) -> None:
+        """nano-vllm keeps its own reserve, so raw headroom over the floor is not enough."""
+        lm_weights_gb = 8.0
+        # Headroom above the floor, but below what nano-vllm will hand out.
+        free_gb = lm_weights_gb + self.kv_cache_floor_gb + 0.5
+        deliverable_gb = (
+            free_gb - lm_weights_gb - NANO_VLLM_MIN_RESERVE_GB
+        ) * NANO_VLLM_KV_FRACTION
+        self.assertGreater(free_gb - lm_weights_gb, self.kv_cache_floor_gb)
+        self.assertLess(deliverable_gb, self.kv_cache_floor_gb)
+
+        with self.assertRaises(LmKvCacheTooSmallError) as raised:
+            self._ratio(
+                free_gb=free_gb, total_gb=23.53, allocated_gb=12.0, duration_s=165
+            )
+        self.assertIn("nano-vllm can spend", str(raised.exception))
 
     def test_reserving_for_a_batch_shrinks_the_lm_further(self) -> None:
         """A batch deployment reserves activations for every sample."""

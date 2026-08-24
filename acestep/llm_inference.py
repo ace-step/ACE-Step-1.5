@@ -26,6 +26,7 @@ from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import (
+    LM_LOW_MEMORY_GPU_THRESHOLD_GB,
     LM_LOW_MEMORY_MAX_MODEL_LEN_TOKENS,
     LM_MAX_MODEL_LEN_TOKENS,
     LmKvCacheTooSmallError,
@@ -223,7 +224,7 @@ class LLMHandler:
                 logger.info(f"Adaptive LM memory allocation: model={model_path}, target={target_memory_gb}GB, ratio={ratio:.3f}, total_gpu={total_gpu:.1f}GB")
 
                 # Enable low memory mode for small GPUs
-                if total_gpu < 8:
+                if total_gpu < LM_LOW_MEMORY_GPU_THRESHOLD_GB:
                     low_gpu_memory_mode = True
 
                 return ratio, low_gpu_memory_mode

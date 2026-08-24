@@ -7,23 +7,62 @@ grows with track length -- these tests pin that both sides use the same
 yardstick.
 """
 
+import json
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from acestep.gpu_config import (
     DIT_RESERVE_HEADROOM_GB,
+    LM_CFG_SEQUENCE_COUNT,
+    LM_DIT_RESERVE_BATCH_ENV,
+    LM_DIT_RESERVE_DEFAULT_BATCH,
     LM_DIT_RESERVE_DURATION_ENV,
     LM_GPU_MEMORY_RATIO_MAX,
+    LM_MAX_MODEL_LEN_TOKENS,
     VRAM_SAFETY_MARGIN_GB,
+    LmKvCacheTooSmallError,
     get_dit_inference_reserve_gb,
     get_dit_max_duration_for_free_vram_s,
     get_lm_gpu_memory_ratio,
+    get_lm_kv_cache_bytes_per_token,
+    get_lm_kv_cache_floor_gb,
+    resolve_lm_dit_reserve_batch,
     resolve_lm_dit_reserve_duration_s,
 )
 
 GB = 1024**3
+
+# Shape of the shipped acestep-5Hz-lm-4B checkpoint (Qwen3-4B).
+LM_4B_LAYERS, LM_4B_KV_HEADS, LM_4B_HEAD_DIM = 36, 8, 128
+
+
+def write_lm_checkpoint(
+    root: str,
+    name: str = "acestep-5Hz-lm-4B",
+    num_hidden_layers: int = LM_4B_LAYERS,
+    num_key_value_heads: int = LM_4B_KV_HEADS,
+    head_dim: int = LM_4B_HEAD_DIM,
+    dtype: str = "bfloat16",
+) -> str:
+    """Write a checkpoint directory with the config fields the KV math reads."""
+    path = Path(root) / name
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "config.json").write_text(
+        json.dumps(
+            {
+                "num_hidden_layers": num_hidden_layers,
+                "num_key_value_heads": num_key_value_heads,
+                "head_dim": head_dim,
+                "dtype": dtype,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(path)
 
 
 class DitInferenceReserveTests(unittest.TestCase):
@@ -109,8 +148,80 @@ class ResolveReserveDurationTests(unittest.TestCase):
                     self.assertEqual(480.0, resolve_lm_dit_reserve_duration_s())
 
 
+class ResolveReserveBatchTests(unittest.TestCase):
+    """Deployments that generate several samples per request size for that."""
+
+    def test_defaults_to_a_single_sample(self) -> None:
+        """The common case is one sample per request."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(LM_DIT_RESERVE_BATCH_ENV, None)
+            self.assertEqual(LM_DIT_RESERVE_DEFAULT_BATCH, resolve_lm_dit_reserve_batch())
+
+    def test_environment_sets_the_reserved_batch_size(self) -> None:
+        """A batch deployment can reserve for its real batch size."""
+        with patch.dict(os.environ, {LM_DIT_RESERVE_BATCH_ENV: "4"}):
+            self.assertEqual(4, resolve_lm_dit_reserve_batch())
+
+    def test_unusable_override_falls_back_to_one_sample(self) -> None:
+        """Garbage and non-positive batch sizes are reported, not obeyed."""
+        for value in ("not-a-number", "0", "-2", "1.5"):
+            with self.subTest(value=value):
+                with patch.dict(os.environ, {LM_DIT_RESERVE_BATCH_ENV: value}):
+                    self.assertEqual(
+                        LM_DIT_RESERVE_DEFAULT_BATCH, resolve_lm_dit_reserve_batch()
+                    )
+
+
+class LmKvCacheFloorTests(unittest.TestCase):
+    """The KV cache floor is what nano-vllm's scheduler actually needs."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.checkpoint = write_lm_checkpoint(self._tmp.name)
+
+    def test_bytes_per_token_follows_the_checkpoint_shape(self) -> None:
+        """Key and value, for every layer and key/value head, in the model dtype."""
+        self.assertEqual(
+            2 * LM_4B_LAYERS * LM_4B_KV_HEADS * LM_4B_HEAD_DIM * 2,
+            get_lm_kv_cache_bytes_per_token(self.checkpoint),
+        )
+
+    def test_float32_checkpoints_cost_twice_as_much_per_token(self) -> None:
+        """The KV cache is stored in the checkpoint's dtype."""
+        wide = write_lm_checkpoint(
+            self._tmp.name, name="acestep-5Hz-lm-4B-fp32", dtype="float32"
+        )
+        self.assertEqual(
+            2 * get_lm_kv_cache_bytes_per_token(self.checkpoint),
+            get_lm_kv_cache_bytes_per_token(wide),
+        )
+
+    def test_floor_covers_a_cfg_pair_of_full_context_windows(self) -> None:
+        """CFG schedules the conditional and unconditional sequence together."""
+        bytes_per_token = get_lm_kv_cache_bytes_per_token(self.checkpoint)
+        expected_gb = (
+            LM_CFG_SEQUENCE_COUNT * LM_MAX_MODEL_LEN_TOKENS * bytes_per_token / GB
+        )
+        self.assertAlmostEqual(
+            expected_gb, get_lm_kv_cache_floor_gb(self.checkpoint, 24.0), places=6
+        )
+
+    def test_unreadable_checkpoint_falls_back_to_the_empirical_estimate(self) -> None:
+        """A missing config.json must not make the floor silently zero."""
+        self.assertEqual(
+            0.8, get_lm_kv_cache_floor_gb("acestep-5Hz-lm-4B", 24.0)
+        )
+
+
 class LmGpuMemoryRatioTests(unittest.TestCase):
     """The ratio hands the DiT the reserve the pre-flight will ask for."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.checkpoint = write_lm_checkpoint(self._tmp.name)
+        self.kv_cache_floor_gb = get_lm_kv_cache_floor_gb(self.checkpoint, 24.0)
 
     def _ratio(
         self,
@@ -118,9 +229,9 @@ class LmGpuMemoryRatioTests(unittest.TestCase):
         free_gb: float,
         total_gb: float,
         allocated_gb: float,
-        lm_model: str = "acestep-5Hz-lm-4B",
         dit_config_path: str = "acestep-v15-xl-turbo",
         duration_s: float = 165,
+        batch_size: int | None = 1,
     ) -> float:
         """Run the ratio computation against a mocked CUDA device."""
         mock_cuda = MagicMock()
@@ -135,9 +246,10 @@ class LmGpuMemoryRatioTests(unittest.TestCase):
         ):
             os.environ.pop("MAX_CUDA_VRAM", None)
             ratio, _ = get_lm_gpu_memory_ratio(
-                lm_model,
+                self.checkpoint,
                 total_gb,
                 dit_config_path=dit_config_path,
+                batch_size=batch_size,
                 reserve_duration_s=duration_s,
             )
         return ratio
@@ -181,9 +293,9 @@ class LmGpuMemoryRatioTests(unittest.TestCase):
         self.assertLess(short, long)
 
     def test_lm_keeps_its_minimum_kv_cache_when_the_reserve_does_not_fit(self) -> None:
-        """An unaffordable reserve shrinks the KV cache, never the LM weights."""
+        """An unaffordable reserve shrinks the KV cache to its floor, never the weights."""
         total_gb, free_gb, allocated_gb = 23.53, 11.56, 10.55
-        lm_weights_gb, minimum_kv_cache_gb = 8.0, 0.8
+        lm_weights_gb = 8.0
         ratio = self._ratio(
             free_gb=free_gb,
             total_gb=total_gb,
@@ -191,9 +303,60 @@ class LmGpuMemoryRatioTests(unittest.TestCase):
             duration_s=480,
         )
         self.assertAlmostEqual(
-            free_gb - lm_weights_gb - minimum_kv_cache_gb,
+            free_gb - lm_weights_gb - self.kv_cache_floor_gb,
             self._free_after_lm_gb(ratio, total_gb, free_gb, allocated_gb),
             places=6,
+        )
+
+    def test_lm_init_fails_when_the_kv_cache_floor_does_not_fit(self) -> None:
+        """Better a clear refusal now than `Insufficient KV cache` mid-generation."""
+        with self.assertRaises(LmKvCacheTooSmallError) as raised:
+            self._ratio(
+                free_gb=8.5, total_gb=23.53, allocated_gb=14.5, duration_s=165
+            )
+        self.assertIn("KV cache", str(raised.exception))
+
+    def test_reserving_for_a_batch_shrinks_the_lm_further(self) -> None:
+        """A batch deployment reserves activations for every sample."""
+        total_gb, free_gb, allocated_gb = 23.53, 11.56, 10.55
+        single, paired = (
+            self._free_after_lm_gb(
+                self._ratio(
+                    free_gb=free_gb,
+                    total_gb=total_gb,
+                    allocated_gb=allocated_gb,
+                    duration_s=60,
+                    batch_size=batch_size,
+                ),
+                total_gb,
+                free_gb,
+                allocated_gb,
+            )
+            for batch_size in (1, 2)
+        )
+        self.assertAlmostEqual(
+            get_dit_inference_reserve_gb("xl_turbo", 2, 60), paired, places=6
+        )
+        self.assertGreater(paired, single)
+
+    def test_batch_size_comes_from_the_environment_when_unset(self) -> None:
+        """The reserve lever applies without every caller passing a batch size."""
+        total_gb, free_gb, allocated_gb = 23.53, 11.56, 10.55
+        with patch.dict(os.environ, {LM_DIT_RESERVE_BATCH_ENV: "2"}):
+            free_after_gb = self._free_after_lm_gb(
+                self._ratio(
+                    free_gb=free_gb,
+                    total_gb=total_gb,
+                    allocated_gb=allocated_gb,
+                    duration_s=60,
+                    batch_size=None,
+                ),
+                total_gb,
+                free_gb,
+                allocated_gb,
+            )
+        self.assertAlmostEqual(
+            get_dit_inference_reserve_gb("xl_turbo", 2, 60), free_after_gb, places=6
         )
 
     def test_lm_never_claims_more_than_it_needs(self) -> None:

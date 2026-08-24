@@ -25,7 +25,15 @@ from transformers.generation.logits_process import (
 from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.gpu_config import (
+    LM_LOW_MEMORY_MAX_MODEL_LEN_TOKENS,
+    LM_MAX_MODEL_LEN_TOKENS,
+    LmKvCacheTooSmallError,
+    get_lm_gpu_memory_ratio,
+    get_gpu_memory_gb,
+    get_lm_model_size,
+    get_global_gpu_config,
+)
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -235,6 +243,8 @@ class LLMHandler:
                 ratio = min(max_ratio, max(min_ratio, (available_gpu * 0.8) / total_gpu))
 
             return ratio, low_gpu_memory_mode
+        except LmKvCacheTooSmallError:
+            raise
         except Exception as e:
             logger.warning(f"Failed to calculate GPU memory utilization: {e}")
             return 0.9, False
@@ -829,9 +839,9 @@ class LLMHandler:
             )
 
             if low_gpu_memory_mode:
-                self.max_model_len = 2048
+                self.max_model_len = LM_LOW_MEMORY_MAX_MODEL_LEN_TOKENS
             else:
-                self.max_model_len = 4096
+                self.max_model_len = LM_MAX_MODEL_LEN_TOKENS
 
             logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: {enforce_eager}, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
 
@@ -871,6 +881,9 @@ class LLMHandler:
                 if _dynamo_state_saved:
                     _dynamo.config.suppress_errors = _prev_suppress
                     _dynamo_logger.setLevel(_prev_log_level)
+        except LmKvCacheTooSmallError:
+            self.llm_initialized = False
+            raise
         except Exception as e:
             self.llm_initialized = False
             if "Cannot find a working triton installation" in str(e):

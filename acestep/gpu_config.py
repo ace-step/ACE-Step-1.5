@@ -12,6 +12,8 @@ Centralized GPU memory detection and adaptive configuration management
     This is useful for testing GPU tier configurations on high-end hardware.
 """
 
+import json
+import math
 import os
 import re
 import sys
@@ -196,6 +198,35 @@ LM_GPU_MEMORY_RATIO_MIN = 0.1
 # sized from the pending job; this env var (seconds) overrides the tier's
 # ``max_duration_with_lm`` for deployments that know their real track lengths.
 LM_DIT_RESERVE_DURATION_ENV = "ACESTEP_LM_DIT_RESERVE_DURATION_S"
+
+# Batch size the DiT reserve is sized for.  One sample per request is the
+# common case; deployments that generate several samples per request raise this
+# so the pre-flight does not refuse every batched job.
+LM_DIT_RESERVE_BATCH_ENV = "ACESTEP_LM_DIT_RESERVE_BATCH"
+LM_DIT_RESERVE_DEFAULT_BATCH = 1
+
+# nano-vllm allocates its KV cache in blocks of this many tokens.
+LM_KV_CACHE_BLOCK_SIZE_TOKENS = 256
+
+# Context window llm_inference configures for the LM.  The KV cache has to hold
+# a full window, otherwise nano-vllm's scheduler refuses the sequence mid-job.
+LM_MAX_MODEL_LEN_TOKENS = 4096
+LM_LOW_MEMORY_MAX_MODEL_LEN_TOKENS = 2048
+LM_LOW_MEMORY_GPU_THRESHOLD_GB = 8.0
+
+# Classifier-free guidance (``lm_cfg_scale > 1``) schedules the conditional and
+# the unconditional sequence together, so both hold KV blocks at the same time.
+LM_CFG_SEQUENCE_COUNT = 2
+
+# KV cache element size per checkpoint dtype.
+LM_KV_CACHE_DTYPE_BYTES = {
+    "bfloat16": 2, "float16": 2, "half": 2, "float32": 4, "float": 4,
+}
+LM_KV_CACHE_DEFAULT_DTYPE_BYTES = 2
+
+
+class LmKvCacheTooSmallError(RuntimeError):
+    """The LM cannot hold the KV cache its context window promises."""
 
 
 def _has_path_token(token: str, path: str) -> bool:
@@ -1037,6 +1068,80 @@ def get_dit_max_duration_for_free_vram_s(
     return max(0.0, activation_budget_gb / (per_batch_gb * batch_size) * 60.0)
 
 
+def get_lm_max_model_len_tokens(total_gpu_memory_gb: float) -> int:
+    """Context window llm_inference configures for the LM on this GPU."""
+    if total_gpu_memory_gb < LM_LOW_MEMORY_GPU_THRESHOLD_GB:
+        return LM_LOW_MEMORY_MAX_MODEL_LEN_TOKENS
+    return LM_MAX_MODEL_LEN_TOKENS
+
+
+def get_lm_kv_cache_bytes_per_token(model_path: str) -> Optional[int]:
+    """KV cache cost of one token for the checkpoint at *model_path*.
+
+    Uses the same shape nano-vllm's block allocator uses: key and value, for
+    every layer and key/value head.
+
+    Returns:
+        Bytes per token, or ``None`` when the checkpoint's ``config.json``
+        cannot be read.
+    """
+    config_file = os.path.join(model_path, "config.json")
+    try:
+        with open(config_file, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+        num_layers = config["num_hidden_layers"]
+        num_kv_heads = config["num_key_value_heads"]
+        head_dim = config.get("head_dim") or (
+            config["hidden_size"] // config["num_attention_heads"]
+        )
+    except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as exc:
+        logger.warning(
+            f"[gpu_config] Cannot read KV cache shape from {config_file}: {exc}"
+        )
+        return None
+    dtype = str(config.get("dtype") or config.get("torch_dtype") or "").lower()
+    dtype_bytes = LM_KV_CACHE_DTYPE_BYTES.get(dtype, LM_KV_CACHE_DEFAULT_DTYPE_BYTES)
+    return 2 * num_layers * num_kv_heads * head_dim * dtype_bytes
+
+
+def get_lm_kv_cache_floor_gb(model_path: str, total_gpu_memory_gb: float) -> float:
+    """Smallest KV cache the LM can run with.
+
+    nano-vllm's scheduler needs blocks for a whole context window, and twice
+    that while classifier-free guidance is in play, because the conditional and
+    the unconditional sequence are scheduled as a pair.  Anything less turns
+    into a mid-generation ``Insufficient KV cache to schedule sequence``.
+
+    Falls back to the empirical ``LM_VRAM`` estimate (and says so) when the
+    checkpoint's config is unreadable.
+    """
+    bytes_per_token = get_lm_kv_cache_bytes_per_token(model_path)
+    if bytes_per_token is None:
+        model_size = get_lm_model_size(model_path)
+        return LM_VRAM.get(model_size, LM_VRAM["0.6B"])["kv_cache_2k"]
+    tokens = LM_CFG_SEQUENCE_COUNT * get_lm_max_model_len_tokens(total_gpu_memory_gb)
+    blocks = math.ceil(tokens / LM_KV_CACHE_BLOCK_SIZE_TOKENS)
+    return blocks * LM_KV_CACHE_BLOCK_SIZE_TOKENS * bytes_per_token / (1024**3)
+
+
+def resolve_lm_dit_reserve_batch() -> int:
+    """Batch size the DiT reserve is sized for."""
+    raw = os.environ.get(LM_DIT_RESERVE_BATCH_ENV, "").strip()
+    if not raw:
+        return LM_DIT_RESERVE_DEFAULT_BATCH
+    try:
+        batch_size = int(raw)
+    except ValueError:
+        batch_size = 0
+    if batch_size <= 0:
+        logger.warning(
+            f"[gpu_config] Ignoring {LM_DIT_RESERVE_BATCH_ENV}={raw!r}: must be a "
+            f"positive integer, falling back to {LM_DIT_RESERVE_DEFAULT_BATCH}"
+        )
+        return LM_DIT_RESERVE_DEFAULT_BATCH
+    return batch_size
+
+
 def resolve_lm_dit_reserve_duration_s() -> float:
     """Track length the LM reserve is sized for.
 
@@ -1070,7 +1175,7 @@ def get_lm_gpu_memory_ratio(
     model_path: str,
     total_gpu_memory_gb: float,
     dit_config_path: str = "",
-    batch_size: int = 1,
+    batch_size: Optional[int] = None,
     reserve_duration_s: Optional[float] = None,
 ) -> Tuple[float, float]:
     """
@@ -1096,13 +1201,18 @@ def get_lm_gpu_memory_ratio(
         total_gpu_memory_gb: Total GPU memory in GB (used as fallback)
         dit_config_path: Checkpoint path of the resident DiT, used to size its
             inference reserve.  Empty means the standard (non-XL) profile.
-        batch_size: Batch size the reserve is sized for.  Larger batches are
-            rejected by the pre-flight at request time.
+        batch_size: Batch size the reserve is sized for.  ``None`` resolves it
+            from the environment.  Requests with a larger batch are refused by
+            the pre-flight rather than silently OOMing.
         reserve_duration_s: Track length the reserve is sized for.  ``None``
             resolves it from the environment or the GPU tier.
 
     Returns:
         Tuple of (gpu_memory_utilization_ratio, target_memory_gb)
+
+    Raises:
+        LmKvCacheTooSmallError: The LM cannot hold its weights plus the
+            smallest KV cache its context window needs.
     """
     model_size = get_lm_model_size(model_path)
 
@@ -1148,6 +1258,8 @@ def get_lm_gpu_memory_ratio(
             dit_key = get_dit_type_from_path(dit_config_path)
             if reserve_duration_s is None:
                 reserve_duration_s = resolve_lm_dit_reserve_duration_s()
+            if batch_size is None:
+                batch_size = resolve_lm_dit_reserve_batch()
             dit_reserve_gb = get_dit_inference_reserve_gb(
                 dit_key, batch_size, reserve_duration_s
             )
@@ -1162,27 +1274,37 @@ def get_lm_gpu_memory_ratio(
 
             # The LM's weights are fixed; its KV cache is the adjustable part,
             # so the reserve is taken out of the KV cache and never out of the
-            # weights.
-            minimum_kv_cache_gb = lm_info["kv_cache_2k"]
-            kv_cache_gb = free_gb - lm_weights_gb - dit_reserve_gb
-            if kv_cache_gb < minimum_kv_cache_gb:
-                kv_cache_gb = max(
-                    0.0, min(minimum_kv_cache_gb, free_gb - lm_weights_gb)
+            # weights -- but never below what a full context window costs.
+            minimum_kv_cache_gb = get_lm_kv_cache_floor_gb(model_path, actual_total_gb)
+            kv_cache_headroom_gb = free_gb - lm_weights_gb
+            if kv_cache_headroom_gb < minimum_kv_cache_gb:
+                raise LmKvCacheTooSmallError(
+                    f"The {model_size} LM needs {lm_weights_gb:.2f}GB of weights plus a "
+                    f"{minimum_kv_cache_gb:.2f}GB KV cache "
+                    f"({LM_CFG_SEQUENCE_COUNT} x "
+                    f"{get_lm_max_model_len_tokens(actual_total_gb)} tokens, the "
+                    f"classifier-free-guidance pair) but only {free_gb:.2f}GB are free "
+                    f"next to the resident {dit_key} DiT. Use a smaller LM, offload the "
+                    f"DiT, or free VRAM before initializing the LM."
                 )
+
+            kv_cache_gb = kv_cache_headroom_gb - dit_reserve_gb
+            if kv_cache_gb < minimum_kv_cache_gb:
+                kv_cache_gb = minimum_kv_cache_gb
                 supported_duration_s = get_dit_max_duration_for_free_vram_s(
-                    dit_key, batch_size, free_gb - lm_weights_gb - kv_cache_gb
+                    dit_key, batch_size, kv_cache_headroom_gb - kv_cache_gb
                 )
                 logger.warning(
                     f"[get_lm_gpu_memory_ratio] Cannot reserve {dit_reserve_gb:.2f}GB for "
-                    f"{dit_key} at {reserve_duration_s:.0f}s next to the {model_size} LM: "
-                    f"only {free_gb:.2f}GB free. Keeping the LM's minimum KV cache "
-                    f"({kv_cache_gb:.2f}GB); tracks are supported up to "
-                    f"~{supported_duration_s:.0f}s. Lower {LM_DIT_RESERVE_DURATION_ENV} "
-                    f"or use a smaller LM."
+                    f"{dit_key} at {reserve_duration_s:.0f}s x batch {batch_size} next to "
+                    f"the {model_size} LM: only {free_gb:.2f}GB free. Keeping the LM's "
+                    f"minimum KV cache ({kv_cache_gb:.2f}GB); tracks are supported up to "
+                    f"~{supported_duration_s:.0f}s at that batch size. Lower "
+                    f"{LM_DIT_RESERVE_DURATION_ENV} or use a smaller LM."
                 )
 
             # Cap to what the LM actually needs
-            kv_cache_gb = min(kv_cache_gb, lm_kv_cache_gb)
+            kv_cache_gb = min(kv_cache_gb, max(minimum_kv_cache_gb, lm_kv_cache_gb))
             usable_for_lm = max(0.0, lm_weights_gb + kv_cache_gb - untracked_gb)
 
             # Convert to ratio of total GPU memory
@@ -1214,6 +1336,8 @@ def get_lm_gpu_memory_ratio(
                 f"ratio={ratio:.3f}"
             )
             return ratio, target_gb
+    except LmKvCacheTooSmallError:
+        raise
     except Exception as e:
         logger.warning(
             f"[get_lm_gpu_memory_ratio] Failed to query free VRAM: {e}, using fallback"

@@ -142,6 +142,7 @@ def init_service_wrapper(
             device=lm_device,
             offload_to_cpu=offload_to_cpu,
             dtype=None,
+            dit_config_path=config_path,
         )
 
         if lm_success:

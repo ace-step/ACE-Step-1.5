@@ -180,6 +180,23 @@ DIT_INFERENCE_VRAM_PER_BATCH = {
 # Safety margin to keep free for OS/driver/fragmentation (GB)
 VRAM_SAFETY_MARGIN_GB = 0.5
 
+# Slack on top of the DiT pre-flight's own demand, so a generation that the
+# pre-flight accepts still has room to grow (allocator fragmentation during the
+# DiT forward pass).  Measured on an RTX 3090 (24GB, xl-turbo + 4B LM, 165s
+# track): the DiT stage peaked 0.59GB above the post-LM resident set while the
+# pre-flight demanded 1.88GB, so 0.5GB of slack covers the observed error.
+DIT_RESERVE_HEADROOM_GB = 0.5
+
+# Bounds for the LM's share of total VRAM (nano-vllm's gpu_memory_utilization).
+LM_GPU_MEMORY_RATIO_MAX = 0.9
+LM_GPU_MEMORY_RATIO_MIN = 0.1
+
+# Longest track the DiT must still be able to render while the LM is resident.
+# The LM initializes before any generation request, so the reserve cannot be
+# sized from the pending job; this env var (seconds) overrides the tier's
+# ``max_duration_with_lm`` for deployments that know their real track lengths.
+LM_DIT_RESERVE_DURATION_ENV = "ACESTEP_LM_DIT_RESERVE_DURATION_S"
+
 
 def _has_path_token(token: str, path: str) -> bool:
     """Check if *token* appears as a delimited word in *path*.
@@ -973,8 +990,88 @@ def find_best_lm_model_on_disk(
     return disk_models[0] if disk_models else None
 
 
+def get_dit_inference_reserve_gb(
+    dit_key: str, batch_size: int, duration_s: float
+) -> float:
+    """VRAM the DiT stage will demand for one generation, plus slack.
+
+    Mirrors the pre-flight check in
+    ``core/generation/handler/generate_music.py`` so that memory the LM keeps
+    free is measured with the same yardstick the pre-flight later applies.  A
+    constant reserve is wrong because the pre-flight's demand grows with track
+    length: on a 24GB card an ``xl_turbo`` DiT needs 1.0GB at 60s but 4.5GB at
+    480s.
+
+    Args:
+        dit_key: DiT profile key, as returned by ``get_dit_type_from_path``.
+        batch_size: Number of samples generated in one DiT forward pass.
+        duration_s: Track length in seconds.
+
+    Returns:
+        Reserve in GB: the pre-flight's demand plus ``DIT_RESERVE_HEADROOM_GB``.
+    """
+    per_batch_gb = DIT_INFERENCE_VRAM_PER_BATCH[dit_key]
+    duration_factor = max(1.0, duration_s / 60.0)
+    return (
+        per_batch_gb * batch_size * duration_factor
+        + VRAM_SAFETY_MARGIN_GB
+        + DIT_RESERVE_HEADROOM_GB
+    )
+
+
+def get_dit_max_duration_for_free_vram_s(
+    dit_key: str, batch_size: int, free_gb: float
+) -> float:
+    """Longest track whose reserve still fits into *free_gb*.
+
+    Inverse of :func:`get_dit_inference_reserve_gb`; used to tell the operator
+    what the current LM/DiT pair actually supports.
+
+    Returns:
+        Duration in seconds, ``0.0`` when not even a 60s track fits.
+    """
+    per_batch_gb = DIT_INFERENCE_VRAM_PER_BATCH[dit_key]
+    activation_budget_gb = free_gb - VRAM_SAFETY_MARGIN_GB - DIT_RESERVE_HEADROOM_GB
+    if activation_budget_gb <= 0:
+        return 0.0
+    return max(0.0, activation_budget_gb / (per_batch_gb * batch_size) * 60.0)
+
+
+def resolve_lm_dit_reserve_duration_s() -> float:
+    """Track length the LM reserve is sized for.
+
+    The LM initializes before the first generation request, so the reserve is
+    sized for the longest track this deployment intends to generate with the LM
+    resident: ``LM_DIT_RESERVE_DURATION_ENV`` when set, otherwise the GPU
+    tier's ``max_duration_with_lm``.
+    """
+    raw = os.environ.get(LM_DIT_RESERVE_DURATION_ENV, "").strip()
+    tier_duration_s = float(get_global_gpu_config().max_duration_with_lm)
+    if not raw:
+        return tier_duration_s
+    try:
+        duration_s = float(raw)
+    except ValueError:
+        logger.warning(
+            f"[gpu_config] Ignoring {LM_DIT_RESERVE_DURATION_ENV}={raw!r}: "
+            f"not a number, falling back to {tier_duration_s:.0f}s"
+        )
+        return tier_duration_s
+    if duration_s <= 0:
+        logger.warning(
+            f"[gpu_config] Ignoring {LM_DIT_RESERVE_DURATION_ENV}={raw!r}: "
+            f"must be positive, falling back to {tier_duration_s:.0f}s"
+        )
+        return tier_duration_s
+    return duration_s
+
+
 def get_lm_gpu_memory_ratio(
-    model_path: str, total_gpu_memory_gb: float
+    model_path: str,
+    total_gpu_memory_gb: float,
+    dit_config_path: str = "",
+    batch_size: int = 1,
+    reserve_duration_s: Optional[float] = None,
 ) -> Tuple[float, float]:
     """
     Calculate GPU memory utilization ratio for LM model.
@@ -984,9 +1081,25 @@ def get_lm_gpu_memory_ratio(
     This is critical because DiT, VAE, and text encoder are already loaded
     when the LM initializes, so the "available" memory is much less than total.
 
+    What the LM leaves free is what the DiT pre-flight later demands, so both
+    sides use the same duration-aware formula (see
+    :func:`get_dit_inference_reserve_gb`).  When the reserve does not fit next
+    to the LM, the LM keeps its minimum footprint and the shortfall is logged
+    with the track length that is still supported -- the pre-flight then
+    rejects longer requests honestly instead of the DiT hitting an OOM.
+
+    Only the primary DiT is accounted for; a second or third loaded DiT slot
+    adds its own activations on top.
+
     Args:
         model_path: LM model path (e.g., "acestep-5Hz-lm-0.6B")
         total_gpu_memory_gb: Total GPU memory in GB (used as fallback)
+        dit_config_path: Checkpoint path of the resident DiT, used to size its
+            inference reserve.  Empty means the standard (non-XL) profile.
+        batch_size: Batch size the reserve is sized for.  Larger batches are
+            rejected by the pre-flight at request time.
+        reserve_duration_s: Track length the reserve is sized for.  ``None``
+            resolves it from the environment or the GPU tier.
 
     Returns:
         Tuple of (gpu_memory_utilization_ratio, target_memory_gb)
@@ -1030,27 +1143,75 @@ def get_lm_gpu_memory_ratio(
 
             # The ratio is relative to total GPU memory (nano-vllm convention),
             # but we compute it so that the LM only claims what's actually free
-            # minus a safety margin for DiT inference activations.
-            # Reserve at least 1.5 GB for DiT inference activations
-            dit_reserve_gb = 1.5
-            usable_for_lm = max(0, free_gb - dit_reserve_gb - VRAM_SAFETY_MARGIN_GB)
+            # minus the DiT inference activations of the longest track this
+            # deployment still wants to render with the LM resident.
+            dit_key = get_dit_type_from_path(dit_config_path)
+            if reserve_duration_s is None:
+                reserve_duration_s = resolve_lm_dit_reserve_duration_s()
+            dit_reserve_gb = get_dit_inference_reserve_gb(
+                dit_key, batch_size, reserve_duration_s
+            )
+
+            # nano-vllm sizes the KV cache against the *allocator's* usage, so
+            # CUDA context and fragmentation -- device memory it cannot see --
+            # would silently eat into the reserve.  Subtract it up front.
+            untracked_gb = max(
+                0.0,
+                (actual_total_gb - free_gb) - torch.cuda.memory_allocated() / (1024**3),
+            )
+
+            # The LM's weights are fixed; its KV cache is the adjustable part,
+            # so the reserve is taken out of the KV cache and never out of the
+            # weights.
+            minimum_kv_cache_gb = lm_info["kv_cache_2k"]
+            kv_cache_gb = free_gb - lm_weights_gb - dit_reserve_gb
+            if kv_cache_gb < minimum_kv_cache_gb:
+                kv_cache_gb = max(
+                    0.0, min(minimum_kv_cache_gb, free_gb - lm_weights_gb)
+                )
+                supported_duration_s = get_dit_max_duration_for_free_vram_s(
+                    dit_key, batch_size, free_gb - lm_weights_gb - kv_cache_gb
+                )
+                logger.warning(
+                    f"[get_lm_gpu_memory_ratio] Cannot reserve {dit_reserve_gb:.2f}GB for "
+                    f"{dit_key} at {reserve_duration_s:.0f}s next to the {model_size} LM: "
+                    f"only {free_gb:.2f}GB free. Keeping the LM's minimum KV cache "
+                    f"({kv_cache_gb:.2f}GB); tracks are supported up to "
+                    f"~{supported_duration_s:.0f}s. Lower {LM_DIT_RESERVE_DURATION_ENV} "
+                    f"or use a smaller LM."
+                )
 
             # Cap to what the LM actually needs
-            usable_for_lm = min(usable_for_lm, total_target_gb)
+            kv_cache_gb = min(kv_cache_gb, lm_kv_cache_gb)
+            usable_for_lm = max(0.0, lm_weights_gb + kv_cache_gb - untracked_gb)
 
             # Convert to ratio of total GPU memory
             # nano-vllm uses: target_total_usage = total * gpu_memory_utilization
             # We want: (total * ratio) = current_usage + usable_for_lm
             current_usage_gb = actual_total_gb - free_gb
             desired_total_usage = current_usage_gb + usable_for_lm
-            ratio = desired_total_usage / actual_total_gb
+            desired_ratio = desired_total_usage / actual_total_gb
 
-            ratio = min(0.9, max(0.1, ratio))
+            ratio = min(
+                LM_GPU_MEMORY_RATIO_MAX, max(LM_GPU_MEMORY_RATIO_MIN, desired_ratio)
+            )
+            if desired_ratio > LM_GPU_MEMORY_RATIO_MAX:
+                logger.warning(
+                    f"[get_lm_gpu_memory_ratio] Capping LM ratio at "
+                    f"{LM_GPU_MEMORY_RATIO_MAX:.3f} (wanted {desired_ratio:.3f}): the "
+                    f"{model_size} LM does not fit next to the resident models on a "
+                    f"{actual_total_gb:.1f}GB card. The KV cache is sized "
+                    f"{(desired_ratio - LM_GPU_MEMORY_RATIO_MAX) * actual_total_gb:.2f}GB "
+                    f"smaller than requested."
+                )
 
             logger.info(
                 f"[get_lm_gpu_memory_ratio] model={model_size}, free={free_gb:.2f}GB, "
-                f"current_usage={current_usage_gb:.2f}GB, lm_target={total_target_gb:.2f}GB, "
-                f"usable_for_lm={usable_for_lm:.2f}GB, ratio={ratio:.3f}"
+                f"current_usage={current_usage_gb:.2f}GB, untracked={untracked_gb:.2f}GB, "
+                f"dit_reserve={dit_reserve_gb:.2f}GB ({dit_key}, batch={batch_size}, "
+                f"duration={reserve_duration_s:.0f}s), lm_weights={lm_weights_gb:.2f}GB, "
+                f"lm_kv_cache={kv_cache_gb:.2f}GB, usable_for_lm={usable_for_lm:.2f}GB, "
+                f"ratio={ratio:.3f}"
             )
             return ratio, target_gb
     except Exception as e:

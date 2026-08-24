@@ -157,6 +157,7 @@ def do_model_initialization(
         get_model_name=get_model_name,
         ensure_model_downloaded=ensure_model_downloaded,
         env_bool=env_bool,
+        dit_config_path=config_path,
     )
 
     print("[API Server] All models initialized successfully!")

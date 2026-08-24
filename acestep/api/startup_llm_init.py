@@ -23,8 +23,13 @@ def initialize_llm_at_startup(
     get_model_name: Callable[[str], str],
     ensure_model_downloaded: Callable[[str, str], str],
     env_bool: Callable[[str, bool], bool],
+    dit_config_path: str = "",
 ) -> None:
-    """Initialize LLM model according to GPU config and environment overrides."""
+    """Initialize LLM model according to GPU config and environment overrides.
+
+    ``dit_config_path`` names the DiT already resident on the GPU; the LM sizes
+    its KV cache so that DiT's inference activations stay free.
+    """
 
     init_llm_env = os.getenv("ACESTEP_INIT_LLM", "").strip().lower()
     init_llm = gpu_config.init_lm_default
@@ -89,6 +94,7 @@ def initialize_llm_at_startup(
             device=lm_device,
             offload_to_cpu=lm_offload,
             dtype=None,
+            dit_config_path=dit_config_path,
         )
         if llm_ok:
             app.state._llm_initialized = True

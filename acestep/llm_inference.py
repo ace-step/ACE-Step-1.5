@@ -185,7 +185,7 @@ class LLMHandler:
         models.sort()
         return models
 
-    def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float = 8, min_ratio: float = 0.2, max_ratio: float = 0.9) -> Tuple[float, bool]:
+    def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float = 8, min_ratio: float = 0.2, max_ratio: float = 0.9, dit_config_path: str = "") -> Tuple[float, bool]:
         """
         Get GPU memory utilization ratio based on LM model size and available GPU memory.
 
@@ -194,6 +194,8 @@ class LLMHandler:
             minimal_gpu: Minimum GPU memory requirement in GB (fallback)
             min_ratio: Minimum memory utilization ratio
             max_ratio: Maximum memory utilization ratio
+            dit_config_path: Checkpoint path of the resident DiT, so the LM
+                leaves that DiT's inference activations free.
 
         Returns:
             Tuple of (gpu_memory_utilization_ratio, low_gpu_memory_mode)
@@ -207,7 +209,9 @@ class LLMHandler:
 
             # Use adaptive GPU memory ratio based on model size
             if model_path:
-                ratio, target_memory_gb = get_lm_gpu_memory_ratio(model_path, total_gpu)
+                ratio, target_memory_gb = get_lm_gpu_memory_ratio(
+                    model_path, total_gpu, dit_config_path=dit_config_path
+                )
                 logger.info(f"Adaptive LM memory allocation: model={model_path}, target={target_memory_gb}GB, ratio={ratio:.3f}, total_gpu={total_gpu:.1f}GB")
 
                 # Enable low memory mode for small GPUs
@@ -504,6 +508,7 @@ class LLMHandler:
         device: str = "auto",
         offload_to_cpu: bool = False,
         dtype: Optional[torch.dtype] = None,
+        dit_config_path: str = "",
     ) -> Tuple[str, bool]:
         """
         Initialize 5Hz LM model
@@ -515,6 +520,8 @@ class LLMHandler:
             device: Device type ("auto", "cuda", "mps", "xpu", or "cpu")
             offload_to_cpu: Whether to offload to CPU
             dtype: Data type (if None, auto-detect based on device)
+            dit_config_path: Checkpoint path of the DiT already resident on the
+                GPU, so the LM leaves room for that DiT's inference activations
 
         Returns:
             (status_message, success)
@@ -598,6 +605,7 @@ class LLMHandler:
                 "device": device,
                 "offload_to_cpu": offload_to_cpu,
                 "dtype": self.dtype,
+                "dit_config_path": dit_config_path,
             }
 
             # Proactive CUDA cleanup before LM load to reduce fragmentation on mode/model switch
@@ -745,6 +753,7 @@ class LLMHandler:
                         full_lm_model_path,
                         enforce_eager=enforce_eager_for_vllm,
                         has_triton=_has_triton,
+                        dit_config_path=dit_config_path,
                     )
                     logger.info(f"5Hz LM status message: {status_msg}")
                     if status_msg.startswith("❌"):
@@ -776,7 +785,7 @@ class LLMHandler:
         except Exception as e:
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
 
-    def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False, has_triton: bool = True) -> str:
+    def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False, has_triton: bool = True, dit_config_path: str = "") -> str:
         """Initialize 5Hz LM model using vllm backend.
 
         Args:
@@ -784,6 +793,8 @@ class LLMHandler:
             enforce_eager: Disable CUDA graph capture.  Set to ``True`` when
                 Triton is unavailable so vLLM does not attempt graph capture
                 that depends on compiled kernels.
+            dit_config_path: Checkpoint path of the resident DiT, so the KV
+                cache leaves that DiT's inference activations free.
             has_triton: Whether the Triton compiler is available.  When
                 ``False``, ``torch._dynamo`` diagnostics are temporarily
                 suppressed during initialization to avoid verbose fallback
@@ -813,7 +824,8 @@ class LLMHandler:
                 model_path=model_path,
                 minimal_gpu=3,
                 min_ratio=0.1,
-                max_ratio=0.9
+                max_ratio=0.9,
+                dit_config_path=dit_config_path,
             )
 
             if low_gpu_memory_mode:

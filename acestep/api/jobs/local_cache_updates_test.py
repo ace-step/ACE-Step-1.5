@@ -170,6 +170,39 @@ class LocalCacheUpdatesTests(unittest.TestCase):
         self.assertEqual(2, payload[0]["status"])
         self.assertEqual(0.0, payload[0]["progress"])
         self.assertEqual("failed", payload[0]["stage"])
+        self.assertIsNone(payload[0]["error"])
+
+    def test_update_local_cache_failed_payload_carries_recorded_error(self):
+        """Failed payload should carry the error text recorded by mark_failed.
+
+        Clients poll `/query_result`, which serves the local cache before
+        the job store, so a cause missing here is a cause the caller can
+        never see.
+        """
+
+        cache = _FakeLocalCache()
+        error_text = "RuntimeError: Music generation failed: Insufficient free VRAM"
+        store = _FakeStore(
+            {
+                "job-6": SimpleNamespace(
+                    created_at=600.0, env="development", error=error_text
+                )
+            }
+        )
+
+        update_local_cache(
+            local_cache=cache,
+            store=store,
+            job_id="job-6",
+            result=None,
+            status="failed",
+            map_status=_map_status,
+            result_key_prefix="prefix:",
+            result_expire_seconds=600,
+        )
+
+        _, payload, _ = cache.calls[0]
+        self.assertEqual(error_text, payload[0]["error"])
 
     def test_update_local_cache_progress_writes_running_payload(self):
         """Progress updates should write running payload with provided stage and progress value."""

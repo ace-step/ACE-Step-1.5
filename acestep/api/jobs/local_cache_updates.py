@@ -19,6 +19,21 @@ def _get_record_env_and_time(
     return getattr(record, "env", "development"), getattr(record, "created_at", now_fn())
 
 
+def _get_record_error(store: Any, job_id: str) -> Optional[str]:
+    """Return the failure text the store holds for a job.
+
+    Args:
+        store: Job store exposing `get(job_id)`.
+        job_id: Job identifier.
+
+    Returns:
+        Error text recorded by `mark_failed`, or None when the store has
+        no record or no error for the job.
+    """
+
+    return getattr(store.get(job_id), "error", None)
+
+
 def update_local_cache(
     local_cache: Any,
     store: Any,
@@ -121,6 +136,7 @@ def update_local_cache(
             "env": env,
             "progress": 0.0,
             "stage": "failed" if status == "failed" else status,
+            "error": _get_record_error(store, job_id),
         }]
 
     result_key = f"{result_key_prefix}{job_id}"

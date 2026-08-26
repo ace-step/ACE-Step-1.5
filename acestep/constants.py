@@ -167,6 +167,14 @@ SFT_GEN_PROMPT = """# Instruction
 {}<|endoftext|>
 """
 
+# Template for the DiT lyric branch, formatted with (vocal_language, lyrics).
+# Shared by inference and training preprocessing so both encode lyrics into the
+# same token sequence. The leading header shifts every lyric token, and the
+# trailing terminator is what `_extract_lyric_segment` searches for to find the
+# end of the sung range, so a mismatch between the two paths misaligns lyrics
+# against the audio timeline.
+LYRIC_GEN_PROMPT = "# Languages\n{}\n\n# Lyric\n{}<|endoftext|>"
+
 
 # ==============================================================================
 # GPU Memory Configuration Constants

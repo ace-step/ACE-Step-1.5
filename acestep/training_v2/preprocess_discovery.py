@@ -136,6 +136,7 @@ def load_sample_metadata(
                 "keyscale": "",
                 "timesignature": "",
                 "duration": 0,
+                "language": "unknown",
                 "is_instrumental": True,
             }
 

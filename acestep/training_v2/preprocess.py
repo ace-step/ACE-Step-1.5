@@ -272,7 +272,7 @@ def _pass1_light(
                         text_enc, tokenizer, text_prompt, device, dtype
                     )
                     lyric_hs, lyric_mask = encode_lyrics(
-                        text_enc, tokenizer, lyrics, device, dtype
+                        text_enc, tokenizer, lyrics, sm.get("language", "unknown"), device, dtype
                     )
 
                 # 4. Save intermediate

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 from loguru import logger
 
-from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT
+from acestep.constants import DEFAULT_DIT_INSTRUCTION, LYRIC_GEN_PROMPT, SFT_GEN_PROMPT
 
 
 class PromptMixin:
@@ -26,7 +26,7 @@ class PromptMixin:
 
     def _format_lyrics(self, lyrics: str, language: str) -> str:
         """Format lyrics text with language header."""
-        return f"# Languages\n{language}\n\n# Lyric\n{lyrics}<|endoftext|>"
+        return LYRIC_GEN_PROMPT.format(language, lyrics)
 
     def _pad_sequences(
         self, sequences: List[torch.Tensor], max_length: int, pad_value: int = 0

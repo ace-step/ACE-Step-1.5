@@ -186,7 +186,7 @@ class PreprocessMixin:
                     lyrics = sample.lyrics if sample.lyrics else "[Instrumental]"
                     t0 = debug_start_verbose_for("dataset", f"encode_lyrics[{i}]")
                     lyric_hidden_states, lyric_attention_mask = encode_lyrics(
-                        text_encoder, text_tokenizer, lyrics, device, dtype
+                        text_encoder, text_tokenizer, lyrics, sample.language, device, dtype
                     )
                     debug_end_verbose_for("dataset", f"encode_lyrics[{i}]", t0)
                     debug_log_verbose_for(

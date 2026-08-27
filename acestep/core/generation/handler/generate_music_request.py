@@ -61,14 +61,20 @@ class GenerateMusicRequestMixin:
         audio_cover_strength: float,
         cover_noise_strength: float,
     ) -> Tuple[float, float]:
-        """Reset cover-only params to their neutral defaults for non-cover tasks.
+        """Reset cover-only params to their neutral defaults for text2music.
 
         Stale UI state (e.g. after a Remix session) can leak a non-zero
         ``cover_noise_strength`` into ``text2music`` and produce full-duration
-        noise (issue #1271). Run after ``_resolve_generate_music_task`` so the
-        audio-codes auto-switch to ``cover`` is preserved.
+        noise, because ``text2music`` is the only task type whose source
+        latent is silence rather than real audio content (issue #1271).
+        Every other task type (cover, cover-nofsq, repaint, lego, extract,
+        complete) operates on real source audio/codes, where these params
+        are meaningful, documented controls -- not just cover leftovers --
+        so they must be left untouched. Run after
+        ``_resolve_generate_music_task`` so the audio-codes auto-switch to
+        ``cover`` is preserved.
         """
-        if task_type in ("cover", "cover-nofsq"):
+        if task_type != "text2music":
             return audio_cover_strength, cover_noise_strength
         if audio_cover_strength != 1.0 or cover_noise_strength != 0.0:
             logger.info("[generate_music] Neutralizing cover-only params for task_type={!r}", task_type)

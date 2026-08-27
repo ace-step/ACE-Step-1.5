@@ -296,6 +296,14 @@ class GenerateMusicMixin:
             instruction=instruction,
         )
 
+        # Drop stale cover-only params (e.g. leaked from a Remix session) for non-cover tasks;
+        # all entry points (single/batch/API) pass through here (issue #1271).
+        audio_cover_strength, cover_noise_strength = self._neutralize_cover_only_params(
+            task_type=task_type,
+            audio_cover_strength=audio_cover_strength,
+            cover_noise_strength=cover_noise_strength,
+        )
+
         # Turbo models bake guidance into the distillation process and do not
         # use CFG.  Forcing guidance_scale to 1.0 avoids double-application of
         # guidance that produces noise or NaN/Inf on float16 (see issue #927).

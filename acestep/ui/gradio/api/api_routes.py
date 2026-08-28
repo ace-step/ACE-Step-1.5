@@ -128,7 +128,7 @@ atexit.register(_close_result_cache)
 
 def _get_project_root() -> str:
     """Get project root directory"""
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 
 def _load_all_examples(sample_mode: str = "simple_mode") -> List[Dict[str, Any]]:

@@ -71,7 +71,8 @@ services:
       - ACESTEP_CONFIG_PATH=${ACESTEP_CONFIG_PATH:-acestep-v15-turbo}
       #
       # ---- LM model (ACESTEP_LM_MODEL_PATH) ----
-      # acestep-5Hz-lm-0.6B  — Smallest, ~3GB  (Orin Nano 4/8GB)
+      # ≤6GB devices: set ACESTEP_INIT_SERVICE=false, then initialize only the DiT.
+      # acestep-5Hz-lm-0.6B  — Smallest, ~3GB  (Orin Nano 8GB)
       # acestep-5Hz-lm-1.7B  — Mid-size, ~8GB  (Orin NX 16GB)
       # acestep-5Hz-lm-4B    — Best quality, ~12GB (AGX Orin ≥32GB)
       - ACESTEP_LM_MODEL_PATH=${ACESTEP_LM_MODEL_PATH:-acestep-5Hz-lm-4B}

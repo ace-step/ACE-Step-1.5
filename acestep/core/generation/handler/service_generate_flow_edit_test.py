@@ -8,6 +8,7 @@ the user's ``caption`` / ``lyrics`` are the *target*; the overlay adds a
 """
 
 import unittest
+from contextlib import contextmanager
 
 import torch
 
@@ -19,6 +20,33 @@ from acestep.core.generation.handler._flow_edit_dispatch_test_support import (
     make_flow_edit_ctx,
     make_payload,
 )
+
+
+class ModelContextTrackingHandler(FakeHandler):
+    """FakeHandler that records whether _load_model_context("model") is active
+    when prepare_condition runs — catches offload device mismatches."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._model_ctx_depth = 0
+        self.prepare_condition_model_ctx = []
+        enc_hs, enc_am, ctx = self.prepared_enc_hs, self.prepared_enc_am, self.prepared_ctx
+
+        def tracked(*args, **kwargs):
+            self.prepare_condition_model_ctx.append(self._model_ctx_depth > 0)
+            return (enc_hs, enc_am, ctx)
+
+        self.model.prepare_condition = tracked
+
+    @contextmanager
+    def _load_model_context(self, name):
+        if name == "model":
+            self._model_ctx_depth += 1
+        try:
+            yield
+        finally:
+            if name == "model":
+                self._model_ctx_depth -= 1
 
 
 class FlowEditOverlayDispatchTests(unittest.TestCase):
@@ -128,6 +156,16 @@ class FlowEditOverlayDispatchTests(unittest.TestCase):
         kwargs = handler.model.flowedit_generate_audio.call_args.kwargs
         self.assertEqual(kwargs["seed"], 42)
         self.assertEqual(kwargs["retake_seed"], [99, 100])
+
+    def test_offload_path_loads_model_for_downstream_prepare_condition(self):
+        handler = ModelContextTrackingHandler()
+        dispatch_flow_edit_overlay(
+            handler, payload=make_payload(), generate_kwargs={"infer_steps": 4},
+            seed_param=None, flow_edit_ctx=make_flow_edit_ctx(),
+        )
+        # dispatch 只直接调用一次 prepare_condition（下游那一次）；修复后它
+        # 必须在模型加载状态下执行，否则 offload 下 F.linear 会设备不匹配。
+        self.assertEqual(handler.prepare_condition_model_ctx, [True])
 
 
 class CoverStillRunsLmTests(unittest.TestCase):

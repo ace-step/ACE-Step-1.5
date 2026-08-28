@@ -168,22 +168,13 @@ def _temporary_unload_interactive_lm_for_scoring(llm_handler):
         return
 
     logger.info("[scoring] Temporarily unloading vLLM runtime for PMI scoring")
-    llm_runtime = llm_handler.llm
+    # unload() now performs a full engine teardown (exit()), releasing the model
+    # weights, KV cache, and CUDA graphs so the HF scorer has room (and so the
+    # subsequent initialize() restore does not leave a stale engine behind).
     try:
-        if hasattr(llm_runtime, "reset"):
-            llm_runtime.reset()
+        llm_handler.unload()
     except Exception as exc:
-        logger.warning("[scoring] vLLM reset during PMI offload failed: {}", exc)
-    try:
-        llm_handler._cleanup_torch_distributed_state()
-    except Exception as exc:
-        logger.warning("[scoring] vLLM distributed cleanup during PMI offload failed: {}", exc)
-    llm_handler.llm = None
-    llm_handler.llm_initialized = False
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
+        logger.warning("[scoring] vLLM unload during PMI offload failed: {}", exc)
 
     try:
         yield

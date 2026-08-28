@@ -125,13 +125,23 @@ class LLMHandler:
     def unload(self) -> None:
         """Release LM weights/tokenizer and clear caches to free memory."""
         try:
-            if self.llm_backend == "vllm":
+            if self.llm_backend == "vllm" and getattr(self, "llm", None) is not None:
                 try:
-                    if hasattr(self.llm, "reset"):
-                        self.llm.reset()
+                    if hasattr(self.llm, "exit"):
+                        self.llm.exit()  # full teardown: weights/KV cache/CUDA graphs/subprocesses
                 except Exception:
                     pass
                 self._cleanup_torch_distributed_state()
+                # LLMEngine.__init__ registers self.exit in atexit. We already tore
+                # the engine down above, so deregister that callback to stop it from
+                # re-running exit() on an already-released runner at process shutdown
+                # (which would otherwise log a harmless but noisy AttributeError).
+                try:
+                    import atexit
+                    if hasattr(self.llm, "exit"):
+                        atexit.unregister(self.llm.exit)
+                except Exception:
+                    pass
             self.llm = None
             self.llm_tokenizer = None
             self.constrained_processor = None
@@ -520,6 +530,10 @@ class LLMHandler:
             (status_message, success)
         """
         try:
+            # Release any previously-loaded engine before building a new one so a
+            # reinit (or a restore after PMI scoring) does not leak the old engine's
+            # model weights, KV cache, and CUDA graphs. No-op when nothing is loaded.
+            self.unload()
             if device == "auto":
                 if torch.cuda.is_available():
                     device = "cuda"

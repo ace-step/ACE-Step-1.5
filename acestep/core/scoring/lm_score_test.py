@@ -54,6 +54,13 @@ class LmScoreMemoryCleanupTests(unittest.TestCase):
             _cleanup_torch_distributed_state=MagicMock(),
             initialize=MagicMock(return_value=("ok", True)),
         )
+        # Real unload() tears the engine down and resets the handler's state.
+        llm_handler.unload = MagicMock(
+            side_effect=lambda: (
+                setattr(llm_handler, "llm", None),
+                setattr(llm_handler, "llm_initialized", False),
+            )
+        )
 
         with (
             patch("torch.cuda.is_available", return_value=True),
@@ -64,7 +71,7 @@ class LmScoreMemoryCleanupTests(unittest.TestCase):
                 self.assertIsNone(llm_handler.llm)
                 self.assertFalse(llm_handler.llm_initialized)
 
-        runtime.reset.assert_called_once()
+        llm_handler.unload.assert_called_once()
         scorer.to.assert_called_once_with("cpu")
         self.assertIsNone(llm_handler._hf_model_for_scoring)
         llm_handler.initialize.assert_called_once_with(
@@ -84,6 +91,7 @@ class LmScoreMemoryCleanupTests(unittest.TestCase):
             _hf_model_for_scoring=None,
             _last_initialize_config={"checkpoint_dir": "/ckpt", "backend": "vllm"},
             _cleanup_torch_distributed_state=MagicMock(),
+            unload=MagicMock(),
             initialize=MagicMock(return_value=("restore failed", False)),
         )
 

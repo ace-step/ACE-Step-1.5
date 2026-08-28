@@ -154,7 +154,9 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
         .accordion:has(.has-info-container),
         .tabs:has(.has-info-container),
         .gr-block:has(.has-info-container),
-        .gr-box:has(.has-info-container) {
+        .gr-box:has(.has-info-container),
+        .gr-group:has(.has-info-container),
+        .styler:has(.has-info-container) {
             overflow: visible !important;
             contain: none !important;
         }

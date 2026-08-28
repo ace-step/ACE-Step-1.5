@@ -296,8 +296,9 @@ class GenerateMusicMixin:
             instruction=instruction,
         )
 
-        # Drop stale cover-only params (e.g. leaked from a Remix session) for non-cover tasks;
-        # all entry points (single/batch/API) pass through here (issue #1271).
+        # Neutralize stale cover-only params for text2music; preserve them for
+        # source-audio tasks. All entry points (single/batch/API) pass through
+        # here (issue #1271).
         audio_cover_strength, cover_noise_strength = self._neutralize_cover_only_params(
             task_type=task_type,
             audio_cover_strength=audio_cover_strength,

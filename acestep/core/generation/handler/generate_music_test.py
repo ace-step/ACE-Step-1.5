@@ -109,6 +109,13 @@ class _Host(GenerateMusicMixin):
         self.calls["_resolve_generate_music_task"] = kwargs
         return kwargs["task_type"], kwargs["instruction"]
 
+    def _neutralize_cover_only_params(self, **kwargs):
+        """Mirror ``GenerateMusicRequestMixin``'s text2music-only reset (issue #1271)."""
+        self.calls["_neutralize_cover_only_params"] = kwargs
+        if kwargs["task_type"] == "text2music":
+            return 1.0, 0.0
+        return kwargs["audio_cover_strength"], kwargs["cover_noise_strength"]
+
     def _prepare_generate_music_runtime(self, **kwargs):
         """Capture runtime args and return deterministic runtime state."""
         self.calls["_prepare_generate_music_runtime"] = kwargs

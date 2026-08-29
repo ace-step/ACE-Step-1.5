@@ -91,6 +91,21 @@ def do_model_initialization(
         print(f"[API Server] ERROR: Primary model failed to load: {status_msg}")
         raise RuntimeError(status_msg)
     app.state._initialized = True
+    # Captured for on-demand model switching (ACESTEP_ON_DEMAND_MODEL_LOAD):
+    # a later request for an unloaded model re-runs initialize_service on the
+    # primary handler with these same kwargs. Named distinctly from the
+    # lazy-init kwargs some runtimes store as _model_init_kwargs, which have
+    # an incompatible do_model_initialization(**kwargs) shape.
+    app.state._service_init_kwargs = {
+        "project_root": project_root,
+        "device": device,
+        "use_flash_attention": use_flash_attention,
+        "compile_model": compile_model,
+        "offload_to_cpu": offload_to_cpu,
+        "offload_dit_to_cpu": offload_dit_to_cpu,
+    }
+    app.state._checkpoint_dir = checkpoint_dir
+    app.state._ensure_model_downloaded = ensure_model_downloaded
     print(f"[API Server] Primary model loaded: {get_model_name(config_path)}")
 
     if handler2 and config_path2:

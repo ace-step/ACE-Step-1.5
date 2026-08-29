@@ -95,7 +95,9 @@ from acestep.inference import (
     create_sample,
     format_sample,
 )
-from acestep.ui.gradio.events.results_handlers import _build_generation_info
+# Import from the defining module (not the results_handlers facade) so the API
+# server stays importable without gradio installed.
+from acestep.ui.gradio.events.results.generation_info import _build_generation_info
 
 def _get_project_root() -> str:
     current_file = os.path.abspath(__file__)

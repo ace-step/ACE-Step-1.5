@@ -30,10 +30,16 @@ einops>=0.8.1
 accelerate>=1.12.0
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
+python-multipart>=0.0.18
 numba>=0.63.1
 vector-quantize-pytorch>=1.27.15
 torchcodec>=0.9.1; platform_machine != 'aarch64'
-torchao
+# Must match pyproject.toml. Unpinned, this resolves to torchao 0.18.x, which
+# imports torch.nn.functional.ScalingType -- a symbol that does not exist in the
+# torch 2.7.1+cu128 build pinned above for Windows. The model then fails to load
+# with "cannot import name 'ScalingType'". Keep these two declarations aligned.
+torchao>=0.16.0,<0.17.0; platform_machine != 'aarch64'
+torchao; platform_machine == 'aarch64'
 toml
 modelscope
 

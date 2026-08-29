@@ -155,6 +155,11 @@ class ApiAutoDurationTests(unittest.TestCase):
             constrained_decoding_debug=False,
             track_classes=None,
             track_name="",
+            dcw_enabled=None,
+            dcw_mode="double",
+            dcw_scaler=0.05,
+            dcw_high_scaler=0.02,
+            dcw_wavelet="haar",
         )
 
     def test_null_duration_gets_auto_sentinel(self):

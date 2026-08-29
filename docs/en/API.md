@@ -198,7 +198,7 @@ User-provided values always win; LM only fills the fields that are empty/missing
 
 | Parameter Name | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `inference_steps` | int | `8` | Number of inference steps. Turbo model: 1-20 (recommended 8). Base model: 1-200 (recommended 32-64). |
+| `inference_steps` | int | `8`* | Number of inference steps. Turbo model: 1-20 (recommended 8). SFT model: 1-200 (recommended 50). Base model: 1-200 (recommended 32-64). *When omitted, API auto-selects defaults by model: turbo=8, sft=50, other explicit non-turbo models=32; if `model` is omitted, legacy default remains 8. |
 | `guidance_scale` | float | `7.0` | Prompt guidance coefficient. Only effective for base model. |
 | `use_random_seed` | bool | `true` | Whether to use random seed |
 | `seed` | int | `-1` | Specify seed (when use_random_seed=false) |

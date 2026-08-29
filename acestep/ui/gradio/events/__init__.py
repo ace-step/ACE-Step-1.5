@@ -1,26 +1,13 @@
 """
 Gradio UI Event Handlers Module
 Main entry point for setting up all event handlers
+
+The ``.wiring`` handler modules import gradio at module level, so they are
+imported inside the setup functions (only called from the Gradio UI) rather
+than at package level. This keeps ``acestep.ui.gradio.events.*`` submodules
+importable in headless contexts (e.g. ``acestep.api_server``) without gradio
+installed.
 """
-# Import handler modules
-from .wiring import (
-    GenerationWiringContext,
-    TrainingWiringContext,
-    build_mode_ui_outputs,
-    register_generation_batch_navigation_handlers,
-    register_generation_metadata_file_handlers,
-    register_generation_metadata_handlers,
-    register_generation_mode_handlers,
-    register_generation_run_handlers,
-    register_results_aux_handlers,
-    register_results_restore_and_lrc_handlers,
-    register_results_save_button_handlers,
-    register_generation_service_handlers,
-    register_training_dataset_builder_handlers,
-    register_training_dataset_load_handler,
-    register_training_preprocess_handler,
-    register_training_run_handlers,
-)
 
 
 def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, dataset_section, generation_section, results_section):
@@ -53,6 +40,20 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
     Returns:
         None: Registers event handlers in-place on the supplied components.
     """
+    from .wiring import (
+        GenerationWiringContext,
+        build_mode_ui_outputs,
+        register_generation_batch_navigation_handlers,
+        register_generation_metadata_file_handlers,
+        register_generation_metadata_handlers,
+        register_generation_mode_handlers,
+        register_generation_run_handlers,
+        register_results_aux_handlers,
+        register_results_restore_and_lrc_handlers,
+        register_results_save_button_handlers,
+        register_generation_service_handlers,
+    )
+
     wiring_context = GenerationWiringContext(
         demo=demo,
         dit_handler=dit_handler,
@@ -96,7 +97,25 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
 
 
 def setup_training_event_handlers(demo, dit_handler, llm_handler, training_section):
-    """Setup event handlers for the training tab (dataset builder and LoRA training)"""
+    """Setup event handlers for the training tab (dataset builder and LoRA training).
+
+    Args:
+        demo (Any): Root Gradio demo/container used to register events.
+        dit_handler (Any): Inference service used by preprocess/training callbacks.
+        llm_handler (Any): LLM service used by dataset-builder callbacks.
+        training_section (dict[str, Any]): Training UI component map.
+
+    Returns:
+        None: Registers event handlers in-place on the supplied components.
+    """
+    from .wiring import (
+        TrainingWiringContext,
+        register_training_dataset_builder_handlers,
+        register_training_dataset_load_handler,
+        register_training_preprocess_handler,
+        register_training_run_handlers,
+    )
+
     training_context = TrainingWiringContext(
         demo=demo,
         dit_handler=dit_handler,

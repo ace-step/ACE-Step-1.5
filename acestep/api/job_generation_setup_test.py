@@ -9,6 +9,7 @@ from acestep.api.job_generation_setup import build_generation_setup
 
 
 def _base_req() -> SimpleNamespace:
+    """Build a minimal GenerateMusicRequest-shaped fixture with legacy-safe defaults."""
     return SimpleNamespace(
         task_type="text2music",
         instruction="default instruction",
@@ -39,6 +40,11 @@ def _base_req() -> SimpleNamespace:
         constrained_decoding_debug=False,
         track_classes=None,
         track_name="",
+        dcw_enabled=None,
+        dcw_mode="double",
+        dcw_scaler=0.05,
+        dcw_high_scaler=0.02,
+        dcw_wavelet="haar",
     )
 
 
@@ -174,6 +180,66 @@ class JobGenerationSetupTests(unittest.TestCase):
         self.assertEqual("<|audio_code_42|>", setup.params.audio_codes)
         self.assertAlmostEqual(0.42, setup.params.cover_noise_strength)
 
+    def test_dcw_enabled_omitted_forwards_as_none_for_core_to_resolve(self) -> None:
+        """An unset dcw_enabled must forward as None, not a locally-guessed
+        default: core generation resolves it from the loaded model's own
+        config.is_turbo (see #1273). Regression coverage for #1259 now lives
+        at that resolution point instead of here."""
+
+        req = _base_req()  # dcw_enabled=None, mirrors an omitted request field
+        setup = build_generation_setup(
+            req=req,
+            caption="cap",
+            lyrics="lyr",
+            bpm=None,
+            key_scale="",
+            time_signature="",
+            audio_duration=None,
+            thinking=False,
+            sample_mode=False,
+            format_has_duration=False,
+            use_cot_caption=False,
+            use_cot_language=False,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False,
+            default_dit_instruction="default instruction",
+            task_instructions={},
+        )
+
+        self.assertIsNone(setup.params.dcw_enabled)
+
+    def test_dcw_enabled_explicit_request_value_forwards_unchanged(self) -> None:
+        """An explicit dcw_enabled in the request passes through unchanged,
+        in either direction, and is never overridden here."""
+
+        for explicit_value in (True, False):
+            with self.subTest(explicit_value=explicit_value):
+                req = _base_req()
+                req.dcw_enabled = explicit_value
+                setup = build_generation_setup(
+                    req=req,
+                    caption="cap",
+                    lyrics="lyr",
+                    bpm=None,
+                    key_scale="",
+                    time_signature="",
+                    audio_duration=None,
+                    thinking=False,
+                    sample_mode=False,
+                    format_has_duration=False,
+                    use_cot_caption=False,
+                    use_cot_language=False,
+                    lm_top_k=0,
+                    lm_top_p=0.9,
+                    parse_timesteps=lambda _value: None,
+                    is_instrumental=lambda _lyrics: False,
+                    default_dit_instruction="default instruction",
+                    task_instructions={},
+                )
+
+                self.assertEqual(explicit_value, setup.params.dcw_enabled)
 
     def test_auto_duration_sentinel_passes_through(self) -> None:
         """duration=-1 or None should pass auto-sentinel, not hardcoded 120s."""

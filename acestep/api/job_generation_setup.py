@@ -121,7 +121,10 @@ def build_generation_setup(
     """Build GenerationParams and GenerationConfig from request and prepared LLM inputs.
 
     Args:
-        req: Request object for music generation.
+        req: Request object for music generation (a GenerateMusicRequest in
+            production; fields are accessed directly rather than via getattr
+            so this doesn't quietly restate GenerateMusicRequest's own
+            defaults in a second place).
         caption: Final caption text to generate from.
         lyrics: Final lyrics text to generate from.
         bpm: Optional BPM metadata.
@@ -145,6 +148,12 @@ def build_generation_setup(
     """
 
     parsed_timesteps = parse_timesteps(req.timesteps)
+    # req.dcw_enabled is forwarded as-is: an explicit True/False from the
+    # caller passes through unchanged, and an omitted value (None) is left
+    # for the core generation layer to resolve from the loaded model's own
+    # config.is_turbo (see #1273) rather than guessed here from the model
+    # name/label (see issue #1259 for why that guess was unreliable).
+    dcw_enabled = req.dcw_enabled
     instruction_to_use = _resolve_instruction(
         req=req,
         default_dit_instruction=default_dit_instruction,
@@ -170,6 +179,11 @@ def build_generation_setup(
         seed=req.seed,
         guidance_scale=req.guidance_scale,
         use_adg=req.use_adg,
+        dcw_enabled=dcw_enabled,
+        dcw_mode=req.dcw_mode,
+        dcw_scaler=req.dcw_scaler,
+        dcw_high_scaler=req.dcw_high_scaler,
+        dcw_wavelet=req.dcw_wavelet,
         cfg_interval_start=req.cfg_interval_start,
         cfg_interval_end=req.cfg_interval_end,
         shift=req.shift,

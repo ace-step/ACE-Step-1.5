@@ -602,6 +602,11 @@ def generate_music(
                 # Fix: Explicitly handle single integer seeds by converting to string.
                 # Previously, this would crash because 'len()' was called on an int.
                 seed_for_generation = str(config.seeds)
+        elif params.seed is not None and params.seed != -1:
+            # config.seeds (plural) is unset - fall back to params.seed (singular),
+            # matching the comment above. Without this, a bare `seed = 42` in a TOML
+            # config was silently dropped: only `seeds = [42]` had any effect.
+            seed_for_generation = str(params.seed)
 
         # Use dit_handler.prepare_seeds to handle seed list generation and padding
         # This will handle all the logic: padding with random seeds if needed, etc.

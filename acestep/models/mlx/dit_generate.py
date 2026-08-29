@@ -17,15 +17,13 @@
 #   the current and previous velocity prediction, smoothing the denoising
 #   trajectory.
 
-import logging
 import math
 import time
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
+from loguru import logger
 from tqdm import tqdm
-
-logger = logging.getLogger(__name__)
 
 VALID_SAMPLER_MODES = {"euler", "heun"}
 
@@ -76,10 +74,10 @@ def get_timestep_schedule(
         while ts_list and ts_list[-1] == 0:
             ts_list.pop()
         if len(ts_list) < 1:
-            logger.warning("timesteps empty after removing zeros; using default shift=%s", shift)
+            logger.warning("timesteps empty after removing zeros; using default shift={}", shift)
         else:
             if len(ts_list) > 20:
-                logger.warning("timesteps length=%d > 20; truncating", len(ts_list))
+                logger.warning("timesteps length={} > 20; truncating", len(ts_list))
                 ts_list = ts_list[:20]
             mapped = [min(VALID_TIMESTEPS, key=lambda x, t=t: abs(x - t)) for t in ts_list]
             t_schedule_list = mapped
@@ -94,7 +92,7 @@ def get_timestep_schedule(
         original_shift = shift
         shift = min(VALID_SHIFTS, key=lambda x: abs(x - shift))
         if original_shift != shift:
-            logger.warning("shift=%.2f rounded to nearest valid shift=%.1f", original_shift, shift)
+            logger.warning("shift={:.2f} rounded to nearest valid shift={:.1f}", original_shift, shift)
         t_schedule_list = SHIFT_TIMESTEPS[shift]
 
     return t_schedule_list
@@ -257,9 +255,9 @@ def mlx_generate_diffusion(
         else:
             logger.info("[MLX-DiT] Using Heun (second-order) sampler for higher-quality output.")
     if use_norm_clamp:
-        logger.info("[MLX-DiT] Velocity norm clamping enabled (threshold=%.2f).", velocity_norm_threshold)
+        logger.info("[MLX-DiT] Velocity norm clamping enabled (threshold={:.2f}).", velocity_norm_threshold)
     if use_ema:
-        logger.info("[MLX-DiT] Velocity EMA smoothing enabled (factor=%.3f).", velocity_ema_factor)
+        logger.info("[MLX-DiT] Velocity EMA smoothing enabled (factor={:.3f}).", velocity_ema_factor)
 
     time_costs = {}
     total_start = time.time()
@@ -339,7 +337,7 @@ def mlx_generate_diffusion(
             logger.info("[MLX-DiT] Diffusion step compiled with mx.compile().")
         except Exception as exc:
             logger.warning(
-                "[MLX-DiT] mx.compile() failed (%s); using uncompiled path.", exc
+                "[MLX-DiT] mx.compile() failed ({}); using uncompiled path.", exc
             )
 
     # Note: Heun solver requires two model evaluations per step with
@@ -410,8 +408,15 @@ def mlx_generate_diffusion(
     if dcw_active:
         _backend = "MLX-native Haar" if dcw_wavelet == "haar" else f"torch bridge ({dcw_wavelet})"
         logger.info(
-            "[MLX-DiT] DCW enabled (mode=%s, scaler=%.3f, high_scaler=%.3f, wavelet=%s, backend=%s).",
+            "[MLX-DiT] DCW enabled (mode={}, scaler={:.3f}, high_scaler={:.3f}, wavelet={}, backend={}).",
             dcw_mode, dcw_scaler, dcw_high_scaler, dcw_wavelet, _backend,
+        )
+    elif not dcw_enabled:
+        logger.info("[MLX-DiT] DCW disabled (dcw_enabled=False).")
+    else:
+        logger.info(
+            "[MLX-DiT] DCW disabled (scalers are zero: scaler={:.3f}, high_scaler={:.3f}).",
+            dcw_scaler, dcw_high_scaler,
         )
 
     for step_idx in tqdm(range(num_steps), desc="MLX DiT diffusion", disable=disable_tqdm):

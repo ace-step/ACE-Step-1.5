@@ -98,6 +98,20 @@ class GenerateMusicRequest(BaseModel):
         description="Custom timesteps (comma-separated, e.g., '0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0'). Overrides inference_steps and shift.",
     )
 
+    dcw_enabled: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Enable DCW (Differential Correction in Wavelet domain). If unset, the loaded "
+            "model's own config resolves the default -- True for turbo models, False for "
+            "non-turbo (sft/base) models -- matching the Gradio UI's behavior. Non-turbo "
+            "models with DCW forced on produce distorted audio -- see issue #1259."
+        ),
+    )
+    dcw_mode: Literal["low", "high", "double", "pix"] = "double"
+    dcw_scaler: float = Field(default=0.05, description="Low-band DCW scaler (or single scaler for 'high'/'pix' modes).")
+    dcw_high_scaler: float = Field(default=0.02, description="High-band DCW scaler (used only in 'double' mode).")
+    dcw_wavelet: str = Field(default="haar", description="PyWavelets basis, e.g. 'haar', 'db4', 'sym8'.")
+
     audio_format: str = Field(
         default="mp3",
         description="Output audio format. Supported formats: 'flac', 'mp3', 'opus', 'aac', 'wav', 'wav32'. Default: 'mp3'",

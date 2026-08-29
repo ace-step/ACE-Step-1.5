@@ -60,15 +60,21 @@ async def run_one_job_runtime(
         result_expire_seconds=result_expire_seconds,
     )
 
-    selected_handler, selected_model_name = select_generation_handler_fn(
-        app_state=app_state,
-        requested_model=req.model,
-        get_model_name=get_model_name,
-        job_id=job_id,
-        log_fn=log_fn,
-    )
+    # Fallback for the finally-block below; _blocking_generate replaces it.
+    selected_handler = getattr(app_state, "handler", None)
 
     def _blocking_generate() -> dict[str, Any]:
+        # Selection may load a model on demand (download + init, blocking for
+        # seconds to minutes), so it runs here in the executor thread — never
+        # on the event loop.
+        nonlocal selected_handler
+        selected_handler, selected_model_name = select_generation_handler_fn(
+            app_state=app_state,
+            requested_model=req.model,
+            get_model_name=get_model_name,
+            job_id=job_id,
+            log_fn=log_fn,
+        )
         return build_blocking_result_fn(selected_handler, selected_model_name)
 
     t0 = time.time()

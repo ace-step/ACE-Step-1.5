@@ -33,7 +33,13 @@ class JobExecutionRuntimeTests(unittest.IsolatedAsyncioTestCase):
         update_terminal_job_cache_fn = MagicMock()
         build_blocking_result_fn = MagicMock(return_value={"status_message": "Success"})
         loop_mock = MagicMock()
-        loop_mock.run_in_executor = AsyncMock(return_value={"status_message": "Success"})
+
+        # Handler selection runs inside the executor callable (it may load a
+        # model on demand), so the mock must actually invoke the callable.
+        async def _run_in_executor(_executor, fn):
+            return fn()
+
+        loop_mock.run_in_executor = AsyncMock(side_effect=_run_in_executor)
 
         with patch("acestep.api.job_execution_runtime.asyncio.get_running_loop", return_value=loop_mock):
             await run_one_job_runtime(
@@ -110,6 +116,54 @@ class JobExecutionRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("failed", update_terminal_job_cache_fn.call_args.kwargs["status"])
         selected_handler._empty_cache.assert_called_once()
         self.assertTrue(any("FAILED" in str(call.args[0]) for call in log_fn.call_args_list))
+
+    async def test_selection_failure_inside_executor_marks_job_failed(self) -> None:
+        """An exception from handler selection (e.g. a failed on-demand model
+        load) must mark the job failed, and the finally-block must survive the
+        never-assigned selected handler via the app_state.handler fallback."""
+
+        fallback_handler = SimpleNamespace(_empty_cache=MagicMock())
+        app_state = SimpleNamespace(
+            job_store=MagicMock(),
+            executor=MagicMock(),
+            handler=fallback_handler,
+            stats_lock=asyncio.Lock(),
+            recent_durations=deque(maxlen=50),
+            avg_job_seconds=5.0,
+        )
+        req = SimpleNamespace(model="acestep-v15-sft")
+        select_generation_handler_fn = MagicMock(side_effect=RuntimeError("load failed"))
+        update_terminal_job_cache_fn = MagicMock()
+        build_blocking_result_fn = MagicMock()
+
+        async def _run_in_executor(_executor, fn):
+            return fn()
+
+        loop_mock = MagicMock()
+        loop_mock.run_in_executor = AsyncMock(side_effect=_run_in_executor)
+
+        with patch("acestep.api.job_execution_runtime.asyncio.get_running_loop", return_value=loop_mock):
+            await run_one_job_runtime(
+                app_state=app_state,
+                store=MagicMock(),
+                job_id="job-3",
+                req=req,
+                ensure_models_initialized_fn=AsyncMock(),
+                select_generation_handler_fn=select_generation_handler_fn,
+                get_model_name=MagicMock(return_value="m"),
+                build_blocking_result_fn=build_blocking_result_fn,
+                update_progress_job_cache_fn=MagicMock(),
+                update_terminal_job_cache_fn=update_terminal_job_cache_fn,
+                map_status=MagicMock(return_value="failed"),
+                result_key_prefix="prefix_",
+                result_expire_seconds=3600,
+                log_fn=MagicMock(),
+            )
+
+        app_state.job_store.mark_failed.assert_called_once()
+        self.assertEqual("failed", update_terminal_job_cache_fn.call_args.kwargs["status"])
+        build_blocking_result_fn.assert_not_called()
+        fallback_handler._empty_cache.assert_called_once()
 
     async def test_run_one_job_runtime_integration_uses_real_executor_and_wires_handler(self) -> None:
         """Integration-style check with real run_in_executor and callback wiring."""

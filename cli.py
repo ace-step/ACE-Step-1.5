@@ -1106,6 +1106,14 @@ def main():
         "seed": params_defaults.seed,
         "guidance_scale": params_defaults.guidance_scale,
         "use_adg": params_defaults.use_adg,
+        # dcw_enabled is left unset (None) here: core generation resolves it
+        # from the loaded model's own config.is_turbo (see #1273) unless a
+        # TOML config or the wizard explicitly overrides it. See issue #1259.
+        "dcw_enabled": None,
+        "dcw_mode": params_defaults.dcw_mode,
+        "dcw_scaler": params_defaults.dcw_scaler,
+        "dcw_high_scaler": params_defaults.dcw_high_scaler,
+        "dcw_wavelet": params_defaults.dcw_wavelet,
         "shift": 3.0,
         "infer_method": params_defaults.infer_method,
         "timesteps": None,
@@ -1146,6 +1154,12 @@ def main():
         for key, value in config_from_file.items():
             setattr(args, key, value)
         args.config = cli_args.config
+        # Track whether the config file itself set use_random_seed, so an
+        # explicit `seed = 42` (singular) without it can auto-disable random
+        # seeding below instead of being silently ignored (see issue #1259).
+        # Only relevant for the TOML-config path: the wizard already prompts
+        # for seed and use_random_seed together, so it can't hit this case.
+        args._use_random_seed_explicit = "use_random_seed" in config_from_file
 
     # CLI --backend overrides config file and auto-detection
     if cli_args.backend is not None:
@@ -1208,6 +1222,22 @@ def main():
         args.batch_size = len(args.seeds)
         args.use_random_seed = False
         args.seed = -1
+    elif (
+        args.config
+        and not getattr(args, "_use_random_seed_explicit", False)
+        and args.seed is not None
+        and args.seed != -1
+        and args.use_random_seed
+    ):
+        # A TOML config gave an explicit singular `seed` without also setting
+        # use_random_seed - without this, use_random_seed's True default wins
+        # and the seed is silently ignored (see issue #1259). Mirrors the
+        # args.seeds handling above, which already does this for seed lists.
+        args.use_random_seed = False
+        print(
+            f"INFO: use_random_seed not set explicitly while seed={args.seed} was provided in "
+            f"'{args.config}'; defaulting use_random_seed to False so the seed takes effect."
+        )
 
     if args.instrumental and not args.lyrics:
         args.lyrics = "[Instrumental]"
@@ -1625,6 +1655,13 @@ def main():
             preloaded_prompt = None
         _install_prompt_edit_hook(llm_handler, instruction_path, preloaded_prompt=preloaded_prompt)
 
+    # dcw_enabled is left as None here when the user hasn't set it explicitly
+    # (via TOML config or the wizard): GenerationParams.dcw_enabled=None defers
+    # to generate_music()'s own model-aware default (turbo on / non-turbo off,
+    # resolved from the loaded model's config.is_turbo - see #1273), so the CLI
+    # no longer needs to guess this itself. See issue #1259 for the original
+    # distorted-audio symptom this covers.
+
     # --- Configure Generation ---
     params = GenerationParams(
         task_type=args.task_type,
@@ -1644,6 +1681,11 @@ def main():
         seed=args.seed,
         guidance_scale=args.guidance_scale,
         use_adg=args.use_adg,
+        dcw_enabled=args.dcw_enabled,
+        dcw_mode=args.dcw_mode,
+        dcw_scaler=args.dcw_scaler,
+        dcw_high_scaler=args.dcw_high_scaler,
+        dcw_wavelet=args.dcw_wavelet,
         cfg_interval_start=args.cfg_interval_start,
         cfg_interval_end=args.cfg_interval_end,
         shift=args.shift,

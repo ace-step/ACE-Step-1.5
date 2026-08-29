@@ -50,6 +50,11 @@ class SaveScriptTests(unittest.TestCase):
         script_asset = _load_preferences_script()
         self.assertTrue(script_asset)
 
+    def test_external_script_contains_mapping_logic(self):
+        script_asset = _load_preferences_script()
+        self.assertIn("dataset.maps", script_asset)
+        self.assertIn("JSON.parse", script_asset)
+
     def test_script_contains_localstorage_persistence(self):
         script = get_user_preferences_head()
         self.assertIn("<script>", script)
@@ -107,26 +112,26 @@ class SaveScriptTests(unittest.TestCase):
         self.assertEqual(script_1, script_2)
 
 
-_NUM_OUTPUTS = len(PREF_KEYS) + 3  # +3 for mp3_controls_row, mp3_bitrate, mp3_sample_rate
+_NUM_OUTPUTS = len(PREF_KEYS)
 
 
 class RestoreTests(unittest.TestCase):
     """Tests for the Gradio-native restore mechanism."""
 
     def test_restore_js_returns_valid_javascript(self):
-        js = _build_restore_js(_NUM_OUTPUTS)
+        js = _build_restore_js()
         self.assertIn("localStorage", js)
         self.assertIn("SCHEMA_VERSION", js)
         self.assertIn("acestep.ui.user_preferences", js)
 
     def test_restore_js_includes_all_pref_keys(self):
-        js = _build_restore_js(_NUM_OUTPUTS)
+        js = _build_restore_js()
         for key in PREF_KEYS:
             self.assertIn(f'"{key}"', js, f"Missing key in restore JS: {key}")
 
     def test_restore_js_only_resets_on_downgrade(self):
         """Version check should only discard prefs from future (higher) versions."""
-        js = _build_restore_js(_NUM_OUTPUTS)
+        js = _build_restore_js()
         self.assertIn("_version", js)
         self.assertIn("prefs._version > SCHEMA_VERSION", js)
         self.assertNotIn("prefs._version !== SCHEMA_VERSION", js)
@@ -134,84 +139,86 @@ class RestoreTests(unittest.TestCase):
     def test_restore_js_coerces_numeric_dropdown_values(self):
         """Dropdown values stored as strings in localStorage must be coerced
         back to numbers when the Gradio component expects integers."""
-        js = _build_restore_js(_NUM_OUTPUTS)
+        js = _build_restore_js()
         self.assertIn("NUMERIC_COERCE_KEYS", js)
         self.assertIn("Number(v)", js)
 
     def test_restore_js_validates_value_types(self):
         """Restore JS must include per-key type validation."""
-        js = _build_restore_js(_NUM_OUTPUTS)
+        js = _build_restore_js()
         self.assertIn("TYPE_MAP", js)
         self.assertIn("typeof v !== expected", js)
 
     def test_restore_js_returns_null_sentinel_when_no_stored_prefs(self):
         """When localStorage is empty the JS must return nulls so the Python
         side can skip updates and preserve init_params."""
-        js = _build_restore_js(_NUM_OUTPUTS)
+        js = _build_restore_js()
         self.assertIn("SKIP", js)
-        self.assertIn("fill(null)", js)
+        self.assertIn("[null]", js)
         # Should NOT contain DEFAULTS as a fallback for empty storage.
         self.assertNotIn("DEFAULTS", js)
 
-    def test_restore_js_includes_mp3_visibility_computation(self):
-        """Restore JS should compute mp3_controls_row visibility from
-        the restored audio_format and append it."""
-        js = _build_restore_js(_NUM_OUTPUTS)
-        self.assertIn("audioFormat", js)
-        self.assertIn('result.push(', js)
-        self.assertIn('"mp3"', js)
+    def test_restore_js_returns_json_string(self):
+        """Restore JS should return a JSON string."""
+        js = _build_restore_js()
+        self.assertIn("JSON.stringify", js)
 
-    def test_restore_preferences_passes_through_values(self):
-        """Non-None values are passed through unchanged."""
-        values = ("flac", "320k", 44100, 0.8, False, -3.0, 0.5, 1.0, 0.05, 0.95, 4, True)
-        result = restore_preferences(*values)
-        # First 11 values are direct pass-through, last is visibility.
-        for i in range(len(PREF_KEYS)):
-            self.assertEqual(result[i], values[i])
+    def test_restore_preferences_with_values(self):
+        """Values arrive as a JSON string from the dummy Textbox."""
+        data = ["flac", "192k", 44100, 0.7, False, -2.0, 0.5, 0.5, 0.1, 1.1, 4]
+        result = restore_preferences(json.dumps(data), _num_outputs=len(PREF_KEYS))
+        self.assertEqual(result[0], "flac")
+        self.assertEqual(result[3], 0.7)
 
-    def test_restore_preferences_converts_none_to_gr_update(self):
-        """None values from JS should become gr.update() (no-op)."""
-        values = (None, None, None, None, None, None, None, None, None, None, None, None)
-        result = restore_preferences(*values)
+    def test_restore_preferences_empty(self):
+        result = restore_preferences(_num_outputs=len(PREF_KEYS))
+        self.assertEqual(len(result), len(PREF_KEYS))
         for v in result:
-            self.assertIsInstance(v, dict, "None should be converted to gr.update()")
+            self.assertIsInstance(v, dict)
             self.assertEqual(v["__type__"], "update")
+        # all should be gr.update()
 
-    def test_restore_preferences_converts_visibility_bools(self):
-        """The trailing booleans for mp3 controls should become
-        gr.update(visible=...) not raw bools."""
-        # 11 pref values + 3 mp3 visibility bools
-        values = ("mp3", "128k", 48000, 0.5, True, -1.0, 0.0, 0.0, 0.0, 1.0, 8, True, True, True)
-        result = restore_preferences(*values)
-        # mp3_controls_row (index 11): visible only
-        row_update = result[11]
-        self.assertIsInstance(row_update, dict)
-        self.assertTrue(row_update["visible"])
-        self.assertNotIn("interactive", row_update)
-        # mp3_bitrate (index 12): visible + interactive
-        bitrate_update = result[12]
-        self.assertIsInstance(bitrate_update, dict)
-        self.assertTrue(bitrate_update["visible"])
-        self.assertTrue(bitrate_update["interactive"])
-        # mp3_sample_rate (index 13): visible + interactive
-        sr_update = result[13]
-        self.assertIsInstance(sr_update, dict)
-        self.assertTrue(sr_update["visible"])
-        self.assertTrue(sr_update["interactive"])
+    def test_restore_preferences_null_string(self):
+        """Null input → noop."""
+        result = restore_preferences(None, _num_outputs=len(PREF_KEYS))
+        self.assertEqual(len(result), len(PREF_KEYS))
 
-    def test_restore_preferences_empty_values_returns_noop_updates(self):
-        """When called with no values (JS did not forward args), the function
-        should return ``_num_outputs`` gr.update() no-ops instead of crashing."""
-        result = restore_preferences(_num_outputs=_NUM_OUTPUTS)
-        self.assertEqual(len(result), _NUM_OUTPUTS)
+    def test_restore_preferences_partial_nulls(self):
+        data = ["opus", None, None, 0.5, True, -1.0, 0.0, 0.0, 0.0, 1.0, 8]
+        result = restore_preferences(json.dumps(data), _num_outputs=len(PREF_KEYS))
+        self.assertEqual(result[0], "opus")
+        self.assertIsInstance(result[1], dict)
+        self.assertEqual(result[1]["__type__"], "update")
+        self.assertIsInstance(result[2], dict)
+        self.assertEqual(result[2]["__type__"], "update")
+        self.assertEqual(result[3], 0.5)
+        # indices 1, 2 should be gr.update()
+
+    def test_restore_preferences_all_nulls(self):
+        data = [None] * len(PREF_KEYS)
+        result = restore_preferences(json.dumps(data), _num_outputs=len(PREF_KEYS))
+        self.assertEqual(len(result), len(PREF_KEYS))
         for v in result:
             self.assertIsInstance(v, dict)
             self.assertEqual(v["__type__"], "update")
 
-    def test_restore_preferences_empty_values_no_num_outputs(self):
-        """With no values and no _num_outputs hint, return empty tuple."""
-        result = restore_preferences()
-        self.assertEqual(len(result), 0)
+    def test_build_restore_js_has_dummy_param(self):
+        js = _build_restore_js()
+        self.assertTrue(js.strip().startswith("(_dummy)"))
+
+    def test_build_restore_js_returns_json_string(self):
+        js = _build_restore_js()
+        self.assertIn("JSON.stringify", js)
+
+    def test_build_restore_js_skip_sentinel(self):
+        js = _build_restore_js()
+        self.assertIn("[null]", js)
+        self.assertNotIn("fill(null)", js)
+
+    def test_restore_preferences_invalid_json(self):
+        """Garbage string → noop."""
+        result = restore_preferences("not-json{}", _num_outputs=len(PREF_KEYS))
+        self.assertEqual(len(result), len(PREF_KEYS))
 
     def test_pref_keys_match_defaults(self):
         """Every PREF_KEY must have a corresponding default."""
@@ -219,8 +226,8 @@ class RestoreTests(unittest.TestCase):
             self.assertIn(key, _DEFAULTS, f"Key {key!r} missing from _DEFAULTS")
 
     def test_restore_js_generation_is_stable(self):
-        js_1 = _build_restore_js(_NUM_OUTPUTS)
-        js_2 = _build_restore_js(_NUM_OUTPUTS)
+        js_1 = _build_restore_js()
+        js_2 = _build_restore_js()
         self.assertEqual(js_1, js_2)
 
 

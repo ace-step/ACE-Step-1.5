@@ -75,6 +75,19 @@
         const el = findInput(spec.elemId, spec.type);
         if (!el) return undefined;
 
+        if (spec.type === "dropdown") {
+            const maps = document.getElementById(spec.elemId + "-maps");
+            if (maps) {
+                try {
+                    const mapsData = JSON.parse(maps.dataset.maps);
+                    const value = el.value;
+                    const pair = mapsData.find(item => item[0] === value);
+                    if (pair !== undefined) return pair[1];
+                } catch (e) {
+                    console.warn(`[UserPreferences] Failed to parse mapping for ${spec.elemId}:`, e);
+                }
+            }
+        }
         if (spec.type === "checkbox") return el.checked;
         if (spec.type === "slider" || spec.type === "number") {
             const v = Number(el.value);
@@ -85,7 +98,24 @@
 
     // ── Save (debounced) ─────────────────────────────────────────────
 
+    const syncMp3Row = () => {
+        const row = document.getElementById("acestep-mp3-controls-row");
+        if (!row) return;
+        const val = readValue("audio_format");
+        if (val === undefined) return;
+        const show = val === "mp3";
+        row.style.display = show ? "" : "none";
+        for (const id of ["acestep-mp3-bitrate", "acestep-mp3-sample-rate"]) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.style.display = show ? "" : "none";
+                el.classList.toggle("hidden", !show);
+            }
+        }
+    };
+
     const scheduleSave = () => {
+        syncMp3Row();
         if (saveTimer !== null) {
             clearTimeout(saveTimer);
         }
@@ -108,11 +138,37 @@
         for (const key of Object.keys(PREFS)) {
             const spec = PREFS[key];
             const el = findInput(spec.elemId, spec.type);
-            if (!el || wiredElements.has(el)) continue;
-            wiredElements.add(el);
-            el.addEventListener("input", scheduleSave, { passive: true });
-            el.addEventListener("change", scheduleSave, { passive: true });
+            if (el && !wiredElements.has(el)) {
+                wiredElements.add(el);
+                el.addEventListener("input", scheduleSave, { passive: true });
+                el.addEventListener("change", scheduleSave, { passive: true });
+                
+                if (spec.type === "dropdown") {
+                    const nativeInputValue = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 
+                        "value"
+                    );
+
+                    if (!nativeInputValue || !nativeInputValue.set || !nativeInputValue.get) continue;
+
+                    try {
+                        Object.defineProperty(el, "value", {
+                            configurable: true,
+                            get: function() {
+                                return nativeInputValue.get.call(this);
+                            },
+                            set: function(val) {
+                                nativeInputValue.set.call(this, val);
+                                scheduleSave();
+                            }
+                        });
+                    } catch (e) {
+                        console.warn(`[UserPreferences] Could not hook value for ${spec.elemId}:`, e);
+                    }
+                }
+            }
         }
+        syncMp3Row();
     };
 
     // ── MutationObserver – re-wire after Gradio re-renders ───────────

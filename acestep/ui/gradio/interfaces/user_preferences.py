@@ -2,13 +2,15 @@
 
 Save side:  A ``<script>`` injected via ``Blocks(head=…)`` listens for DOM
 changes and writes the current preference values to ``localStorage``.
+It also keeps MP3-specific control visibility in sync with the selected
+audio format via direct DOM toggling (``syncMp3Row()``), since Gradio
+does not fire ``.change()`` for values set at load time.
 
 Restore side:  ``wire_preference_restore`` attaches a ``demo.load()`` handler
-whose *js* parameter reads ``localStorage`` on page load and feeds the saved
-values straight into the Gradio component outputs.  Because Gradio itself
-applies the updates through its own Svelte reactivity, every component type
-(dropdown, slider, checkbox, number) is updated correctly—no fragile DOM
-hacking required.
+whose *js* parameter reads ``localStorage`` on page load and passes the
+saved values as a JSON string through a hidden dummy Textbox input.
+The Python side deserialises the string and feeds the values into Gradio
+component outputs, where Svelte reactivity applies them correctly.
 """
 
 from __future__ import annotations
@@ -74,21 +76,25 @@ def get_user_preferences_head() -> str:
 # ── Restore-side: Gradio .load() wiring ─────────────────────────────────
 
 
-def _build_restore_js(num_outputs: int) -> str:
+def _build_restore_js() -> str:
     """Build the client-side JS that reads localStorage and returns values.
 
     The returned function is passed as the ``js`` parameter to
-    ``demo.load()``.  It returns an array whose element order matches
-    ``PREF_KEYS`` (and therefore the *outputs* list).
+    ``demo.load()``.  It reads saved preferences from localStorage,
+    serialises them as a JSON string, and returns a single-element array
+    ``[json_string]`` so Gradio maps it to the dummy Textbox input.
+    The Python side (``restore_preferences``) deserialises the string
+    and produces one output value per ``PREF_KEYS`` entry.
 
     When localStorage has no saved preferences (first visit, cleared
-    storage, private browsing), the function returns an array of ``null``
-    sentinels so the Python side can skip the update and preserve whatever
-    values were already rendered from ``init_params``.
+    storage, private browsing), the function returns ``[null]`` so the
+    Python side receives a falsy value and emits ``gr.update()`` for
+    every output, preserving whatever was already rendered from
+    ``init_params``.
 
-    Args:
-        num_outputs: Total number of output components (preference keys
-            plus any extra outputs like ``mp3_controls_row``).
+    MP3 control visibility is **not** handled here; it is managed by
+    ``syncMp3Row()`` in the save-side JS (``user_preferences.js``),
+    which toggles the DOM directly on page load and on format changes.
     """
     keys_json = json.dumps(PREF_KEYS)
     # Build a type map so the restore JS can validate each value.
@@ -109,8 +115,8 @@ def _build_restore_js(num_outputs: int) -> str:
     # Sentinel array returned when there is nothing to restore.  Using null
     # lets the Python fn detect "no stored prefs" and return gr.update()
     # for every output, preserving the values already rendered on the page.
-    skip_sentinel = f"new Array({num_outputs}).fill(null)"
-    return f"""() => {{
+    skip_sentinel = "[null]"
+    return f"""(_dummy) => {{
         const STORAGE_KEY = {json.dumps(_STORAGE_KEY)};
         const SCHEMA_VERSION = {_SCHEMA_VERSION};
         const KEYS = {keys_json};
@@ -149,15 +155,7 @@ def _build_restore_js(num_outputs: int) -> str:
             }});
             // If none of the keys had stored values, skip entirely.
             if (result.every(v => v === null)) return SKIP;
-            // Compute mp3 control visibility from audio_format (index 0).
-            // Push 3 extra values: mp3_controls_row, mp3_bitrate, mp3_sample_rate
-            // matching the outputs of _update_mp3_control_visibility().
-            // When audioFormat is null (no stored value), push nulls so Python
-            // emits gr.update() and preserves whatever init_params set.
-            const audioFormat = result[0];
-            const mp3 = audioFormat === null ? null : audioFormat === "mp3";
-            result.push(mp3, mp3, mp3);
-            return result;
+            return [JSON.stringify(result)];
         }} catch (_e) {{
             return SKIP;
         }}
@@ -169,38 +167,52 @@ def restore_preferences(
 ) -> tuple[Any, ...]:
     """Map JS restore results into Gradio output values.
 
-    The JS function reads localStorage and produces an array:
-      - First ``len(PREF_KEYS)`` elements are preference values (or null).
-      - Next 3 elements are mp3 visibility booleans (or null):
-        [mp3_controls_row, mp3_bitrate, mp3_sample_rate].
+    The JS function serialises a ``PREF_KEYS``-ordered array into a JSON
+    string and passes it through a hidden dummy Textbox.  This function
+    receives that string as ``values[0]``, deserialises it, and returns
+    one Gradio-compatible value per output component.
 
-    ``None`` (JSON ``null``) → ``gr.update()`` (no-op, preserves current).
-    Booleans beyond PREF_KEYS → visibility/interactivity updates matching
-    ``_update_mp3_control_visibility()`` from the output controls module.
+    Individual elements may be ``null`` (when a key was absent from
+    localStorage); these become ``gr.update()`` (no-op, preserves
+    the current component value).
 
-    When the JS side returns no values (e.g. certain Gradio versions do not
-    forward the JS return value to the Python ``fn`` when ``inputs=None``),
-    ``_num_outputs`` is used to produce the correct number of no-op updates
-    so Gradio does not raise a ``ValueError`` about mismatched output count.
+    When the JS side returns ``[null]`` (no stored preferences) or
+    the function is called with no arguments (edge-case Gradio
+    versions), ``_num_outputs`` is used to produce the correct number
+    of no-op updates so Gradio does not raise a ``ValueError`` about
+    mismatched output count.
+
+    MP3 control visibility is handled on the JS side by
+    ``syncMp3Row()``; this function only sets component *values*.
     """
     import gradio as gr
 
-    if not values:
-        return tuple(gr.update() for _ in range(_num_outputs))
+    noop = tuple(gr.update() for _ in range(_num_outputs))
+
+    if not values or not values[0]:
+        return noop
+
+    try:
+        data = json.loads(values[0])
+    except (TypeError, ValueError):
+        return noop
+
+    if not isinstance(data, list) or all(v is None for v in data):
+        return noop
 
     n_prefs = len(PREF_KEYS)
     results: list[Any] = []
-    for i, v in enumerate(values):
+    for i, v in enumerate(data):
+        if i >= n_prefs:
+            break
         if v is None:
             results.append(gr.update())
-        elif i == n_prefs and isinstance(v, bool):
-            # mp3_controls_row: visibility only.
-            results.append(gr.update(visible=v))
-        elif i > n_prefs and isinstance(v, bool):
-            # mp3_bitrate, mp3_sample_rate: visibility + interactivity.
-            results.append(gr.update(visible=v, interactive=v))
         else:
             results.append(v)
+
+    while len(results) < _num_outputs:
+        results.append(gr.update())
+
     return tuple(results)
 
 
@@ -229,6 +241,8 @@ def wire_preference_restore(
     if service_mode:
         return
 
+    import gradio as gr
+
     outputs = []
     for key in PREF_KEYS:
         component = generation_section.get(key)
@@ -239,20 +253,12 @@ def wire_preference_restore(
             )
         outputs.append(component)
 
-    # Also update mp3 control visibility so it stays in sync when the
-    # restored audio_format differs from the server-rendered default.
-    # Gradio does not fire .change() for load-time value assignments, so
-    # without this the MP3 row and its children could be visible/hidden
-    # incorrectly.  The three extra outputs mirror the return of
-    # _update_mp3_control_visibility(): [row, bitrate, sample_rate].
-    for mp3_key in ("mp3_controls_row", "mp3_bitrate", "mp3_sample_rate"):
-        comp = generation_section.get(mp3_key)
-        if comp is not None:
-            outputs.append(comp)
+    # Dummy input — creates a channel for JS → Python
+    dummy = gr.Textbox(value="", visible=False, elem_id="acestep-prefs-restore-dummy")
 
     demo.load(
         fn=partial(restore_preferences, _num_outputs=len(outputs)),
-        inputs=None,
+        inputs=[dummy],
         outputs=outputs,
-        js=_build_restore_js(num_outputs=len(outputs)),
+        js=_build_restore_js(),
     )

@@ -7,16 +7,29 @@ from typing import Any, Callable, Dict, Optional
 
 
 def _get_record_env_and_time(
-    store: Any,
-    job_id: str,
+    record: Any,
     now_fn: Callable[[], float],
 ) -> tuple[str, float]:
-    """Return `(env, create_time)` derived from store record or defaults."""
+    """Return `(env, create_time)` derived from a store record or defaults."""
 
-    record = store.get(job_id)
     if record is None:
         return "development", now_fn()
     return getattr(record, "env", "development"), getattr(record, "created_at", now_fn())
+
+
+def _get_record_error(record: Any) -> Optional[str]:
+    """Return the failure text a store record holds for a job.
+
+    Args:
+        record: Job store record, or None when the store has no record
+            for the job.
+
+    Returns:
+        Error text recorded by `mark_failed`, or None when there is no
+        record or no error on it.
+    """
+
+    return getattr(record, "error", None) if record is not None else None
 
 
 def update_local_cache(
@@ -47,7 +60,8 @@ def update_local_cache(
     if not local_cache:
         return
 
-    env, create_time = _get_record_env_and_time(store=store, job_id=job_id, now_fn=now_fn)
+    record = store.get(job_id)
+    env, create_time = _get_record_env_and_time(record=record, now_fn=now_fn)
     status_int = map_status(status)
 
     if status == "succeeded" and result:
@@ -122,6 +136,8 @@ def update_local_cache(
             "progress": 0.0,
             "stage": "failed" if status == "failed" else status,
         }]
+        if status == "failed":
+            result_data[0]["error"] = _get_record_error(record)
 
     result_key = f"{result_key_prefix}{job_id}"
     local_cache.set(result_key, result_data, ex=result_expire_seconds)
@@ -143,7 +159,7 @@ def update_local_cache_progress(
     if not local_cache:
         return
 
-    env, create_time = _get_record_env_and_time(store=store, job_id=job_id, now_fn=now_fn)
+    env, create_time = _get_record_env_and_time(record=store.get(job_id), now_fn=now_fn)
     status_int = map_status("running")
     result_data = [{
         "file": "",

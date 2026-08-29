@@ -329,5 +329,73 @@ class JobGenerationSetupTests(unittest.TestCase):
         self.assertTrue(setup.params.use_cot_metas)
 
 
+    def test_build_generation_setup_forwards_sampler_and_dit_latent_params(self) -> None:
+        """Sampler mode and latent post-processing params should be forwarded."""
+
+        req = _base_req()
+        req.sampler_mode = "heun"
+        req.velocity_norm_threshold = 2.0
+        req.velocity_ema_factor = 0.1
+        req.latent_shift = 0.05
+        req.latent_rescale = 1.2
+        setup = build_generation_setup(
+            req=req,
+            caption="cap",
+            lyrics="lyr",
+            bpm=None,
+            key_scale="",
+            time_signature="",
+            audio_duration=None,
+            thinking=False,
+            sample_mode=False,
+            format_has_duration=False,
+            use_cot_caption=False,
+            use_cot_language=False,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False,
+            default_dit_instruction="default instruction",
+            task_instructions={},
+        )
+
+        self.assertEqual("heun", setup.params.sampler_mode)
+        self.assertAlmostEqual(2.0, setup.params.velocity_norm_threshold)
+        self.assertAlmostEqual(0.1, setup.params.velocity_ema_factor)
+        self.assertAlmostEqual(0.05, setup.params.latent_shift)
+        self.assertAlmostEqual(1.2, setup.params.latent_rescale)
+
+    def test_build_generation_setup_defaults_sampler_params_when_missing(self) -> None:
+        """When req lacks sampler/latent fields, getattr defaults should apply."""
+
+        req = _base_req()
+        setup = build_generation_setup(
+            req=req,
+            caption="cap",
+            lyrics="lyr",
+            bpm=None,
+            key_scale="",
+            time_signature="",
+            audio_duration=None,
+            thinking=False,
+            sample_mode=False,
+            format_has_duration=False,
+            use_cot_caption=False,
+            use_cot_language=False,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            parse_timesteps=lambda _value: None,
+            is_instrumental=lambda _lyrics: False,
+            default_dit_instruction="default instruction",
+            task_instructions={},
+        )
+
+        self.assertEqual("euler", setup.params.sampler_mode)
+        self.assertAlmostEqual(0.0, setup.params.velocity_norm_threshold)
+        self.assertAlmostEqual(0.0, setup.params.velocity_ema_factor)
+        self.assertAlmostEqual(0.0, setup.params.latent_shift)
+        self.assertAlmostEqual(1.0, setup.params.latent_rescale)
+
+
 if __name__ == "__main__":
     unittest.main()

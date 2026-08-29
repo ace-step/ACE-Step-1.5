@@ -356,6 +356,7 @@ class GenerateMusicMixin:
                 actual_batch_size=actual_batch_size,
                 task_type=task_type,
                 flow_edit_morph=flow_edit_morph,
+                seed=actual_seed_list[0] if actual_seed_list else None,
             )
             if audio_error is not None:
                 return audio_error

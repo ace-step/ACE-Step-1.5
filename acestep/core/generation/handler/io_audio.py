@@ -115,12 +115,14 @@ class IoAudioMixin:
             return None
 
     def process_reference_audio(
-        self, audio_file: Optional[str]
+        self, audio_file: Optional[str], seed: Optional[int] = None
     ) -> Optional[torch.Tensor]:
         """Load and normalize reference audio, then sample 3x10s segments.
 
         Args:
             audio_file: Path to reference audio file.
+            seed: Optional seed for the segment sampling, so same-seed
+                generations condition on the same reference slices.
 
         Returns:
             30-second stereo tensor from sampled front/middle/back segments,
@@ -128,6 +130,7 @@ class IoAudioMixin:
         """
         if audio_file is None:
             return None
+        rng = random.Random(seed) if seed is not None else random
 
         try:
             audio_np, sr = _read_audio_file(audio_file)
@@ -155,15 +158,15 @@ class IoAudioMixin:
             total_frames = audio.shape[-1]
             segment_size = total_frames // 3
 
-            front_start = random.randint(0, max(0, segment_size - segment_frames))
+            front_start = rng.randint(0, max(0, segment_size - segment_frames))
             front_audio = audio[:, front_start : front_start + segment_frames]
 
-            middle_start = segment_size + random.randint(
+            middle_start = segment_size + rng.randint(
                 0, max(0, segment_size - segment_frames)
             )
             middle_audio = audio[:, middle_start : middle_start + segment_frames]
 
-            back_start = 2 * segment_size + random.randint(
+            back_start = 2 * segment_size + rng.randint(
                 0, max(0, (total_frames - 2 * segment_size) - segment_frames)
             )
             back_audio = audio[:, back_start : back_start + segment_frames]

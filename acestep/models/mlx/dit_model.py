@@ -451,6 +451,13 @@ class MLXDiTDecoder(nn.Module):
         super().__init__()
         self.hidden_size = hidden_size
         self.patch_size = patch_size
+        # Compute dtype for the diffusion forward pass.  Defaults to float32 so
+        # behaviour is unchanged; ``mlx_dit_init`` flips this to bfloat16 (and
+        # casts the parameters to match) when ``ACESTEP_MLX_DIT_BF16`` is set.
+        # Not an ``mx.array`` and not underscore-free-by-accident: a plain dtype
+        # object is ignored by ``Module.parameters()`` so it never participates
+        # in weight loading or ``mx.eval``.
+        self.compute_dtype = mx.float32
         inner_dim = hidden_size
 
         if layer_types is None:
@@ -556,6 +563,21 @@ class MLXDiTDecoder(nn.Module):
         Returns:
             (output_hidden_states, cache)
         """
+        # Optional reduced-precision compute path.  When ``compute_dtype`` is
+        # bfloat16 we cast the inputs here so every matmul inside the decoder
+        # runs in bf16, then cast the final velocity back to the caller's dtype
+        # at the end so the diffusion loop (CFG, ODE step, DCW, repaint) keeps
+        # running in float32 exactly as before.  When ``compute_dtype`` is
+        # float32 (default) every branch below is a no-op.
+        cdt = getattr(self, "compute_dtype", mx.float32)
+        external_dtype = hidden_states.dtype
+        if cdt != external_dtype:
+            hidden_states = hidden_states.astype(cdt)
+            encoder_hidden_states = encoder_hidden_states.astype(cdt)
+            context_latents = context_latents.astype(cdt)
+            timestep = timestep.astype(cdt)
+            timestep_r = timestep_r.astype(cdt)
+
         # Timestep embeddings
         temb_t, proj_t = self.time_embed(timestep)
         temb_r, proj_r = self.time_embed_r(timestep - timestep_r)
@@ -587,8 +609,13 @@ class MLXDiTDecoder(nn.Module):
         seq_len = hidden_states.shape[1]
         dtype = hidden_states.dtype
 
-        # Position embeddings (RoPE)
+        # Position embeddings (RoPE).  The cached cos/sin tables live in
+        # float32; cast them to the compute dtype so rotary application and the
+        # subsequent SDPA see a single consistent dtype for q/k/v.
         cos, sin = self.rotary_emb(seq_len)
+        if cos.dtype != dtype:
+            cos = cos.astype(dtype)
+            sin = sin.astype(dtype)
 
         # Attention masks
         # Self-attention: full layers get None; sliding layers get windowed mask
@@ -623,6 +650,11 @@ class MLXDiTDecoder(nn.Module):
 
         # Crop back to original sequence length
         hidden_states = hidden_states[:, :original_seq_len, :]
+
+        # Hand the velocity back to the diffusion loop in its original dtype
+        # (float32) so the sampler math is unchanged.  No-op on the fp32 path.
+        if hidden_states.dtype != external_dtype:
+            hidden_states = hidden_states.astype(external_dtype)
 
         return hidden_states, cache
 

@@ -261,3 +261,6 @@ docs/.vitepress/dist/
 docs/.vitepress/cache/
 docs/en/awesome.md
 package-lock.json
+
+# Launcher temp/cache dir (ACESTEP_TMP_DIR)
+.tmp/

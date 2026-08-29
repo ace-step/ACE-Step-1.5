@@ -80,7 +80,7 @@ SHARE="${SHARE:-}"
 # SHARE="--share"
 
 # Reset LANGUAGE if it contains an invalid value (e.g. system locale like en_CA:en)
-case "$LANGUAGE" in
+case "${LANGUAGE:-}" in
     en|zh|he|ja) ;;
     *) unset LANGUAGE ;;
 esac
@@ -133,7 +133,42 @@ AUTH_USERNAME="${AUTH_USERNAME:-}"
 AUTH_PASSWORD="${AUTH_PASSWORD:-}"
 # AUTH_PASSWORD="--auth-password password"
 
+# Runtime temp/cache directories
+: "${ACESTEP_TMP_DIR:=${SCRIPT_DIR}/.tmp}"
+: "${GRADIO_TEMP_DIR:=${ACESTEP_TMP_DIR}/gradio}"
+
 # ==================== Launch ====================
+
+_kill_processes_on_port() {
+    local port="$1"
+    local pids=""
+
+    if command -v lsof &>/dev/null; then
+        pids="$(lsof -ti "tcp:${port}" 2>/dev/null || true)"
+    elif command -v fuser &>/dev/null; then
+        pids="$(fuser "${port}/tcp" 2>/dev/null || true)"
+    fi
+
+    [[ -z "${pids// }" ]] && return 0
+
+    echo "[Port] Releasing port ${port} from existing process(es): ${pids}"
+    kill $pids 2>/dev/null || true
+
+    for _ in {1..10}; do
+        sleep 1
+        if command -v lsof &>/dev/null; then
+            pids="$(lsof -ti "tcp:${port}" 2>/dev/null || true)"
+        elif command -v fuser &>/dev/null; then
+            pids="$(fuser "${port}/tcp" 2>/dev/null || true)"
+        else
+            pids=""
+        fi
+        [[ -z "${pids// }" ]] && return 0
+    done
+
+    echo "[Port] Force killing stubborn process(es) on port ${port}: ${pids}"
+    kill -9 $pids 2>/dev/null || true
+}
 
 # ==================== Startup Update Check ====================
 _startup_update_check() {
@@ -200,8 +235,18 @@ _startup_update_check() {
 }
 _startup_update_check
 
+_kill_processes_on_port "$PORT"
+
+mkdir -p "$ACESTEP_TMP_DIR" "$GRADIO_TEMP_DIR"
+export TMPDIR="$ACESTEP_TMP_DIR"
+export TEMP="$ACESTEP_TMP_DIR"
+export TMP="$ACESTEP_TMP_DIR"
+export GRADIO_TEMP_DIR="$GRADIO_TEMP_DIR"
+
 echo "Starting ACE-Step Gradio Web UI..."
 echo "Server will be available at: http://${SERVER_NAME}:${PORT}"
+echo "Temporary files will be stored in: ${ACESTEP_TMP_DIR}"
+echo "Gradio cache will be stored in: ${GRADIO_TEMP_DIR}"
 echo
 
 # ==================== Standard uv Workflow ====================

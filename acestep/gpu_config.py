@@ -974,7 +974,11 @@ def find_best_lm_model_on_disk(
 
 
 def get_lm_gpu_memory_ratio(
-    model_path: str, total_gpu_memory_gb: float
+    model_path: str,
+    total_gpu_memory_gb: float,
+    device_index: int = 0,
+    *,
+    reserve_dit_inference_gb: float = 1.5,
 ) -> Tuple[float, float]:
     """
     Calculate GPU memory utilization ratio for LM model.
@@ -987,6 +991,9 @@ def get_lm_gpu_memory_ratio(
     Args:
         model_path: LM model path (e.g., "acestep-5Hz-lm-0.6B")
         total_gpu_memory_gb: Total GPU memory in GB (used as fallback)
+        device_index: CUDA device index to query for free VRAM
+        reserve_dit_inference_gb: Headroom to leave on the LM GPU for DiT activations
+            when DiT is co-located on the same device (set to 0 when split across GPUs)
 
     Returns:
         Tuple of (gpu_memory_utilization_ratio, target_memory_gb)
@@ -1008,7 +1015,7 @@ def get_lm_gpu_memory_ratio(
         import torch
 
         if torch.cuda.is_available():
-            free_bytes, total_bytes = torch.cuda.mem_get_info()
+            free_bytes, total_bytes = torch.cuda.mem_get_info(device_index)
             free_gb = free_bytes / (1024**3)
             actual_total_gb = total_bytes / (1024**3)
 
@@ -1031,8 +1038,7 @@ def get_lm_gpu_memory_ratio(
             # The ratio is relative to total GPU memory (nano-vllm convention),
             # but we compute it so that the LM only claims what's actually free
             # minus a safety margin for DiT inference activations.
-            # Reserve at least 1.5 GB for DiT inference activations
-            dit_reserve_gb = 1.5
+            dit_reserve_gb = max(0.0, reserve_dit_inference_gb)
             usable_for_lm = max(0, free_gb - dit_reserve_gb - VRAM_SAFETY_MARGIN_GB)
 
             # Cap to what the LM actually needs

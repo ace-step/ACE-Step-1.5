@@ -9,6 +9,7 @@ import torch
 from loguru import logger
 
 from acestep.gpu_config import get_effective_free_vram_gb
+from acestep.device_map import cuda_device_index, is_cuda_device
 
 
 class GenerateMusicDecodeMixin:
@@ -129,7 +130,12 @@ class GenerateMusicDecodeMixin:
         with torch.inference_mode():
             with self._load_model_context("vae"):
                 pred_latents_cpu = pred_latents.detach().cpu()
-                pred_latents_for_decode = pred_latents.transpose(1, 2).contiguous().to(self.vae.dtype)
+                vae_component_device = self._get_component_device("vae")
+                pred_latents_for_decode = (
+                    pred_latents.transpose(1, 2)
+                    .contiguous()
+                    .to(device=vae_component_device, dtype=self.vae.dtype)
+                )
                 del pred_latents
                 self._empty_cache()
 
@@ -140,7 +146,7 @@ class GenerateMusicDecodeMixin:
                 )
                 using_mlx_vae = self.use_mlx_vae and self.mlx_vae is not None
                 vae_cpu = False
-                vae_device = None
+                vae_restore_device = None
                 if not using_mlx_vae:
                     vae_cpu = os.environ.get("ACESTEP_VAE_ON_CPU", "0").lower() in ("1", "true", "yes")
                     if not vae_cpu:
@@ -150,7 +156,12 @@ class GenerateMusicDecodeMixin:
                                 "(unified memory), keeping VAE on MPS"
                             )
                         else:
-                            effective_free = get_effective_free_vram_gb()
+                            vae_cuda_index = (
+                                cuda_device_index(vae_component_device)
+                                if is_cuda_device(vae_component_device)
+                                else 0
+                            )
+                            effective_free = get_effective_free_vram_gb(vae_cuda_index)
                             logger.info(
                                 "[generate_music] Effective free VRAM before VAE decode: "
                                 f"{effective_free:.2f} GB"
@@ -163,7 +174,7 @@ class GenerateMusicDecodeMixin:
                                 vae_cpu = True
                     if vae_cpu:
                         logger.info("[generate_music] Moving VAE to CPU for decode (ACESTEP_VAE_ON_CPU=1)...")
-                        vae_device = next(self.vae.parameters()).device
+                        vae_restore_device = next(self.vae.parameters()).device
                         self.vae = self.vae.cpu()
                         pred_latents_for_decode = pred_latents_for_decode.cpu()
                         self._empty_cache()
@@ -186,9 +197,9 @@ class GenerateMusicDecodeMixin:
                         pred_wavs = decoder_output.sample
                         del decoder_output
                 finally:
-                    if vae_cpu and vae_device is not None:
+                    if vae_cpu and vae_restore_device is not None:
                         logger.info("[generate_music] Restoring VAE to original device after CPU decode path...")
-                        self.vae = self.vae.to(vae_device)
+                        self.vae = self.vae.to(vae_restore_device)
                     self._empty_cache()
                 logger.debug(
                     "[generate_music] After VAE decode: "

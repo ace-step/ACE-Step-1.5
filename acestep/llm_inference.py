@@ -26,6 +26,12 @@ from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.device_map import (
+    cuda_device_index,
+    is_cuda_device,
+    normalize_component_device,
+    set_active_cuda_device,
+)
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -199,15 +205,23 @@ class LLMHandler:
             Tuple of (gpu_memory_utilization_ratio, low_gpu_memory_mode)
         """
         try:
-            device = torch.device("cuda:0")
-            total_gpu_mem_bytes = torch.cuda.get_device_properties(device).total_memory
+            if not is_cuda_device(self.device) or not torch.cuda.is_available():
+                raise RuntimeError("CUDA device required for vLLM memory budgeting")
+
+            device_index = cuda_device_index(normalize_component_device(self.device))
+            total_gpu_mem_bytes = torch.cuda.get_device_properties(device_index).total_memory
             total_gpu = total_gpu_mem_bytes / 1024**3
 
             low_gpu_memory_mode = False
 
             # Use adaptive GPU memory ratio based on model size
             if model_path:
-                ratio, target_memory_gb = get_lm_gpu_memory_ratio(model_path, total_gpu)
+                ratio, target_memory_gb = get_lm_gpu_memory_ratio(
+                    model_path,
+                    total_gpu,
+                    device_index=device_index,
+                    reserve_dit_inference_gb=0.0,
+                )
                 logger.info(f"Adaptive LM memory allocation: model={model_path}, target={target_memory_gb}GB, ratio={ratio:.3f}, total_gpu={total_gpu:.1f}GB")
 
                 # Enable low memory mode for small GPUs
@@ -217,7 +231,8 @@ class LLMHandler:
                 return ratio, low_gpu_memory_mode
 
             # Fallback to original logic if no model_path provided
-            reserved_mem_bytes = torch.cuda.memory_reserved(device)
+            device_index = cuda_device_index(normalize_component_device(self.device))
+            reserved_mem_bytes = torch.cuda.memory_reserved(device_index)
             reserved_gpu = reserved_mem_bytes / 1024**3
             available_gpu = total_gpu - reserved_gpu
 
@@ -529,7 +544,7 @@ class LLMHandler:
                     device = "xpu"
                 else:
                     device = "cpu"
-            elif device == "cuda" and not torch.cuda.is_available():
+            elif is_cuda_device(device) and not torch.cuda.is_available():
                 if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                     logger.warning("[initialize] CUDA requested but unavailable. Falling back to MPS.")
                     device = "mps"
@@ -560,6 +575,10 @@ class LLMHandler:
                     logger.warning("[initialize] XPU requested but unavailable. Falling back to CPU.")
                     device = "cpu"
 
+            # Normalize bare "cuda" → "cuda:0" and preserve mapped "cuda:N".
+            if is_cuda_device(device):
+                device = normalize_component_device(device)
+
             self.device = device
             self.offload_to_cpu = offload_to_cpu
 
@@ -569,7 +588,7 @@ class LLMHandler:
             # produce NaN/inf when naively converted to float16 (different exponent range).
             # The DiT and VAE use float16 on MPS where it actually helps throughput.
             if dtype is None:
-                if device in ["cuda", "xpu"]:
+                if is_cuda_device(device) or device.startswith("xpu"):
                     self.dtype = torch.bfloat16
                 else:
                     self.dtype = torch.float32
@@ -601,7 +620,8 @@ class LLMHandler:
             }
 
             # Proactive CUDA cleanup before LM load to reduce fragmentation on mode/model switch
-            if device == "cuda" and torch.cuda.is_available():
+            if is_cuda_device(device) and torch.cuda.is_available():
+                set_active_cuda_device(device)
                 gc.collect()
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
@@ -641,9 +661,10 @@ class LLMHandler:
             #   RuntimeError: Offset increment outside graph capture encountered unexpectedly
             is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
             is_jetson = False
-            if device == "cuda" and torch.cuda.is_available():
+            if is_cuda_device(device) and torch.cuda.is_available():
                 try:
-                    dev_name = torch.cuda.get_device_name(0).lower()
+                    dit_idx = cuda_device_index(device)
+                    dev_name = torch.cuda.get_device_name(dit_idx).lower()
                     is_jetson = any(k in dev_name for k in ("orin", "xavier", "tegra"))
                     if is_jetson:
                         logger.info(f"Jetson GPU detected ({dev_name}): disabling CUDA graph capture for nano-vllm")
@@ -702,7 +723,7 @@ class LLMHandler:
                     status_msg = f"✅ 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
                     return status_msg, True
 
-            if backend == "vllm" and device != "cuda":
+            if backend == "vllm" and not is_cuda_device(device):
                 logger.info(
                     f"[initialize] vllm backend requires CUDA, using PyTorch backend for device={device}."
                 )
@@ -720,19 +741,23 @@ class LLMHandler:
             # Initialize based on user-selected backend
             if backend == "vllm":
                 _warn_if_prerelease_python()
-                total_gb = get_gpu_memory_gb() if device == "cuda" else 0.0
+                total_gb = 0.0
                 free_gb = 0.0
-                if device == "cuda" and torch.cuda.is_available():
+                if is_cuda_device(device) and torch.cuda.is_available():
                     try:
+                        device_index = cuda_device_index(device)
+                        total_gb = get_gpu_memory_gb()
                         if hasattr(torch.cuda, "mem_get_info"):
-                            free_bytes, _ = torch.cuda.mem_get_info()
+                            free_bytes, _ = torch.cuda.mem_get_info(device_index)
                             free_gb = free_bytes / (1024**3)
                         else:
-                            total_bytes = torch.cuda.get_device_properties(0).total_memory
-                            free_gb = (total_bytes - torch.cuda.memory_reserved(0)) / (1024**3)
+                            total_bytes = torch.cuda.get_device_properties(device_index).total_memory
+                            free_gb = (
+                                total_bytes - torch.cuda.memory_reserved(device_index)
+                            ) / (1024**3)
                     except Exception:
                         free_gb = 0.0
-                if device == "cuda" and free_gb < VRAM_SAFE_FREE_GB:
+                if is_cuda_device(device) and free_gb < VRAM_SAFE_FREE_GB:
                     logger.warning(
                         f"vLLM disabled due to insufficient free VRAM (total={total_gb:.2f}GB, free={free_gb:.2f}GB, need>={VRAM_SAFE_FREE_GB}GB free) — falling back to PyTorch backend"
                     )
@@ -801,6 +826,8 @@ class LLMHandler:
             return "❌ nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .'"
 
         try:
+            if is_cuda_device(self.device):
+                set_active_cuda_device(self.device)
             current_device = torch.cuda.current_device()
             device_name = torch.cuda.get_device_name(current_device)
 

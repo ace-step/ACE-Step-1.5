@@ -1,11 +1,18 @@
 """Runtime setup helpers for initialization orchestration."""
 
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 from loguru import logger
 
 from acestep import gpu_config
+from acestep.device_map import (
+    ComponentDeviceMap,
+    is_cuda_device,
+    log_device_map,
+    normalize_component_device,
+    resolve_component_device_map,
+)
 
 
 class InitServiceSetupMixin:
@@ -23,15 +30,23 @@ class InitServiceSetupMixin:
                 return "xpu"
             return "cpu"
 
-        if device == "cuda" and not gpu_config.is_cuda_available():
-            if gpu_config.is_mps_available():
-                logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to MPS.")
-                return "mps"
-            if gpu_config.is_xpu_available():
-                logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to XPU.")
-                return "xpu"
-            logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to CPU.")
-            return "cpu"
+        if is_cuda_device(device):
+            if not gpu_config.is_cuda_available():
+                if gpu_config.is_mps_available():
+                    logger.warning(
+                        "[initialize_service] CUDA device requested but unavailable. Falling back to MPS."
+                    )
+                    return "mps"
+                if gpu_config.is_xpu_available():
+                    logger.warning(
+                        "[initialize_service] CUDA device requested but unavailable. Falling back to XPU."
+                    )
+                    return "xpu"
+                logger.warning(
+                    "[initialize_service] CUDA device requested but unavailable. Falling back to CPU."
+                )
+                return "cpu"
+            return normalize_component_device(device)
 
         if device == "mps" and not gpu_config.is_mps_available():
             if gpu_config.is_cuda_available():
@@ -54,6 +69,115 @@ class InitServiceSetupMixin:
             return "cpu"
 
         return device
+
+    def _resolve_component_device_map(
+        self,
+        *,
+        resolved_device: str,
+        gpu_mapping: Optional[str] = None,
+        config_path: Optional[str] = None,
+        lm_model_path: Optional[str] = None,
+        use_lm: bool = True,
+        batch_size: int = 1,
+    ) -> ComponentDeviceMap:
+        """Resolve per-component device placement for initialization."""
+        device_map = resolve_component_device_map(
+            requested_device=resolved_device,
+            gpu_mapping=gpu_mapping,
+            config_path=config_path,
+            lm_model_path=lm_model_path,
+            use_lm=use_lm,
+            batch_size=batch_size,
+        )
+        log_device_map(device_map)
+        return device_map
+
+    def _get_component_device(self, component: str) -> str:
+        """Return the device string for a model component."""
+        device_map = getattr(self, "device_map", None)
+        if device_map is None:
+            return self.device
+        if component == "model":
+            component = "dit"
+        return device_map.device_for(component)
+
+    def _to_component_device(self, value: Any, component: str) -> Any:
+        """Move a tensor to the device assigned to *component* when needed."""
+        if value is None or not isinstance(value, torch.Tensor):
+            return value
+        target = self._get_component_device(component)
+        device = torch.device(target)
+        if value.device != device:
+            return value.to(device)
+        return value
+
+    def _route_service_payload_to_dit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Move service-generation tensors onto the DiT device for diffusion."""
+        device_map = getattr(self, "device_map", None)
+        if device_map is None or not device_map.is_multi_device():
+            return payload
+
+        routed = dict(payload)
+        for key in (
+            "text_hidden_states",
+            "text_attention_mask",
+            "lyric_hidden_states",
+            "lyric_attention_mask",
+            "refer_audio_acoustic_hidden_states_packed",
+            "refer_audio_order_mask",
+            "src_latents",
+            "chunk_mask",
+            "is_covers",
+            "precomputed_lm_hints_25Hz",
+            "non_cover_text_hidden_states",
+            "non_cover_text_attention_masks",
+            "repaint_mask",
+            "target_latents",
+        ):
+            if key in routed:
+                routed[key] = self._to_component_device(routed[key], "dit")
+        return routed
+
+    def _route_service_generate_kwargs_to_dit(
+        self,
+        generate_kwargs: Dict[str, Any],
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Move diffusion kwargs tensors onto the DiT device for multi-GPU runs."""
+        device_map = getattr(self, "device_map", None)
+        if device_map is None or not device_map.is_multi_device():
+            return generate_kwargs
+
+        routed = dict(generate_kwargs)
+        payload_field_map = {
+            "text_hidden_states": "text_hidden_states",
+            "text_attention_mask": "text_attention_mask",
+            "lyric_hidden_states": "lyric_hidden_states",
+            "lyric_attention_mask": "lyric_attention_mask",
+            "refer_audio_acoustic_hidden_states_packed": "refer_audio_acoustic_hidden_states_packed",
+            "refer_audio_order_mask": "refer_audio_order_mask",
+            "src_latents": "src_latents",
+            "chunk_masks": "chunk_mask",
+            "is_covers": "is_covers",
+            "non_cover_text_hidden_states": "non_cover_text_hidden_states",
+            "non_cover_text_attention_mask": "non_cover_text_attention_masks",
+            "precomputed_lm_hints_25Hz": "precomputed_lm_hints_25Hz",
+            "repaint_mask": "repaint_mask",
+            "clean_src_latents": "target_latents",
+        }
+        for kwarg_key, payload_key in payload_field_map.items():
+            if payload_key in payload:
+                routed[kwarg_key] = payload[payload_key]
+
+        for key in (
+            "silence_latent",
+            "timesteps",
+            "repaint_mask",
+            "clean_src_latents",
+        ):
+            if key in routed:
+                routed[key] = self._to_component_device(routed[key], "dit")
+        return routed
 
     def _configure_initialize_runtime(
         self,

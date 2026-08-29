@@ -56,7 +56,8 @@ class AudioCodesMixin:
         with self._load_model_context("model"):
             quantizer = self.model.tokenizer.quantizer
             detokenizer = self.model.detokenizer
-            indices = torch.tensor(code_ids, device=self.device, dtype=torch.long)
+            dit_device = self._get_component_device("model")
+            indices = torch.tensor(code_ids, device=dit_device, dtype=torch.long)
             indices = indices.unsqueeze(0).unsqueeze(-1)
 
             quantized = quantizer.get_output_from_indices(indices)
@@ -83,7 +84,11 @@ class AudioCodesMixin:
                         return "❌ Audio file appears to be silent"
                     latents = self._encode_audio_to_latents(processed_audio)
 
-                attention_mask = torch.ones(latents.shape[0], dtype=torch.bool, device=self.device)
+                attention_mask = torch.ones(
+                    latents.shape[0],
+                    dtype=torch.bool,
+                    device=self._get_component_device("model"),
+                )
                 with self._load_model_context("model"):
                     hidden_states = latents.unsqueeze(0)
                     _, indices, _ = self.model.tokenize(

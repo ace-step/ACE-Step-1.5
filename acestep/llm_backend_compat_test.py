@@ -46,9 +46,22 @@ class VllmBackendCompatTests(unittest.TestCase):
         ):
             warning = get_vllm_preflight_warning(device="cpu", platform="win32")
             linux_warning = get_vllm_preflight_warning(device="cuda", platform="linux")
+            indexed_linux = get_vllm_preflight_warning(device="cuda:1", platform="linux")
 
         self.assertIsNone(warning)
         self.assertIsNone(linux_warning)
+        self.assertIsNone(indexed_linux)
+
+    def test_get_vllm_preflight_warning_accepts_indexed_cuda_on_windows(self) -> None:
+        """Indexed CUDA devices must still trigger the Windows Triton preflight."""
+        with patch(
+            "acestep.llm_backend_compat._has_working_triton_installation",
+            return_value=False,
+        ):
+            warning = get_vllm_preflight_warning(device="cuda:1", platform="win32")
+
+        self.assertIsNotNone(warning)
+        self.assertIn("Windows", warning)
 
 
 @unittest.skipIf(LLMHandler is None, f"llm_inference import unavailable: {_IMPORT_ERROR}")

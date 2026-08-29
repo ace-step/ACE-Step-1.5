@@ -222,6 +222,7 @@ class InitServiceWrapperDeviceResolutionTests(unittest.TestCase):
         dit_handler.initialize_service.return_value = ("ok", True)
         dit_handler.model = MagicMock()
         dit_handler.is_turbo_model.return_value = True
+        dit_handler.device_map = None
 
         llm_handler = MagicMock()
         llm_handler.llm_initialized = False
@@ -250,6 +251,62 @@ class InitServiceWrapperDeviceResolutionTests(unittest.TestCase):
             "auto",
             "initialize() must receive 'auto' so it can resolve to the best device",
         )
+
+    @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
+    def test_init_llm_uses_device_map_lm_after_dit_init(self, mock_gpu_config):
+        """LM device must come from device_map after DiT initialize_service.
+
+        Regression: resolving lm_device before initialize_service left device_map
+        empty on first Gradio init, so UI device='auto' collapsed the LM onto
+        bare cuda:0 even when ACESTEP_GPU_MAPPING set lm:1.
+        """
+        module = self._import_module()
+
+        mock_gpu_config.return_value = MagicMock(
+            available_lm_models=["acestep-5Hz-lm-1.7B"],
+            lm_backend_restriction=None,
+            tier="tier6",
+            gpu_memory_gb=24.0,
+            max_duration_with_lm=600,
+            max_duration_without_lm=600,
+            max_batch_size_with_lm=4,
+            max_batch_size_without_lm=8,
+        )
+
+        dit_handler = MagicMock()
+        dit_handler.device_map = None
+
+        def _init_service(*_args, **_kwargs):
+            dit_handler.device_map = MagicMock(lm="cuda:1")
+            return ("ok", True)
+
+        dit_handler.initialize_service.side_effect = _init_service
+        dit_handler.model = MagicMock()
+        dit_handler.is_turbo_model.return_value = True
+
+        llm_handler = MagicMock()
+        llm_handler.llm_initialized = False
+        llm_handler.initialize.return_value = ("[OK] LLM initialized", True)
+
+        module.init_service_wrapper(
+            dit_handler,
+            llm_handler,
+            "/some/project/checkpoints",
+            "acestep-v15-turbo",
+            "auto",
+            True,
+            "acestep-5Hz-lm-1.7B",
+            "pt",
+            use_flash_attention=False,
+            offload_to_cpu=False,
+            offload_dit_to_cpu=False,
+            compile_model=False,
+            quantization=False,
+        )
+
+        llm_handler.initialize.assert_called_once()
+        _, call_kwargs = llm_handler.initialize.call_args
+        self.assertEqual(call_kwargs.get("device"), "cuda:1")
 
     @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
     def test_legacy_cuda_config_forces_pt_backend(self, mock_gpu_config):

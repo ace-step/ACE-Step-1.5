@@ -140,7 +140,16 @@ class ServiceGenerateExecuteMixin:
             "retake_variance": retake_variance,
         }
         if timesteps is not None:
-            kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32, device=self.device)
+            dit_device = (
+                self._get_component_device("dit")
+                if getattr(self, "device_map", None) is not None
+                else self.device
+            )
+            kwargs["timesteps"] = torch.tensor(
+                timesteps,
+                dtype=torch.float32,
+                device=dit_device,
+            )
         return kwargs
 
     def _execute_service_generate_diffusion(
@@ -167,6 +176,10 @@ class ServiceGenerateExecuteMixin:
                 self, payload=payload, generate_kwargs=generate_kwargs,
                 seed_param=seed_param, flow_edit_ctx=flow_edit_ctx,
             )
+        payload = self._route_service_payload_to_dit(payload)
+        generate_kwargs = self._route_service_generate_kwargs_to_dit(generate_kwargs, payload)
+        if hasattr(self, "silence_latent") and self.silence_latent is not None:
+            self.silence_latent = self._to_component_device(self.silence_latent, "dit")
         dit_backend = (
             "MLX (native)" if (self.use_mlx_dit and self.mlx_decoder is not None) else f"PyTorch ({self.device})"
         )

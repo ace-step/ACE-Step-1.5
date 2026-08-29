@@ -6,6 +6,8 @@ from typing import List, Optional
 import torch
 from loguru import logger
 
+from acestep.device_map import cuda_device_index, is_cuda_device
+
 
 class InitServiceCatalogMixin:
     """Checkpoint discovery and backend capability helpers."""
@@ -47,16 +49,20 @@ class InitServiceCatalogMixin:
 
     def is_flash_attention_available(self, device: Optional[str] = None) -> bool:
         """Check whether flash attention can be used on the target device."""
-        target_device = str(device or self.device or "auto").split(":", 1)[0]
+        target_device = str(device or self.device or "auto")
         if target_device == "auto":
             if not torch.cuda.is_available():
                 return False
-        else:
-            if target_device != "cuda" or not torch.cuda.is_available():
+            cuda_index = 0
+        elif is_cuda_device(target_device):
+            if not torch.cuda.is_available():
                 return False
+            cuda_index = cuda_device_index(target_device)
+        else:
+            return False
 
         try:
-            major, _ = torch.cuda.get_device_capability()
+            major, _ = torch.cuda.get_device_capability(cuda_index)
             if major < 8:
                 logger.info(
                     f"[is_flash_attention_available] GPU compute capability {major}.x < 8.0 "

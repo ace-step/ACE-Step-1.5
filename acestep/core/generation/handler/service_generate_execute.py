@@ -133,6 +133,9 @@ class ServiceGenerateExecuteMixin:
         }
         if timesteps is not None:
             kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32, device=self.device)
+        topology_corrector = getattr(self, "topology_corrector", None)
+        if topology_corrector is not None:
+            kwargs["topology_corrector"] = topology_corrector
         return kwargs
 
     def _execute_service_generate_diffusion(
@@ -182,7 +185,8 @@ class ServiceGenerateExecuteMixin:
                     precomputed_lm_hints_25Hz=payload["precomputed_lm_hints_25Hz"],
                 )
 
-                if self.use_mlx_dit and self.mlx_decoder is not None:
+                topology_corrector = generate_kwargs.get("topology_corrector")
+                if self.use_mlx_dit and self.mlx_decoder is not None and topology_corrector is None:
                     if generate_kwargs.get("dcw_enabled") and generate_kwargs.get("dcw_wavelet", "haar") != "haar":
                         logger.info(
                             "[service_generate] DCW enabled on MLX path with "

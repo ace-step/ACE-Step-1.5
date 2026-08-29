@@ -1901,6 +1901,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         dcw_scaler: float = 0.05,
         dcw_high_scaler: float = 0.02,
         dcw_wavelet: str = "haar",
+        topology_corrector: Optional[Callable[..., torch.Tensor]] = None,
         # --- CFG-related params accepted for API parity but unused on turbo.
         # Turbo models bake classifier-free guidance into the distillation
         # weights and do NOT run a twin unconditional forward pass.  Handlers
@@ -2213,6 +2214,36 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 t_unsq = current_timestep * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
                 denoised = xt_before_step - vt_for_denoise * t_unsq
                 xt = dcw_corrector.apply(xt, denoised, current_timestep)
+
+            # Experimental frozen-topology correction. The callable owns all
+            # scorer/checkpoint/qualification gates and must be a per-sample
+            # no-op on OOD, uncertainty, invalid masks, or non-finite values.
+            # Repaint injection remains last so protected source regions win.
+            if topology_corrector is not None:
+                try:
+                    corrected = topology_corrector(
+                        xt_next=xt,
+                        xt_before_step=xt_before_step,
+                        velocity=vt_for_denoise,
+                        timestep=current_timestep,
+                        next_timestep=t_after_step,
+                        step_index=step_idx,
+                        attention_mask=attention_mask,
+                        repaint_mask=repaint_mask,
+                    )
+                    if corrected.shape == xt.shape and torch.isfinite(corrected).all():
+                        xt = corrected.detach()
+                    else:
+                        logger.warning(
+                            "Topology corrector returned an invalid tensor at step %d; using no-op.",
+                            step_idx + 1,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Topology corrector failed at step %d (%s); using no-op.",
+                        step_idx + 1,
+                        exc,
+                    )
 
             prev_vt = vt
 

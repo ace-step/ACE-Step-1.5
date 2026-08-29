@@ -163,8 +163,8 @@ class FlowEditOverlayDispatchTests(unittest.TestCase):
             handler, payload=make_payload(), generate_kwargs={"infer_steps": 4},
             seed_param=None, flow_edit_ctx=make_flow_edit_ctx(),
         )
-        # dispatch 只直接调用一次 prepare_condition（下游那一次）；修复后它
-        # 必须在模型加载状态下执行，否则 offload 下 F.linear 会设备不匹配。
+        # Dispatch directly calls prepare_condition once (the downstream call).
+        # It must run while the model is loaded, or F.linear has a device mismatch.
         self.assertEqual(handler.prepare_condition_model_ctx, [True])
 
 

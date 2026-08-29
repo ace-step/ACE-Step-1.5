@@ -54,7 +54,7 @@ class TestEnforceEagerWhenFlashAttnMissing(unittest.TestCase):
 
         captured = {}
 
-        def fake_init_vllm(model_path: str, enforce_eager: bool = False) -> str:
+        def fake_init_vllm(model_path: str, enforce_eager: bool = False, **_: object) -> str:
             captured["enforce_eager"] = enforce_eager
             return "✅ ok"
 

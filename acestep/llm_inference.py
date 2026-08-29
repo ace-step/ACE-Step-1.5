@@ -25,7 +25,16 @@ from transformers.generation.logits_process import (
 from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.gpu_config import (
+    LM_LOW_MEMORY_GPU_THRESHOLD_GB,
+    LM_LOW_MEMORY_MAX_MODEL_LEN_TOKENS,
+    LM_MAX_MODEL_LEN_TOKENS,
+    LmKvCacheTooSmallError,
+    get_lm_gpu_memory_ratio,
+    get_gpu_memory_gb,
+    get_lm_model_size,
+    get_global_gpu_config,
+)
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -185,7 +194,7 @@ class LLMHandler:
         models.sort()
         return models
 
-    def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float = 8, min_ratio: float = 0.2, max_ratio: float = 0.9) -> Tuple[float, bool]:
+    def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float = 8, min_ratio: float = 0.2, max_ratio: float = 0.9, dit_config_path: str = "") -> Tuple[float, bool]:
         """
         Get GPU memory utilization ratio based on LM model size and available GPU memory.
 
@@ -194,6 +203,8 @@ class LLMHandler:
             minimal_gpu: Minimum GPU memory requirement in GB (fallback)
             min_ratio: Minimum memory utilization ratio
             max_ratio: Maximum memory utilization ratio
+            dit_config_path: Checkpoint path of the resident DiT, so the LM
+                leaves that DiT's inference activations free.
 
         Returns:
             Tuple of (gpu_memory_utilization_ratio, low_gpu_memory_mode)
@@ -207,11 +218,13 @@ class LLMHandler:
 
             # Use adaptive GPU memory ratio based on model size
             if model_path:
-                ratio, target_memory_gb = get_lm_gpu_memory_ratio(model_path, total_gpu)
+                ratio, target_memory_gb = get_lm_gpu_memory_ratio(
+                    model_path, total_gpu, dit_config_path=dit_config_path
+                )
                 logger.info(f"Adaptive LM memory allocation: model={model_path}, target={target_memory_gb}GB, ratio={ratio:.3f}, total_gpu={total_gpu:.1f}GB")
 
                 # Enable low memory mode for small GPUs
-                if total_gpu < 8:
+                if total_gpu < LM_LOW_MEMORY_GPU_THRESHOLD_GB:
                     low_gpu_memory_mode = True
 
                 return ratio, low_gpu_memory_mode
@@ -231,6 +244,8 @@ class LLMHandler:
                 ratio = min(max_ratio, max(min_ratio, (available_gpu * 0.8) / total_gpu))
 
             return ratio, low_gpu_memory_mode
+        except LmKvCacheTooSmallError:
+            raise
         except Exception as e:
             logger.warning(f"Failed to calculate GPU memory utilization: {e}")
             return 0.9, False
@@ -504,6 +519,7 @@ class LLMHandler:
         device: str = "auto",
         offload_to_cpu: bool = False,
         dtype: Optional[torch.dtype] = None,
+        dit_config_path: str = "",
     ) -> Tuple[str, bool]:
         """
         Initialize 5Hz LM model
@@ -515,6 +531,8 @@ class LLMHandler:
             device: Device type ("auto", "cuda", "mps", "xpu", or "cpu")
             offload_to_cpu: Whether to offload to CPU
             dtype: Data type (if None, auto-detect based on device)
+            dit_config_path: Checkpoint path of the DiT already resident on the
+                GPU, so the LM leaves room for that DiT's inference activations
 
         Returns:
             (status_message, success)
@@ -598,6 +616,7 @@ class LLMHandler:
                 "device": device,
                 "offload_to_cpu": offload_to_cpu,
                 "dtype": self.dtype,
+                "dit_config_path": dit_config_path,
             }
 
             # Proactive CUDA cleanup before LM load to reduce fragmentation on mode/model switch
@@ -745,6 +764,7 @@ class LLMHandler:
                         full_lm_model_path,
                         enforce_eager=enforce_eager_for_vllm,
                         has_triton=_has_triton,
+                        dit_config_path=dit_config_path,
                     )
                     logger.info(f"5Hz LM status message: {status_msg}")
                     if status_msg.startswith("❌"):
@@ -776,7 +796,7 @@ class LLMHandler:
         except Exception as e:
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
 
-    def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False, has_triton: bool = True) -> str:
+    def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False, has_triton: bool = True, dit_config_path: str = "") -> str:
         """Initialize 5Hz LM model using vllm backend.
 
         Args:
@@ -784,6 +804,8 @@ class LLMHandler:
             enforce_eager: Disable CUDA graph capture.  Set to ``True`` when
                 Triton is unavailable so vLLM does not attempt graph capture
                 that depends on compiled kernels.
+            dit_config_path: Checkpoint path of the resident DiT, so the KV
+                cache leaves that DiT's inference activations free.
             has_triton: Whether the Triton compiler is available.  When
                 ``False``, ``torch._dynamo`` diagnostics are temporarily
                 suppressed during initialization to avoid verbose fallback
@@ -813,13 +835,14 @@ class LLMHandler:
                 model_path=model_path,
                 minimal_gpu=3,
                 min_ratio=0.1,
-                max_ratio=0.9
+                max_ratio=0.9,
+                dit_config_path=dit_config_path,
             )
 
             if low_gpu_memory_mode:
-                self.max_model_len = 2048
+                self.max_model_len = LM_LOW_MEMORY_MAX_MODEL_LEN_TOKENS
             else:
-                self.max_model_len = 4096
+                self.max_model_len = LM_MAX_MODEL_LEN_TOKENS
 
             logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: {enforce_eager}, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
 
@@ -859,6 +882,9 @@ class LLMHandler:
                 if _dynamo_state_saved:
                     _dynamo.config.suppress_errors = _prev_suppress
                     _dynamo_logger.setLevel(_prev_log_level)
+        except LmKvCacheTooSmallError:
+            self.llm_initialized = False
+            raise
         except Exception as e:
             self.llm_initialized = False
             if "Cannot find a working triton installation" in str(e):

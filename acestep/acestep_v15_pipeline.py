@@ -576,6 +576,7 @@ def main():
                         device=args.device,
                         offload_to_cpu=args.offload_to_cpu,
                         dtype=None,
+                        dit_config_path=args.config_path,
                     )
 
                     if lm_success:

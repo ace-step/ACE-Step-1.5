@@ -123,6 +123,46 @@ class StartupLlmInitTests(unittest.TestCase):
 
         self.assertEqual("pt", llm_handler.initialize.call_args.kwargs["backend"])
 
+    def test_initialize_llm_at_startup_passes_the_resident_dit(self) -> None:
+        """The LM must know which DiT it has to leave inference room for."""
+
+        app = SimpleNamespace(
+            state=SimpleNamespace(
+                _llm_initialized=False,
+                _llm_init_error=None,
+                _llm_lazy_load_disabled=False,
+            )
+        )
+        llm_handler = MagicMock()
+        llm_handler.initialize.return_value = ("ok", True)
+        gpu_config = SimpleNamespace(
+            init_lm_default=True,
+            gpu_memory_gb=24.0,
+            tier="tier6b",
+            available_lm_models=["acestep-5Hz-lm-4B"],
+            recommended_backend="vllm",
+            lm_backend_restriction="all",
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            initialize_llm_at_startup(
+                app=app,
+                llm_handler=llm_handler,
+                gpu_config=gpu_config,
+                device="cuda",
+                offload_to_cpu=False,
+                checkpoint_dir="k:/repo/checkpoints",
+                get_model_name=MagicMock(return_value="acestep-5Hz-lm-4B"),
+                ensure_model_downloaded=MagicMock(),
+                env_bool=lambda _name, default: default,
+                dit_config_path="acestep-v15-xl-turbo",
+            )
+
+        self.assertEqual(
+            "acestep-v15-xl-turbo",
+            llm_handler.initialize.call_args.kwargs["dit_config_path"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

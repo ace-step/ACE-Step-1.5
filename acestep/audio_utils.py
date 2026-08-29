@@ -11,6 +11,7 @@ Independent audio file operations outside of handler, supporting:
 import io
 import json
 import os
+import shutil
 import subprocess
 import hashlib
 import tempfile
@@ -20,6 +21,21 @@ import torch
 import numpy as np
 import torchaudio
 from loguru import logger
+
+
+class AudioExportDegradedError(RuntimeError):
+    """Raised when audio generation succeeded but the requested export format failed.
+
+    The underlying audio was already synthesized successfully; only the
+    format conversion (e.g. WAV -> MP3 via ffmpeg) failed. ``wav_fallback_path``
+    points to a valid WAV file already saved to disk, so callers can present
+    this as a degraded-but-successful result instead of a hard failure.
+    """
+
+    def __init__(self, message: str, wav_fallback_path: str, requested_format: str):
+        super().__init__(message)
+        self.wav_fallback_path = wav_fallback_path
+        self.requested_format = requested_format
 
 
 def apply_fade(
@@ -181,18 +197,31 @@ class AudioSaver:
             ]
             subprocess.run(cmd, check=True, capture_output=True, timeout=120)
             logger.debug(f"[AudioSaver] Saved audio to {output_path} (mp3, {target_sample_rate}Hz, {bitrate})")
-        except FileNotFoundError as e:
-            raise RuntimeError("ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files.") from e
-        except subprocess.TimeoutExpired as e:
-            raise RuntimeError("ffmpeg MP3 export timed out after 120 seconds.") from e
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else str(e)
-            raise RuntimeError(f"ffmpeg MP3 export failed: {stderr}") from e
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+            if isinstance(e, FileNotFoundError):
+                reason = "ffmpeg executable not found. Install ffmpeg or add it to PATH to export MP3 files."
+            elif isinstance(e, subprocess.TimeoutExpired):
+                reason = "ffmpeg MP3 export timed out after 120 seconds."
+            else:
+                stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else str(e)
+                reason = f"ffmpeg MP3 export failed: {stderr}"
+
+            # The WAV was already synthesized successfully before the ffmpeg
+            # step -- preserve it instead of discarding a valid result.
+            wav_fallback_path = output_path.with_suffix(".wav")
+            try:
+                shutil.move(str(temp_wav_path), str(wav_fallback_path))
+            except Exception:
+                logger.error(f"[AudioSaver] {reason} Additionally failed to preserve WAV fallback.")
+                raise RuntimeError(reason) from e
+
+            logger.warning(f"[AudioSaver] {reason} Saved WAV fallback to {wav_fallback_path} instead.")
+            raise AudioExportDegradedError(reason, str(wav_fallback_path), "mp3") from e
         finally:
             try:
                 temp_wav_path.unlink(missing_ok=True)
             except Exception:
-                logger.warning(f"[AudioSaver] Failed to remove temporary WAV file: {temp_wav_path}")
+                pass
 
     def save_audio(
         self,
@@ -321,7 +350,8 @@ class AudioSaver:
             
         except Exception as e:
             if format == "mp3":
-                logger.error(f"[AudioSaver] MP3 export failed without fallback: {e}")
+                if not isinstance(e, AudioExportDegradedError):
+                    logger.error(f"[AudioSaver] MP3 export failed without fallback: {e}")
                 raise
             try:
                 import soundfile as sf

@@ -276,7 +276,9 @@
     "restore_params_btn": "↙️ החל הגדרות אלו על הממשק",
     "batch_results_title": "📁 תוצאות אצווה ופרטי יצירה",
     "all_files_label": "📁 כל הקבצים שנוצרו (הורדה)",
-    "generation_details": "פרטי יצירה"
+    "generation_details": "פרטי יצירה",
+    "autoplay_label": "🔁 ניגון אוטומטי",
+    "autoplay_info": "הופך את ה-GPU שלך לתחנת רדיו אישית. כשמופעל: השמע אוטומטי לאחר סיום כל שיר, טעינת האצווה הבאה כשמוכנה, המשך ניגון ללא לחיצות. עובד הכי טוב עם AutoGen מופעל."
   },
   "messages": {
     "no_audio_to_save": "❌ אין אודיו לשמירה",

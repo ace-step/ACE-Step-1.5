@@ -260,7 +260,9 @@
     "restore_params_btn": "↙️ これらの設定をUIに適用(バッチパラメータを復元)",
     "batch_results_title": "👇 クリックしてバッチ結果と生成詳細を表示",
     "all_files_label": "📁 すべての生成ファイル(ダウンロード)",
-    "generation_details": "生成詳細"
+    "generation_details": "生成詳細",
+    "autoplay_label": "🔁 自動再生",
+    "autoplay_info": "GPUをパーソナルラジオ局に変えます。有効にすると：各曲の終了後に自動再生、次のバッチの準備ができたら自動読み込み、クリック不要で再生継続。AutoGenと組み合わせて使用することを推奨します。"
   },
   "messages": {
     "no_audio_to_save": "❌ 保存するオーディオがありません",

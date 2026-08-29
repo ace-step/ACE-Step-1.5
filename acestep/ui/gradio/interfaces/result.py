@@ -144,7 +144,17 @@ def create_results_section(dit_handler) -> dict:
             )
             next_batch_btn = gr.Button(
                 t("results.next_btn"),
-                variant="primary", interactive=False, scale=1, size="sm"
+                variant="primary", interactive=False, scale=1, size="sm",
+                elem_id="acestep-next-batch-btn",
+            )
+            autoplay_checkbox = gr.Checkbox(
+                label=t("results.autoplay_label"),
+                value=False,
+                scale=1,
+                container=True,
+                elem_id="acestep-autoplay",
+                info=t("results.autoplay_info"),
+                elem_classes=["has-info-container"],
             )
         
         # One-click restore parameters button
@@ -174,6 +184,7 @@ def create_results_section(dit_handler) -> dict:
         "batch_indicator": batch_indicator,
         "next_batch_btn": next_batch_btn,
         "next_batch_status": next_batch_status,
+        "autoplay_checkbox": autoplay_checkbox,
         "restore_params_btn": restore_params_btn,
         "audio_row_5_8": audio_row_5_8,
         "generated_audio_batch": generated_audio_batch,

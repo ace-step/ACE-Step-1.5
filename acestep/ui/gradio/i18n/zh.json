@@ -271,7 +271,9 @@
     "restore_params_btn": "↙️ 将这些设置应用到UI(恢复批次参数)",
     "batch_results_title": "👇 点击查看批量结果和生成详情",
     "all_files_label": "📁 所有生成的文件(下载)",
-    "generation_details": "生成详情"
+    "generation_details": "生成详情",
+    "autoplay_label": "🔁 自动播放",
+    "autoplay_info": "将您的GPU变成个人电台。启用后：每首歌曲播放结束后自动播放下一首，下一批次准备好后自动加载，无需任何点击即可继续播放。建议与AutoGen一起使用。"
   },
   "messages": {
     "no_audio_to_save": "❌ 没有要保存的音频",

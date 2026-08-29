@@ -288,7 +288,9 @@
     "restore_params_btn": "↙️ Aplicar Estas Configurações à Interface (Restaurar Parâmetros do Lote)",
     "batch_results_title": "📁 Resultados do Lote & Detalhes de Geração",
     "all_files_label": "📁 Todos os Arquivos Gerados (Download)",
-    "generation_details": "Detalhes de Geração"
+    "generation_details": "Detalhes de Geração",
+    "autoplay_label": "🔁 Reprodução Automática",
+    "autoplay_info": "Transforma sua GPU em uma rádio personalizada. Quando ativado: reproduz automaticamente após cada música terminar, carrega o próximo lote quando pronto, continua sem cliques. Funciona melhor com AutoGen ativado."
   },
   "messages": {
     "no_audio_to_save": "❌ Nenhum áudio para salvar",

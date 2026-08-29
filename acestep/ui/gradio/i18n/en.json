@@ -301,7 +301,9 @@
     "restore_params_btn": "↙️ Apply These Settings to UI (Restore Batch Parameters)",
     "batch_results_title": "📁 Batch Results & Generation Details",
     "all_files_label": "📁 All Generated Files (Download)",
-    "generation_details": "Generation Details"
+    "generation_details": "Generation Details",
+    "autoplay_label": "🔁 AutoPlay",
+    "autoplay_info": "Turns your GPU into a personalised radio station. When enabled: audio plays automatically after each song ends, the next batch is loaded when ready, and playback resumes without any clicks. Works best with AutoGen enabled."
   },
   "messages": {
     "no_audio_to_save": "❌ No audio to save",

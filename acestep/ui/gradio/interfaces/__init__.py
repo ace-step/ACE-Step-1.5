@@ -31,6 +31,7 @@ from acestep.ui.gradio.interfaces.generation import (
 from acestep.ui.gradio.interfaces.audio_player_preferences import (
     get_audio_player_preferences_head,
 )
+from acestep.ui.gradio.interfaces.autoplay import get_autoplay_head
 from acestep.ui.gradio.interfaces.user_preferences import (
     get_user_preferences_head,
     wire_preference_restore,
@@ -65,7 +66,7 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
     with gr.Blocks(
         title=t("app.title"),
         theme=gr.themes.Soft(),
-        head=get_audio_player_preferences_head() + ("" if service_mode else get_user_preferences_head()) + """
+        head=get_audio_player_preferences_head() + get_autoplay_head() + ("" if service_mode else get_user_preferences_head()) + """
         <script>
         /* Flip tooltips upward when they would overflow the viewport bottom.
            Handles both .has-info-container and .checkbox-container elements. */

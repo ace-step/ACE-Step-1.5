@@ -25,6 +25,28 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
+import torch
+import torch.distributed
+
+if not hasattr(torch.distributed, "group"):
+    class DummyGroup:
+        WORLD = None
+    torch.distributed.group = DummyGroup
+
+if not hasattr(torch.distributed, "ReduceOp"):
+    class DummyReduceOp:
+        SUM = 0
+        PRODUCT = 1
+        MIN = 2
+        MAX = 3
+    torch.distributed.ReduceOp = DummyReduceOp
+
+if not hasattr(torch.distributed, "is_initialized"):
+    torch.distributed.is_initialized = lambda: False
+
+if not hasattr(torch.distributed, "get_world_size"):
+    torch.distributed.get_world_size = lambda: 1
+
 try:
     from dotenv import load_dotenv
 except ImportError:  # Optional dependency
@@ -366,10 +388,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-

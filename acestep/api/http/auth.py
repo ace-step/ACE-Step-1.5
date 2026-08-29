@@ -13,7 +13,7 @@ def set_api_key(key: Optional[str]) -> None:
     """Set the process-level API key used by auth verification helpers.
 
     Args:
-        key: API key string, or ``None`` to disable auth enforcement.
+        key: API key string, or ``None`` when auth is unconfigured.
     """
 
     global _api_key
@@ -30,14 +30,14 @@ def verify_token_from_request(
         authorization: Optional ``Authorization`` header value.
 
     Returns:
-        Validated token value, or ``None`` when auth is disabled.
+        Validated token value.
 
     Raises:
         HTTPException: If auth is required and token is missing/invalid.
     """
 
     if _api_key is None:
-        return None
+        raise HTTPException(status_code=503, detail="API key is not configured")
 
     ai_token = body.get("ai_token") if body else None
     if ai_token:
@@ -65,7 +65,7 @@ async def verify_api_key(authorization: Optional[str] = Header(None)) -> None:
     """
 
     if _api_key is None:
-        return
+        raise HTTPException(status_code=503, detail="API key is not configured")
 
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")

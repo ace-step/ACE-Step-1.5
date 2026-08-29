@@ -8,6 +8,7 @@ import torch
 from loguru import logger
 
 from acestep import gpu_config
+from acestep.device_map import cuda_device_index, is_cuda_device
 from .init_service_loader_components import InitServiceLoaderComponentsMixin
 
 
@@ -143,7 +144,9 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
 
         if use_flash_attention and self.is_flash_attention_available(device):
             attn_implementation = "flash_attention_2"
-        elif device == "cuda" and not gpu_config.cuda_supports_bfloat16():
+        elif is_cuda_device(device) and not gpu_config.cuda_supports_bfloat16(
+            cuda_device_index(device)
+        ):
             # Pre-Ampere GPUs (compute capability < 8.0) run in float16 which
             # can overflow in SDPA's fused softmax with longer sequences,
             # producing NaN/Inf latents (see issues #924, #927).  Eager

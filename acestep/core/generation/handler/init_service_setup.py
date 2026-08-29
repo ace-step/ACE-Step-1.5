@@ -6,6 +6,13 @@ import torch
 from loguru import logger
 
 from acestep import gpu_config
+from acestep.device_map import (
+    ComponentDeviceMap,
+    is_cuda_device,
+    log_device_map,
+    normalize_component_device,
+    resolve_component_device_map,
+)
 
 
 class InitServiceSetupMixin:
@@ -23,15 +30,23 @@ class InitServiceSetupMixin:
                 return "xpu"
             return "cpu"
 
-        if device == "cuda" and not gpu_config.is_cuda_available():
-            if gpu_config.is_mps_available():
-                logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to MPS.")
-                return "mps"
-            if gpu_config.is_xpu_available():
-                logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to XPU.")
-                return "xpu"
-            logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to CPU.")
-            return "cpu"
+        if is_cuda_device(device):
+            if not gpu_config.is_cuda_available():
+                if gpu_config.is_mps_available():
+                    logger.warning(
+                        "[initialize_service] CUDA device requested but unavailable. Falling back to MPS."
+                    )
+                    return "mps"
+                if gpu_config.is_xpu_available():
+                    logger.warning(
+                        "[initialize_service] CUDA device requested but unavailable. Falling back to XPU."
+                    )
+                    return "xpu"
+                logger.warning(
+                    "[initialize_service] CUDA device requested but unavailable. Falling back to CPU."
+                )
+                return "cpu"
+            return normalize_component_device(device)
 
         if device == "mps" and not gpu_config.is_mps_available():
             if gpu_config.is_cuda_available():
@@ -54,6 +69,29 @@ class InitServiceSetupMixin:
             return "cpu"
 
         return device
+
+    def _resolve_component_device_map(
+        self,
+        *,
+        resolved_device: str,
+        gpu_mapping: Optional[str] = None,
+    ) -> ComponentDeviceMap:
+        """Resolve per-component device placement for initialization."""
+        device_map = resolve_component_device_map(
+            requested_device=resolved_device,
+            gpu_mapping=gpu_mapping,
+        )
+        log_device_map(device_map)
+        return device_map
+
+    def _get_component_device(self, component: str) -> str:
+        """Return the device string for a model component."""
+        device_map = getattr(self, "device_map", None)
+        if device_map is None:
+            return self.device
+        if component == "model":
+            component = "dit"
+        return device_map.device_for(component)
 
     def _configure_initialize_runtime(
         self,

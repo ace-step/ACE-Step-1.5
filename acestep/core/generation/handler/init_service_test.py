@@ -261,6 +261,33 @@ class InitServiceMixinTests(unittest.TestCase):
                 with patch("torch.xpu", new=types.SimpleNamespace(is_available=lambda: False), create=True):
                     self.assertEqual(host._resolve_initialize_device("auto"), "cuda")
 
+    def test_resolve_initialize_device_preserves_cuda_index(self):
+        """It preserves explicit CUDA device indices such as ``cuda:1``."""
+        host = _Host(project_root="K:/fake_root", device="auto")
+        with patch("torch.cuda.is_available", return_value=True):
+            self.assertEqual(host._resolve_initialize_device("cuda:1"), "cuda:1")
+
+    def test_resolve_component_device_map_uses_explicit_mapping(self):
+        """It resolves per-component devices from a GPU mapping string."""
+        host = _Host(project_root="K:/fake_root", device="cuda:0")
+        device_map = host._resolve_component_device_map(
+            resolved_device="cuda:0",
+            gpu_mapping="dit:0,vae:0,text_encoder:0,lm:1",
+        )
+        self.assertEqual(device_map.dit, "cuda:0")
+        self.assertEqual(device_map.lm, "cuda:1")
+        self.assertTrue(device_map.is_multi_device())
+
+    def test_get_component_device_returns_component_specific_device(self):
+        """It returns the mapped device for offload/load helpers."""
+        host = _Host(project_root="K:/fake_root", device="cuda:0")
+        host.device_map = host._resolve_component_device_map(
+            resolved_device="cuda:0",
+            gpu_mapping="dit:0,vae:2,text_encoder:0,lm:1",
+        )
+        self.assertEqual(host._get_component_device("model"), "cuda:0")
+        self.assertEqual(host._get_component_device("vae"), "cuda:2")
+
     def test_configure_initialize_runtime_redirects_compile_on_mps(self):
         """It converts MPS compile intent to MLX compile and disables quantization."""
         host = _Host(project_root="K:/fake_root", device="mps")
@@ -464,6 +491,7 @@ class InitServiceMixinTests(unittest.TestCase):
             "project_root",
             "config_path",
             "device",
+            "gpu_mapping",
             "use_flash_attention",
             "compile_model",
             "offload_to_cpu",
@@ -476,6 +504,7 @@ class InitServiceMixinTests(unittest.TestCase):
         self.assertEqual(set(host.last_init_params.keys()), expected_keys)
         self.assertEqual(host.last_init_params["config_path"], "acestep-v15-turbo")
         self.assertEqual(host.last_init_params["device"], "cpu")
+        self.assertEqual(host.last_init_params["gpu_mapping"], "dit:cpu, vae:cpu, text_encoder:cpu, lm:cpu")
         self.assertEqual(host.last_init_params["vae_checkpoint"], "official")
         ensure_models.assert_called_once()
         sync_code.assert_called_once()
@@ -917,6 +946,44 @@ class RocmDtypeTests(unittest.TestCase):
         with patch.dict("os.environ", {"ACESTEP_ROCM_DTYPE": "int8"}):
             result = ORCHESTRATOR_MODULE._resolve_rocm_dtype()
         self.assertEqual(result, torch.float32)
+
+    def test_initialize_service_records_multi_gpu_mapping(self):
+        """It records an explicit GPU mapping in init params and status output."""
+        host = _Host(project_root="K:/fake_root", device="cuda:0")
+
+        def _fake_load_main_model(**_kwargs):
+            host.config = types.SimpleNamespace(_attn_implementation="sdpa")
+            host.model = object()
+
+        with patch.object(GPU_CONFIG_MODULE, "is_cuda_available", return_value=True), \
+                patch.object(GPU_CONFIG_MODULE, "is_rocm_available", return_value=False), \
+                patch.object(GPU_CONFIG_MODULE, "cuda_supports_bfloat16", return_value=True):
+            with patch.object(host, "_ensure_models_present", return_value=None):
+                with patch.object(host, "_sync_model_code_if_needed"):
+                    with patch.object(host, "_load_main_model_from_checkpoint", side_effect=_fake_load_main_model) as load_main_mock:
+                        with patch.object(host, "_load_vae_model", return_value="vae") as load_vae_mock:
+                            with patch.object(
+                                host,
+                                "_load_text_encoder_and_tokenizer",
+                                return_value="te",
+                            ) as load_text_mock:
+                                with patch.object(
+                                    host,
+                                    "_initialize_mlx_backends",
+                                    return_value=("Disabled", "Disabled"),
+                                ):
+                                    status, ok = host.initialize_service(
+                                        project_root="K:/fake_root",
+                                        config_path="acestep-v15-turbo",
+                                        device="cuda:0",
+                                        gpu_mapping="dit:0,vae:0,text_encoder:0,lm:1",
+                                    )
+        self.assertTrue(ok)
+        self.assertIn("GPU mapping: dit:0, vae:0, text_encoder:0, lm:1", status)
+        self.assertEqual(host.last_init_params["gpu_mapping"], "dit:0, vae:0, text_encoder:0, lm:1")
+        self.assertEqual(load_main_mock.call_args.kwargs["device"], "cuda:0")
+        self.assertEqual(load_vae_mock.call_args.kwargs["device"], "cuda:0")
+        self.assertEqual(load_text_mock.call_args.kwargs["device"], "cuda:0")
 
     def test_initialize_service_uses_float32_on_rocm(self):
         """It sets dtype=float32 during initialization when ROCm is active."""

@@ -148,6 +148,12 @@ def init_service_wrapper(
             status += f"\n{lm_status}"
         else:
             status += f"\n{lm_status}"
+    else:
+        # init_llm disabled: release any previously-loaded LM so it does not stay
+        # resident across re-initialization (avoids the reinit memory leak).
+        if getattr(llm_handler, "llm_initialized", False):
+            llm_handler.unload()
+            logger.info("[init_service] init_llm disabled: unloaded previously-loaded LM")
 
     is_model_initialized = dit_handler.model is not None
     accordion_state = gr.Accordion(open=not is_model_initialized)

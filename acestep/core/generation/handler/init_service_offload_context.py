@@ -16,17 +16,21 @@ class InitServiceOffloadContextMixin:
             yield
             return
 
+        target_device = self._get_component_device(model_name)
+
         if model_name == "model" and not self.offload_dit_to_cpu:
             model = getattr(self, model_name, None)
             if model is not None:
                 try:
                     param = next(model.parameters())
                     if param.device.type == "cpu":
-                        logger.info(f"[_load_model_context] Moving {model_name} to {self.device} (persistent)")
-                        self._recursive_to_device(model, self.device, self.dtype)
+                        logger.info(
+                            f"[_load_model_context] Moving {model_name} to {target_device} (persistent)"
+                        )
+                        self._recursive_to_device(model, target_device, self.dtype)
                         self._release_system_memory()
                         if hasattr(self, "silence_latent"):
-                            self.silence_latent = self.silence_latent.to(self.device).to(self.dtype)
+                            self.silence_latent = self.silence_latent.to(target_device).to(self.dtype)
                 except StopIteration:
                     pass
             yield
@@ -38,16 +42,18 @@ class InitServiceOffloadContextMixin:
             return
 
         rss_before = self._get_rss_mb()
-        logger.info(f"[_load_model_context] Loading {model_name} to {self.device} (RSS: {rss_before:.0f} MB)")
+        logger.info(
+            f"[_load_model_context] Loading {model_name} to {target_device} (RSS: {rss_before:.0f} MB)"
+        )
         start_time = time.time()
         if model_name == "vae":
-            vae_dtype = self._get_vae_dtype()
-            self._recursive_to_device(model, self.device, vae_dtype)
+            vae_dtype = self._get_vae_dtype(target_device)
+            self._recursive_to_device(model, target_device, vae_dtype)
         else:
-            self._recursive_to_device(model, self.device, self.dtype)
+            self._recursive_to_device(model, target_device, self.dtype)
 
         if model_name == "model" and hasattr(self, "silence_latent"):
-            self.silence_latent = self.silence_latent.to(self.device).to(self.dtype)
+            self.silence_latent = self.silence_latent.to(target_device).to(self.dtype)
 
         load_time = time.time() - start_time
         self.current_offload_cost += load_time
@@ -56,7 +62,7 @@ class InitServiceOffloadContextMixin:
         self._release_system_memory()
         rss_after = self._get_rss_mb()
         logger.info(
-            f"[_load_model_context] Loaded {model_name} to {self.device} in {load_time:.4f}s "
+            f"[_load_model_context] Loaded {model_name} to {target_device} in {load_time:.4f}s "
             f"(RSS: {rss_before:.0f} -> {rss_after:.0f} MB, delta: {rss_after - rss_before:+.0f} MB)"
         )
 

@@ -77,13 +77,9 @@ def embed_source(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Run text + lyric encoders on the source tokens.
 
-    Tokens come back from the tokenizer on CPU; the regular batch path
-    moves them to ``handler.device`` before encoding (see
-    ``preprocess_batch``), so we mirror that here.
+    Tokens may live on CPU or the DiT device; ``infer_*_embeddings``
+    moves them onto the text-encoder component device.
     """
-    device = handler.device
-    text_token_idss = text_token_idss.to(device=device)
-    lyric_token_idss = lyric_token_idss.to(device=device)
     with handler._load_model_context("text_encoder"):
         text_hs = handler.infer_text_embeddings(text_token_idss)
         lyric_hs = handler.infer_lyric_embeddings(lyric_token_idss)

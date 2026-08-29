@@ -37,7 +37,7 @@ class PipelineStartupBackendTests(unittest.TestCase):
         argv: list[str],
         *,
         env: dict[str, str] | None = None,
-    ) -> tuple[MagicMock, dict[str, object]]:
+    ) -> tuple[MagicMock, MagicMock, dict[str, object]]:
         """Run ``main`` with heavy dependencies stubbed and capture startup state."""
         gpu_config = self._legacy_gpu_config()
         dit_handler = MagicMock()
@@ -52,15 +52,17 @@ class PipelineStartupBackendTests(unittest.TestCase):
         demo = MagicMock()
         demo.queue.return_value = demo
         demo.launch.return_value = None
-
         captured: dict[str, object] = {}
 
         def _create_demo(init_params=None, language="en"):
+            """Capture init_params while returning a stub Gradio demo."""
             captured["init_params"] = init_params
             captured["language"] = language
             return demo
 
-        with patch.object(sys, "argv", argv), patch.dict(os.environ, env or {}, clear=True), patch(
+        with patch.object(sys, "argv", argv), patch.dict(
+            os.environ, env or {}, clear=True
+        ), patch(
             "acestep.acestep_v15_pipeline.get_gpu_config",
             return_value=gpu_config,
         ), patch(
@@ -71,30 +73,30 @@ class PipelineStartupBackendTests(unittest.TestCase):
         ), patch(
             "acestep.acestep_v15_pipeline.get_i18n"
         ), patch(
-            "acestep.acestep_v15_pipeline.available_languages_info",
+            "acestep.gradio_pipeline_cli.available_languages_info",
             return_value=[("en", "English", "English")],
         ), patch(
-            "acestep.acestep_v15_pipeline.AceStepHandler",
+            "acestep.gradio_pipeline_startup.AceStepHandler",
             return_value=dit_handler,
         ), patch(
-            "acestep.acestep_v15_pipeline.LLMHandler",
+            "acestep.gradio_pipeline_startup.LLMHandler",
             return_value=llm_handler,
         ), patch(
             "acestep.acestep_v15_pipeline.create_demo",
             side_effect=_create_demo,
         ), patch(
-            "acestep.acestep_v15_pipeline.ensure_lm_model",
+            "acestep.gradio_pipeline_startup.ensure_lm_model",
             return_value=(True, "ok"),
         ), patch(
             "acestep.acestep_v15_pipeline.os.makedirs"
         ):
             acestep_v15_pipeline.main()
 
-        return llm_handler, captured
+        return llm_handler, dit_handler, captured
 
     def test_main_forces_pt_backend_for_explicit_vllm_argument(self) -> None:
         """Legacy CUDA startup should override an explicit CLI vLLM request."""
-        llm_handler, captured = self._run_main(
+        llm_handler, _, captured = self._run_main(
             [
                 "acestep",
                 "--init_service",
@@ -109,29 +111,26 @@ class PipelineStartupBackendTests(unittest.TestCase):
                 "vllm",
             ]
         )
-
         self.assertEqual("pt", llm_handler.initialize.call_args.kwargs["backend"])
         self.assertEqual("pt", captured["init_params"]["backend"])
 
     def test_main_forces_pt_backend_for_service_mode_backend_override(self) -> None:
         """Service mode should not re-enable vLLM on legacy CUDA hardware."""
-        llm_handler, captured = self._run_main(
+        llm_handler, _, captured = self._run_main(
             ["acestep", "--service_mode", "true", "--init_llm", "true"],
             env={"SERVICE_MODE_BACKEND": "vllm"},
         )
-
         self.assertEqual("pt", llm_handler.initialize.call_args.kwargs["backend"])
         self.assertEqual("pt", captured["init_params"]["backend"])
 
     def test_main_forces_pt_backend_for_api_env_override(self) -> None:
         """API-mode env overrides should still resolve to the safe startup backend."""
         api_routes_module = types.SimpleNamespace(setup_api_routes=MagicMock())
-
         with patch.dict(
             sys.modules,
             {"acestep.ui.gradio.api.api_routes": api_routes_module},
         ), patch("time.sleep", side_effect=KeyboardInterrupt):
-            llm_handler, captured = self._run_main(
+            llm_handler, _, captured = self._run_main(
                 [
                     "acestep",
                     "--enable-api",
@@ -144,7 +143,6 @@ class PipelineStartupBackendTests(unittest.TestCase):
                 ],
                 env={"ACESTEP_LM_BACKEND": "vllm"},
             )
-
         self.assertEqual("pt", llm_handler.initialize.call_args.kwargs["backend"])
         self.assertEqual("pt", captured["init_params"]["backend"])
 

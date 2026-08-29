@@ -117,6 +117,7 @@ def initialize_models_for_request(
         compile_model=compile_model,
         offload_to_cpu=offload_to_cpu,
         offload_dit_to_cpu=offload_dit_to_cpu,
+        gpu_mapping=os.getenv("ACESTEP_GPU_MAPPING"),
     )
     if not ok:
         setattr(app_state, error_attr, status_msg)
@@ -137,6 +138,17 @@ def initialize_models_for_request(
 
         lm_backend = resolve_lm_backend(os.getenv("ACESTEP_LM_BACKEND"), gpu_config)
         lm_device = os.getenv("ACESTEP_LM_DEVICE", device)
+        device_map = getattr(handler, "device_map", None)
+        using_device_map_lm = False
+        if device_map is not None and device_map.lm is not None:
+            lm_device = device_map.lm
+            using_device_map_lm = True
+        from acestep.device_map import log_lm_device_deprecation
+
+        log_lm_device_deprecation(
+            explicit_lm_device=os.getenv("ACESTEP_LM_DEVICE"),
+            using_device_map_lm=using_device_map_lm,
+        )
         lm_offload_env = os.getenv("ACESTEP_LM_OFFLOAD_TO_CPU")
         lm_offload = env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False) if lm_offload_env is not None else offload_to_cpu
 

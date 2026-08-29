@@ -9,6 +9,7 @@ import torch
 from loguru import logger
 
 from acestep import gpu_config
+from acestep.device_map import cuda_device_index, device_type, is_cuda_device, set_active_cuda_device
 
 _ROCM_DTYPE_MAP = {
     "float32": torch.float32,
@@ -58,6 +59,7 @@ class InitServiceOrchestratorMixin:
         prefer_source: Optional[str] = None,
         use_mlx_dit: bool = True,
         vae_checkpoint: Optional[str] = None,
+        gpu_mapping: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """Initialize model artifacts and runtime backends for generation.
 
@@ -72,9 +74,21 @@ class InitServiceOrchestratorMixin:
                 )
 
             resolved_device = self._resolve_initialize_device(device)
-            self.device = resolved_device
+            if gpu_mapping is None:
+                gpu_mapping = os.environ.get("ACESTEP_GPU_MAPPING")
+            lm_model_path = os.environ.get("ACESTEP_LM_MODEL_PATH")
+            self.device_map = self._resolve_component_device_map(
+                resolved_device=resolved_device,
+                gpu_mapping=gpu_mapping,
+                config_path=config_path,
+                lm_model_path=lm_model_path,
+            )
+            self.device = self.device_map.dit
             self.offload_to_cpu = offload_to_cpu
             self.offload_dit_to_cpu = offload_dit_to_cpu
+
+            if is_cuda_device(self.device):
+                set_active_cuda_device(self.device)
 
             normalized_compile, normalized_quantization, mlx_compile_requested = self._configure_initialize_runtime(
                 device=resolved_device,
@@ -82,14 +96,15 @@ class InitServiceOrchestratorMixin:
                 quantization=quantization,
             )
             self.compiled = normalized_compile
-            if resolved_device == "cuda" and gpu_config.is_rocm_available():
+            if is_cuda_device(resolved_device) and gpu_config.is_rocm_available():
                 self.dtype = _resolve_rocm_dtype()
                 logger.info(
                     f"[initialize_service] ROCm/HIP device detected: using dtype={self.dtype} "
                     "(set ACESTEP_ROCM_DTYPE=bfloat16 or float16 to override)"
                 )
-            elif resolved_device == "cuda":
-                if gpu_config.cuda_supports_bfloat16():
+            elif is_cuda_device(resolved_device):
+                dit_cuda_index = cuda_device_index(self.device)
+                if gpu_config.cuda_supports_bfloat16(dit_cuda_index):
                     self.dtype = torch.bfloat16
                 else:
                     self.dtype = torch.float16
@@ -98,7 +113,7 @@ class InitServiceOrchestratorMixin:
                         "using float16 instead of bfloat16."
                     )
             else:
-                self.dtype = torch.bfloat16 if resolved_device == "xpu" else torch.float32
+                self.dtype = torch.bfloat16 if device_type(resolved_device) == "xpu" else torch.float32
             self.quantization = normalized_quantization
             try:
                 self._validate_quantization_setup(
@@ -155,20 +170,20 @@ class InitServiceOrchestratorMixin:
             model_path = os.path.join(checkpoint_dir, config_path)
             self._load_main_model_from_checkpoint(
                 model_checkpoint_path=model_path,
-                device=resolved_device,
+                device=self.device_map.dit,
                 use_flash_attention=use_flash_attention,
                 compile_model=normalized_compile,
                 quantization=self.quantization,
             )
             vae_path = self._load_vae_model(
                 checkpoint_dir=checkpoint_dir,
-                device=resolved_device,
+                device=self.device_map.vae,
                 compile_model=normalized_compile,
                 vae_variant=resolved_vae_variant,
             )
             text_encoder_path = self._load_text_encoder_and_tokenizer(
                 checkpoint_dir=checkpoint_dir,
-                device=resolved_device,
+                device=self.device_map.text_encoder,
             )
 
             mlx_dit_status, mlx_vae_status = self._initialize_mlx_backends(
@@ -178,7 +193,7 @@ class InitServiceOrchestratorMixin:
             )
 
             status_msg = self._build_initialize_status_message(
-                device=resolved_device,
+                device=self.device,
                 model_path=model_path,
                 vae_path=vae_path,
                 text_encoder_path=text_encoder_path,
@@ -192,11 +207,14 @@ class InitServiceOrchestratorMixin:
                 mlx_dit_status=mlx_dit_status,
                 mlx_vae_status=mlx_vae_status,
             )
+            if self.device_map.is_multi_device():
+                status_msg += f"\nGPU mapping: {self.device_map.summary()}"
 
             self.last_init_params = {
                 "project_root": project_root,
                 "config_path": config_path,
-                "device": resolved_device,
+                "device": self.device,
+                "gpu_mapping": self.device_map.summary(),
                 "use_flash_attention": use_flash_attention,
                 "compile_model": normalized_compile,
                 "offload_to_cpu": offload_to_cpu,

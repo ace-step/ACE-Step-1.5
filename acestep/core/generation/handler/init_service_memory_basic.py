@@ -11,6 +11,9 @@ except ImportError:
 import torch
 from loguru import logger
 
+from acestep.device_map.devices import normalize_component_device
+from acestep.device_map.errors import DeviceMapError
+
 # Cached libc handle for mallopt/malloc_trim calls (Linux only).
 _LIBC = None
 _MALLOPT_APPLIED = False
@@ -101,7 +104,7 @@ class InitServiceMemoryBasicMixin:
                 target_type = target_device.type
             else:
                 target_type = torch.device(str(target_device)).type
-        except Exception:
+        except (RuntimeError, TypeError, ValueError):
             target_type = str(target_device).strip().lower().split(":", 1)[0]
             if not target_type:
                 logger.warning(
@@ -110,6 +113,16 @@ class InitServiceMemoryBasicMixin:
                 )
                 return False
         return tensor.device.type == target_type
+
+    def _tensor_on_exact_device(self, tensor, target_device: str) -> bool:
+        """Return whether *tensor* is on the exact device string (including CUDA index)."""
+        if tensor is None:
+            return True
+        try:
+            expected = torch.device(normalize_component_device(str(target_device)))
+        except (DeviceMapError, RuntimeError, TypeError):
+            return False
+        return tensor.device == expected
 
     @staticmethod
     def _get_affine_quantized_tensor_class():
@@ -152,10 +165,15 @@ class InitServiceMemoryBasicMixin:
         return False
 
     def _ensure_silence_latent_on_device(self):
-        """Ensure ``silence_latent`` is on ``self.device``."""
+        """Ensure ``silence_latent`` is on the active DiT device."""
         if hasattr(self, "silence_latent") and self.silence_latent is not None:
-            if not self._is_on_target_device(self.silence_latent, self.device):
-                self.silence_latent = self.silence_latent.to(self.device).to(self.dtype)
+            target = (
+                self._get_component_device("dit")
+                if getattr(self, "device_map", None) is not None
+                else self.device
+            )
+            if not self._tensor_on_exact_device(self.silence_latent, target):
+                self.silence_latent = self.silence_latent.to(target).to(self.dtype)
 
     @staticmethod
     def _get_rss_mb() -> float:

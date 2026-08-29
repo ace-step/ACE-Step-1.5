@@ -103,6 +103,22 @@ class ModelServiceRoutesTests(unittest.TestCase):
         self.assertIn("acestep-v15-turbo", names)
         self.assertEqual("acestep-v15-base", inventory["default_model"])
         self.assertTrue(inventory["llm_initialized"])
+        self.assertIn("gpus", inventory)
+        self.assertIn("gpu_mapping", inventory)
+        self.assertIn("device_map", inventory)
+
+    def test_health_route_includes_gpu_runtime_fields(self):
+        """Health endpoint should expose GPU inventory and mapping metadata."""
+
+        app = self._build_app()
+        endpoint = _get_endpoint(app, "/health", "GET")
+        with mock.patch("acestep.api.http.model_service_routes.os.path.isdir", return_value=False):
+            result = asyncio.run(endpoint())
+
+        self.assertEqual(200, result["code"])
+        self.assertIn("gpus", result["data"])
+        self.assertIn("gpu_mapping", result["data"])
+        self.assertIn("device_map", result["data"])
 
     def test_init_route_wraps_initializer_exception(self):
         """Init endpoint should convert initializer exceptions into wrapped code=500 payloads."""

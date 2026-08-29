@@ -1116,5 +1116,159 @@ class RocmDtypeTests(unittest.TestCase):
         self.assertEqual(fake_encoder.to_calls, ["cpu", torch.float32])
         self.assertTrue(fake_encoder.eval_called)
 
+LOADER_MODULE = importlib.import_module(
+    "acestep.core.generation.handler.init_service_loader"
+)
+
+
+class CudaDtypeOverrideTests(unittest.TestCase):
+    """Tests verifying ACESTEP_DTYPE environment variable support on standard CUDA devices."""
+
+    def _make_cuda_host(self) -> _Host:
+        """Return a minimal host configured as if running on standard (non-ROCm) CUDA."""
+        host = _Host(project_root="K:/fake_root", device="cuda")
+        host.dtype = torch.bfloat16
+        return host
+
+    def _run_initialize(self, host, env_override: dict) -> bool:
+        """Run initialize_service with mocked models and the given env override."""
+        def _fake_load_main_model(**_kwargs):
+            host.config = types.SimpleNamespace(_attn_implementation="sdpa")
+            host.model = object()
+
+        patches = [
+            patch.object(GPU_CONFIG_MODULE, "is_cuda_available", return_value=True),
+            patch.object(GPU_CONFIG_MODULE, "is_rocm_available", return_value=False),
+            patch.object(GPU_CONFIG_MODULE, "cuda_supports_bfloat16", return_value=True),
+            patch.object(host, "_ensure_models_present", return_value=None),
+            patch.object(host, "_sync_model_code_if_needed"),
+            patch.object(host, "_load_main_model_from_checkpoint", side_effect=_fake_load_main_model),
+            patch.object(host, "_load_vae_model", return_value="vae"),
+            patch.object(host, "_load_text_encoder_and_tokenizer", return_value="te"),
+            patch.object(host, "_initialize_mlx_backends", return_value=("Disabled", "Disabled")),
+        ]
+        with patch.dict("os.environ", env_override, clear=False):
+            for p in patches:
+                p.start()
+            try:
+                _, ok = host.initialize_service(
+                    project_root="K:/fake_root",
+                    config_path="acestep-v15-turbo",
+                    device="cuda",
+                )
+            finally:
+                for p in reversed(patches):
+                    p.stop()
+        return ok
+
+    def test_acestep_dtype_float32_override_on_cuda(self):
+        """It uses float32 when ACESTEP_DTYPE=float32 on standard CUDA."""
+        host = self._make_cuda_host()
+        ok = self._run_initialize(host, {"ACESTEP_DTYPE": "float32"})
+        self.assertTrue(ok)
+        self.assertEqual(host.dtype, torch.float32)
+
+    def test_acestep_dtype_float16_override_on_cuda(self):
+        """It uses float16 when ACESTEP_DTYPE=float16 on standard CUDA."""
+        host = self._make_cuda_host()
+        ok = self._run_initialize(host, {"ACESTEP_DTYPE": "float16"})
+        self.assertTrue(ok)
+        self.assertEqual(host.dtype, torch.float16)
+
+    def test_acestep_dtype_bfloat16_override_on_cuda(self):
+        """It uses bfloat16 when ACESTEP_DTYPE=bfloat16 on standard CUDA."""
+        host = self._make_cuda_host()
+        ok = self._run_initialize(host, {"ACESTEP_DTYPE": "bfloat16"})
+        self.assertTrue(ok)
+        self.assertEqual(host.dtype, torch.bfloat16)
+
+    def test_acestep_dtype_invalid_value_falls_back_to_hardware_default(self):
+        """It ignores an unrecognised ACESTEP_DTYPE and uses the hardware-based default."""
+        host = self._make_cuda_host()
+        ok = self._run_initialize(host, {"ACESTEP_DTYPE": "int8"})
+        self.assertTrue(ok)
+        # cuda_supports_bfloat16 is mocked True, so hardware default is bfloat16.
+        self.assertEqual(host.dtype, torch.bfloat16)
+
+    def test_acestep_dtype_unset_keeps_hardware_default(self):
+        """It uses bfloat16 by hardware default when ACESTEP_DTYPE is not set."""
+        host = self._make_cuda_host()
+        with patch.dict("os.environ", {}, clear=True):
+            ok = self._run_initialize(host, {})
+        self.assertTrue(ok)
+        self.assertEqual(host.dtype, torch.bfloat16)
+
+
+class PreAmpereFloat32AttentionTests(unittest.TestCase):
+    """Tests that float32 dtype uses SDPA (not eager) on Pre-Ampere CUDA."""
+
+    def _make_host_with_dtype(self, dtype: torch.dtype) -> _Host:
+        """Return a host with the given dtype, simulating a pre-Ampere CUDA device."""
+        host = _Host(project_root="K:/fake_root", device="cuda")
+        host.dtype = dtype
+        return host
+
+    def _run_load_main_model(self, host: _Host, selected_attn: list) -> None:
+        """Run _load_main_model_from_checkpoint with all external dependencies mocked."""
+
+        def _fake_from_pretrained(path, **kwargs):
+            selected_attn.append(kwargs.get("attn_implementation"))
+            m = types.SimpleNamespace(
+                config=types.SimpleNamespace(
+                    _attn_implementation=kwargs.get("attn_implementation", "sdpa")
+                )
+            )
+            m.to = lambda *a, **kw: m
+            m.eval = lambda: m
+            return m
+
+        # A chainable mock that returns itself for .transpose() and .to() calls.
+        class _ChainableMock:
+            def transpose(self, *a):
+                return self
+            def to(self, *a, **kw):
+                return self
+
+        fake_transformers = types.SimpleNamespace(
+            AutoModel=types.SimpleNamespace(from_pretrained=_fake_from_pretrained)
+        )
+
+        with patch.object(LOADER_MODULE, "gpu_config") as mock_gc, \
+                patch("os.path.exists", return_value=True), \
+                patch("torch.cuda.is_available", return_value=False), \
+                patch.dict("sys.modules", {"transformers": fake_transformers}), \
+                patch("torch.load", return_value=_ChainableMock()):
+            mock_gc.cuda_supports_bfloat16.return_value = False
+            host.is_flash_attention_available = Mock(return_value=False)
+            host.offload_to_cpu = False
+            host.offload_dit_to_cpu = False
+            host.compiled = False
+            host._sync_alignment_config = Mock()
+            host._apply_cuda_bool_argsort_workaround = Mock()
+            host._load_main_model_from_checkpoint(
+                model_checkpoint_path="/fake/path",
+                device="cuda",
+                use_flash_attention=False,
+                compile_model=False,
+                quantization=None,
+            )
+
+    def test_pre_ampere_float32_selects_sdpa(self):
+        """It selects SDPA when dtype=float32 on a Pre-Ampere CUDA device."""
+        host = self._make_host_with_dtype(torch.float32)
+        selected_attn = []
+        self._run_load_main_model(host, selected_attn)
+        self.assertTrue(len(selected_attn) > 0, "Expected at least one from_pretrained call")
+        self.assertEqual(selected_attn[0], "sdpa")
+
+    def test_pre_ampere_float16_selects_eager(self):
+        """It selects eager attention when dtype=float16 on a Pre-Ampere CUDA device."""
+        host = self._make_host_with_dtype(torch.float16)
+        selected_attn = []
+        self._run_load_main_model(host, selected_attn)
+        self.assertTrue(len(selected_attn) > 0, "Expected at least one from_pretrained call")
+        self.assertEqual(selected_attn[0], "eager")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -89,7 +89,15 @@ class InitServiceOrchestratorMixin:
                     "(set ACESTEP_ROCM_DTYPE=bfloat16 or float16 to override)"
                 )
             elif resolved_device == "cuda":
-                if gpu_config.cuda_supports_bfloat16():
+                # Check manual dtype override from environment first.
+                env_dtype_str = os.environ.get("ACESTEP_DTYPE", "").strip().lower()
+                if env_dtype_str in ("float32", "float16", "bfloat16"):
+                    self.dtype = getattr(torch, env_dtype_str)
+                    logger.info(
+                        f"[initialize_service] ACESTEP_DTYPE={env_dtype_str} override: "
+                        f"using dtype={self.dtype}."
+                    )
+                elif gpu_config.cuda_supports_bfloat16():
                     self.dtype = torch.bfloat16
                 else:
                     self.dtype = torch.float16

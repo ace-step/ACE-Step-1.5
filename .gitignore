@@ -261,3 +261,6 @@ docs/.vitepress/dist/
 docs/.vitepress/cache/
 docs/en/awesome.md
 package-lock.json
+
+# Default download dir for scripts/call_music_api.py
+api_outputs/

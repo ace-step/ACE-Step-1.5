@@ -129,8 +129,11 @@ class LLMHandler:
                 try:
                     if hasattr(self.llm, "exit"):
                         self.llm.exit()  # full teardown: weights/KV cache/CUDA graphs/subprocesses
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "[LLM unload] vllm engine exit() failed (continuing with cleanup): {}",
+                        exc,
+                    )
                 self._cleanup_torch_distributed_state()
                 # LLMEngine.__init__ registers self.exit in atexit. We already tore
                 # the engine down above, so deregister that callback to stop it from

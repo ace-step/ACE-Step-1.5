@@ -16,10 +16,51 @@ _ROCM_DTYPE_MAP = {
     "bfloat16": torch.bfloat16,
 }
 
+_CUDA_DTYPE_MAP = {
+    "float32": torch.float32,
+    "float16": torch.float16,
+    "bfloat16": torch.bfloat16,
+}
+
 
 def _cuda_supports_bfloat16() -> bool:
     """Return whether the active CUDA device supports native bfloat16 kernels."""
     return gpu_config.cuda_supports_bfloat16()
+
+
+def _resolve_cuda_dtype_override() -> Optional[torch.dtype]:
+    """Resolve an explicit CUDA compute dtype from the ``ACESTEP_DTYPE`` env var.
+
+    Returns ``None`` when the variable is unset, meaning: preserve ACE-Step's
+    existing auto-selection (bfloat16 on GPUs that support it, float16
+    elsewhere). When set, the requested dtype is used verbatim -- including
+    ``bfloat16``, which raises instead of silently substituting another dtype
+    if the device lacks native bfloat16 support. An unrecognized value is
+    also an explicit configuration error rather than a silent fallback.
+
+    Known use case: pre-Ampere (Pascal/Turing) GPUs can produce NaN latents
+    in float16 during lyrics/vocal-conditioned generation (see upstream
+    issue #1274). Setting ``ACESTEP_DTYPE=float32`` works around this on
+    affected hardware, at roughly double the DiT VRAM cost. This is *not*
+    applied automatically -- the memory tradeoff is a per-user decision.
+    """
+    raw = os.environ.get("ACESTEP_DTYPE")
+    if raw is None:
+        return None
+    normalized = raw.strip().lower()
+    dtype = _CUDA_DTYPE_MAP.get(normalized)
+    if dtype is None:
+        raise ValueError(
+            f"Unknown ACESTEP_DTYPE={raw!r}; expected one of "
+            f"{sorted(_CUDA_DTYPE_MAP)} (case-insensitive, surrounding "
+            "whitespace ignored)."
+        )
+    if dtype is torch.bfloat16 and not gpu_config.cuda_supports_bfloat16():
+        raise ValueError(
+            "ACESTEP_DTYPE=bfloat16 was requested but this CUDA device does "
+            "not support native bfloat16 kernels."
+        )
+    return dtype
 
 
 def _resolve_rocm_dtype() -> torch.dtype:
@@ -89,13 +130,23 @@ class InitServiceOrchestratorMixin:
                     "(set ACESTEP_ROCM_DTYPE=bfloat16 or float16 to override)"
                 )
             elif resolved_device == "cuda":
-                if gpu_config.cuda_supports_bfloat16():
+                cuda_dtype_override = _resolve_cuda_dtype_override()
+                if cuda_dtype_override is not None:
+                    self.dtype = cuda_dtype_override
+                    logger.info(
+                        f"[initialize_service] ACESTEP_DTYPE override active: "
+                        f"using dtype={self.dtype}."
+                    )
+                elif gpu_config.cuda_supports_bfloat16():
                     self.dtype = torch.bfloat16
                 else:
                     self.dtype = torch.float16
                     logger.info(
                         "[initialize_service] Pre-Ampere CUDA detected: "
-                        "using float16 instead of bfloat16."
+                        "using float16 instead of bfloat16. If you observe NaN/Inf "
+                        "latents during lyrics/vocal-conditioned generation, set "
+                        "ACESTEP_DTYPE=float32 to work around it (higher VRAM cost; "
+                        "see https://github.com/ace-step/ACE-Step-1.5/issues/1274)."
                     )
             else:
                 self.dtype = torch.bfloat16 if resolved_device == "xpu" else torch.float32

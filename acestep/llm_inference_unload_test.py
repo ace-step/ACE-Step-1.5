@@ -110,5 +110,50 @@ class LlmUnloadVllmTests(unittest.TestCase):
         unregister_mock.assert_not_called()
 
 
+@unittest.skipIf(LLMHandler is None, f"llm_inference import unavailable: {_IMPORT_ERROR}")
+class LlmInitializeAfterFailedTeardownTests(unittest.TestCase):
+    """Verify initialize() aborts when unload() reports an incomplete teardown.
+
+    ChuxiJ review: if a previous vLLM engine's exit() raised, clearing the handler
+    state and silently building a replacement engine can stack a new runtime on an
+    un-released one (leaked weights/KV cache/CUDA graphs/workers). initialize()
+    must stop when unload() reports failure.
+    """
+
+    def test_initialize_aborts_when_unload_fails(self) -> None:
+        """A failed teardown must prevent building a replacement engine."""
+        handler = LLMHandler()
+        # unload() returning False is the guard this test locks down.
+        handler.unload = MagicMock(return_value=False)
+        status, success = handler.initialize(
+            checkpoint_dir="/tmp", lm_model_path="acestep-5Hz-lm-1.7B",
+            backend="vllm", device="cpu",
+        )
+        handler.unload.assert_called_once()
+        self.assertFalse(success)
+        self.assertIn("Failed to release", status)
+        # No new engine should be constructed after a failed teardown.
+        self.assertIsNone(handler.llm)
+        self.assertFalse(handler.llm_initialized)
+
+    def test_initialize_proceeds_when_unload_succeeds(self) -> None:
+        """A clean teardown lets initialize() continue past the guard."""
+        handler = LLMHandler()
+        handler.unload = MagicMock(return_value=True)
+        # Guard returns early only on failure; on success the code proceeds. Mock
+        # the model load path so numpy/tokenizer construction throws a controlled
+        # error, proving we got past the unload() guard (the guard itself is not
+        # what failed here).
+        with patch("acestep.llm_inference.LLMHandler.unload", return_value=True):
+            status, success = handler.initialize(
+                checkpoint_dir="/tmp", lm_model_path="acestep-5Hz-lm-1.7B",
+                backend="vllm", device="cpu",
+            )
+        # We cannot assert success(True) here (engine build would need real torch/
+        # model), but the guard passed: the failure, if any, is downstream of the
+        # teardown guard, not "Failed to release".
+        self.assertNotIn("Failed to release", status)
+
+
 if __name__ == "__main__":
     unittest.main()

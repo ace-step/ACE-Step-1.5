@@ -122,8 +122,16 @@ class LLMHandler:
             if hasattr(torch.mps, "empty_cache"):
                 torch.mps.empty_cache()
 
-    def unload(self) -> None:
-        """Release LM weights/tokenizer and clear caches to free memory."""
+    def unload(self) -> bool:
+        """Release LM weights/tokenizer and clear caches to free memory.
+
+        Returns:
+            ``True`` when the process is safe to build a new engine (either no
+            vLLM engine was loaded, or its teardown completed), and ``False``
+            when an existing vLLM engine's ``exit()`` raised — the engine may not
+            have fully released weights/KV cache/CUDA graphs/workers, so callers
+            (``initialize``) must not build a replacement engine on top of it.
+        """
         try:
             if self.llm_backend == "vllm" and getattr(self, "llm", None) is not None:
                 exit_success = False
@@ -133,7 +141,7 @@ class LLMHandler:
                         exit_success = True
                 except Exception as exc:
                     logger.warning(
-                        "[LLM unload] vllm engine exit() failed (continuing with cleanup): {}",
+                        "[LLM unload] vllm engine exit() failed (teardown incomplete): {}",
                         exc,
                     )
                 self._cleanup_torch_distributed_state()
@@ -147,6 +155,18 @@ class LLMHandler:
                         atexit.unregister(self.llm.exit)
                 except Exception:
                     pass
+                if not exit_success:
+                    # A failed engine teardown leaves workers/CUDA graphs resident. Keep
+                    # self.llm/llm_backend cleared and report failure so initialize()
+                    # stops rather than stacking a new engine atop an un-released runtime.
+                    self.llm = None
+                    self.llm_tokenizer = None
+                    self.constrained_processor = None
+                    self._hf_model_for_scoring = None
+                    self.llm_initialized = False
+                    self.llm_backend = None
+                    gc.collect()
+                    return False
             self.llm = None
             self.llm_tokenizer = None
             self.constrained_processor = None
@@ -167,8 +187,9 @@ class LLMHandler:
             elif hasattr(torch, "xpu") and torch.xpu.is_available():
                 torch.xpu.empty_cache()
                 torch.xpu.synchronize()
+            return True
         except Exception:
-            pass
+            return False
 
     def _cleanup_torch_distributed_state(self) -> None:
         """Destroy default torch distributed process group when already initialized."""
@@ -539,7 +560,16 @@ class LLMHandler:
             # Release any previously-loaded engine before building a new one so a
             # reinit (or a restore after PMI scoring) does not leak the old engine's
             # model weights, KV cache, and CUDA graphs. No-op when nothing is loaded.
-            self.unload()
+            # If unload() reports the teardown was incomplete (engine exit() raised),
+            # stop here rather than stacking a new engine on an un-released runtime.
+            if not self.unload():
+                return (
+                    "❌ Failed to release the previously-loaded vLLM engine; "
+                    "its runtime may not be fully torn down (weights/KV cache/CUDA "
+                    "graphs/workers). Re-initialization aborted to avoid leaking "
+                    "memory on top of it.",
+                    False,
+                )
             if device == "auto":
                 if torch.cuda.is_available():
                     device = "cuda"

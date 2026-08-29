@@ -7,6 +7,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from acestep.core.generation.device_mapping import ComponentDeviceMap
 from acestep.api.startup_llm_init import initialize_llm_at_startup
 
 
@@ -32,6 +33,7 @@ class StartupLlmInitTests(unittest.TestCase):
                 llm_handler=llm_handler,
                 gpu_config=gpu_config,
                 device="cuda",
+                component_device_map=ComponentDeviceMap(),
                 offload_to_cpu=False,
                 checkpoint_dir="k:/repo/checkpoints",
                 get_model_name=MagicMock(return_value="acestep-5Hz-lm-0.6B"),
@@ -72,6 +74,7 @@ class StartupLlmInitTests(unittest.TestCase):
                 llm_handler=llm_handler,
                 gpu_config=gpu_config,
                 device="cuda",
+                component_device_map=ComponentDeviceMap(),
                 offload_to_cpu=False,
                 checkpoint_dir="k:/repo/checkpoints",
                 get_model_name=MagicMock(return_value="acestep-5Hz-lm-1.1B"),
@@ -114,6 +117,7 @@ class StartupLlmInitTests(unittest.TestCase):
                 llm_handler=llm_handler,
                 gpu_config=gpu_config,
                 device="cuda",
+                component_device_map=ComponentDeviceMap(),
                 offload_to_cpu=False,
                 checkpoint_dir="k:/repo/checkpoints",
                 get_model_name=MagicMock(return_value="acestep-5Hz-lm-0.6B"),
@@ -122,6 +126,44 @@ class StartupLlmInitTests(unittest.TestCase):
             )
 
         self.assertEqual("pt", llm_handler.initialize.call_args.kwargs["backend"])
+
+    @patch("acestep.api.startup_llm_init.is_lm_model_supported")
+    @patch("acestep.api.startup_llm_init.get_recommended_lm_model")
+    def test_initialize_llm_at_startup_prefers_mapped_lm_device_when_env_unset(
+        self,
+        mock_get_recommended_lm_model: MagicMock,
+        mock_is_lm_model_supported: MagicMock,
+    ) -> None:
+        """LM device should come from component map when ACESTEP_LM_DEVICE is unset."""
+
+        app = SimpleNamespace(
+            state=SimpleNamespace(
+                _llm_initialized=False,
+                _llm_init_error=None,
+                _llm_lazy_load_disabled=False,
+            )
+        )
+        llm_handler = MagicMock()
+        llm_handler.initialize.return_value = ("ok", True)
+        gpu_config = SimpleNamespace(init_lm_default=True, gpu_memory_gb=24.0, tier="high")
+        mock_get_recommended_lm_model.return_value = "acestep-5Hz-lm-1.1B"
+        mock_is_lm_model_supported.return_value = (True, "")
+
+        with patch.dict(os.environ, {}, clear=True):
+            initialize_llm_at_startup(
+                app=app,
+                llm_handler=llm_handler,
+                gpu_config=gpu_config,
+                device="cuda",
+                component_device_map=ComponentDeviceMap(lm="cuda:2"),
+                offload_to_cpu=False,
+                checkpoint_dir="k:/repo/checkpoints",
+                get_model_name=MagicMock(return_value="acestep-5Hz-lm-1.1B"),
+                ensure_model_downloaded=MagicMock(),
+                env_bool=lambda _name, default: default,
+            )
+
+        self.assertEqual("cuda:2", llm_handler.initialize.call_args.kwargs["device"])
 
 
 if __name__ == "__main__":

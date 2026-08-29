@@ -70,6 +70,7 @@
     "language_label": "UI Language",
     "language_info": "Select interface language.",
     "gpu_auto_tier": "Auto-detected Tier",
+    "component_gpu_hint": "Component GPU hint",
     "tier_label": "GPU Tier Override",
     "tier_info": "Override the auto-detected GPU capability tier. Each tier adjusts defaults for offload, quantization, and backend to match your VRAM. Use 'Auto' unless the auto-detection is wrong or you want to force specific optimization settings."
   },

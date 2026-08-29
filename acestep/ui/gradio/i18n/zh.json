@@ -68,6 +68,7 @@
     "language_label": "界面语言",
     "language_info": "选择界面语言。",
     "gpu_auto_tier": "自动检测层级",
+    "component_gpu_hint": "组件 GPU 提示",
     "tier_label": "GPU 层级覆盖",
     "tier_info": "手动选择 GPU 层级以调整优化默认值（卸载、量化、后端等）。"
   },

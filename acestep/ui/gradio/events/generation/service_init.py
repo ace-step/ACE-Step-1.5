@@ -15,6 +15,9 @@ from acestep.gpu_config import (
     get_gpu_config_for_tier, set_global_gpu_config, GPU_TIER_LABELS, GPU_TIER_CONFIGS,
     resolve_lm_backend,
 )
+from acestep.core.generation.device_mapping import (
+    format_component_gpu_hint_text,
+)
 from .model_config import is_pure_base_model, is_sft_model, is_xl_model, get_model_type_ui_settings
 
 
@@ -265,9 +268,14 @@ def on_tier_change(selected_tier, llm_handler=None):
     tier_label = GPU_TIER_LABELS.get(selected_tier, selected_tier)
     from acestep.gpu_config import get_gpu_device_name
     _gpu_device_name = get_gpu_device_name()
+    gpu_hint = format_component_gpu_hint_text(
+        label=t("service.component_gpu_hint"),
+    )
+    hint_suffix = f"  \n{gpu_hint}" if gpu_hint else ""
     gpu_info_text = (
         f"🖥️ **{_gpu_device_name}** — {new_config.gpu_memory_gb:.1f} GB VRAM "
         f"— {t('service.gpu_auto_tier')}: **{tier_label}**"
+        f"{hint_suffix}"
     )
 
     return (

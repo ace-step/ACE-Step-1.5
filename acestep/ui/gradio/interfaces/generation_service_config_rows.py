@@ -5,6 +5,7 @@ from typing import Any
 
 import gradio as gr
 
+from acestep.core.generation.device_mapping import format_component_gpu_hint_text
 from acestep.gpu_config import (
     GPU_TIER_LABELS,
     find_best_lm_model_on_disk,
@@ -50,9 +51,14 @@ def build_gpu_info_and_tier(gpu_config: Any) -> dict[str, Any]:
         A component map containing ``gpu_info_display`` and ``tier_dropdown``.
     """
 
+    gpu_hint = format_component_gpu_hint_text(
+        label=t("service.component_gpu_hint"),
+    )
+    hint_suffix = f"  \n{gpu_hint}" if gpu_hint else ""
     gpu_text = (
         f"\U0001f5a5\ufe0f **{get_gpu_device_name()}** \u2014 {gpu_config.gpu_memory_gb:.1f} GB VRAM "
         f"\u2014 {t('service.gpu_auto_tier')}: **{GPU_TIER_LABELS.get(gpu_config.tier, gpu_config.tier)}**"
+        f"{hint_suffix}"
     )
     with gr.Row():
         gpu_info_display = gr.Markdown(value=gpu_text)

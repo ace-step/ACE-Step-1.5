@@ -126,28 +126,31 @@ class LLMHandler:
         """Release LM weights/tokenizer and clear caches to free memory."""
         try:
             if self.llm_backend == "vllm" and getattr(self, "llm", None) is not None:
+                exit_success = False
                 try:
                     if hasattr(self.llm, "exit"):
                         self.llm.exit()  # full teardown: weights/KV cache/CUDA graphs/subprocesses
+                        exit_success = True
                 except Exception as exc:
                     logger.warning(
                         "[LLM unload] vllm engine exit() failed (continuing with cleanup): {}",
                         exc,
                     )
                 self._cleanup_torch_distributed_state()
-                # LLMEngine.__init__ registers self.exit in atexit. We already tore
-                # the engine down above, so deregister that callback to stop it from
-                # re-running exit() on an already-released runner at process shutdown
-                # (which would otherwise log a harmless but noisy AttributeError).
+                # LLMEngine.__init__ registers self.exit in atexit. Only deregister that
+                # callback when teardown actually completed: if exit() raised, leave the
+                # callback registered so process shutdown can retry the unfinished cleanup
+                # (otherwise a released runner would log a noisy AttributeError on re-run).
                 try:
                     import atexit
-                    if hasattr(self.llm, "exit"):
+                    if exit_success and hasattr(self.llm, "exit"):
                         atexit.unregister(self.llm.exit)
                 except Exception:
                     pass
             self.llm = None
             self.llm_tokenizer = None
             self.constrained_processor = None
+            self._hf_model_for_scoring = None
             self.llm_initialized = False
             self.llm_backend = None
             self._mlx_model = None

@@ -44,6 +44,7 @@ class LlmUnloadVllmTests(unittest.TestCase):
     def test_calls_exit_on_vllm_engine(self) -> None:
         """The engine is fully ``exit()``-ed, not merely ``reset()``."""
         handler = _make_vllm_handler()
+        handler._hf_model_for_scoring = "stale-scoring-model"
         engine = handler.llm
         with ExitStack() as stack:
             for p in self._base_patches():
@@ -53,6 +54,9 @@ class LlmUnloadVllmTests(unittest.TestCase):
         self.assertFalse(handler.llm_initialized)
         self.assertIsNone(handler.llm)
         self.assertIsNone(handler.llm_backend)
+        # New: unload must drop the cached scoring model so get_hf_model_for_scoring()
+        # reloads the current LM on the next call instead of returning stale weights.
+        self.assertIsNone(handler._hf_model_for_scoring)
 
     def test_deregisters_exit_from_atexit(self) -> None:
         """The engine's atexit entry is removed so it cannot re-run after teardown."""
@@ -92,7 +96,8 @@ class LlmUnloadVllmTests(unittest.TestCase):
         engine.exit.assert_not_called()
 
     def test_exit_exception_is_swallowed(self) -> None:
-        """A failing engine teardown must not break unload()/subsequent cleanup."""
+        """A failing teardown must not break unload(), and must keep the atexit
+        callback registered so process shutdown can retry the incomplete cleanup."""
         handler = _make_vllm_handler()
         engine = handler.llm
         engine.exit.side_effect = RuntimeError("engine already released")
@@ -101,7 +106,8 @@ class LlmUnloadVllmTests(unittest.TestCase):
                 stack.enter_context(p)
             unregister_mock = stack.enter_context(patch("atexit.unregister"))
             handler.unload()  # must not raise
-        unregister_mock.assert_called_once_with(engine.exit)
+        engine.exit.assert_called_once()
+        unregister_mock.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -220,6 +220,10 @@ class AudioSaver:
             Actual saved file path
         """
         format = (format or self.default_format).lower()
+
+        force_flac = os.getenv("ACESTEP_FORCE_FLAC_EXPORT", "0") == "1"
+        if force_flac:
+            format = "flac" 
         if format not in ["flac", "wav", "mp3", "wav32", "opus", "aac"]:
             logger.warning(f"Unsupported format {format}, using {self.default_format}")
             format = self.default_format
@@ -313,8 +317,10 @@ class AudioSaver:
                     str(output_path),
                     audio_tensor,
                     sample_rate,
-                    channels_first=True,
+                    channels_first=channels_first,
+                    #backend="soundfile"   #safe dependency
                 )
+
             
             logger.debug(f"[AudioSaver] Saved audio to {output_path} ({format}, {sample_rate}Hz)")
             return str(output_path)

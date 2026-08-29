@@ -134,7 +134,7 @@ def build_request_for_protocol(
         "max_tokens": max_tokens or int(os.getenv("ACESTEP_OPENAI_MAX_TOKENS", "3072")),
         "temperature": 0.4,
     }
-    if require_json_output and provider in {"openai", "zai"}:
+    if require_json_output and provider in {"openai", "forge", "zai"}:
         payload["response_format"] = {"type": "json_object"}
         payload["stop"] = ["```"]
     if disable_thinking and provider == "zai":

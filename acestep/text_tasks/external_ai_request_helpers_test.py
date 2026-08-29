@@ -127,6 +127,24 @@ class ExternalAIRequestHelpersTests(unittest.TestCase):
         self.assertEqual(payload["stop"], ["```"])
         self.assertNotIn("thinking", payload)
 
+    def test_build_request_for_protocol_requests_json_output_for_forge_format(self) -> None:
+        """Forge format-mode requests should use OpenAI-compatible JSON output flags."""
+
+        payload, _headers = build_request_for_protocol(
+            protocol="openai_chat",
+            provider="forge",
+            api_key="test-key",
+            model="OpenAI/gpt-4o-mini",
+            messages=[{"role": "system", "content": "s"}, {"role": "user", "content": "u"}],
+            base_url="https://api.forge.tensorblock.co/v1/chat/completions",
+            max_tokens=768,
+            require_json_output=True,
+        )
+
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["stop"], ["```"])
+        self.assertNotIn("thinking", payload)
+
     def test_build_request_for_protocol_disables_zai_thinking_and_requests_json(self) -> None:
         """Z.ai format calls should disable thinking and request JSON output."""
 

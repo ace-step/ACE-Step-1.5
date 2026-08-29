@@ -53,6 +53,36 @@ _EXTERNAL_PROVIDER_PROFILES: dict[str, ExternalProviderProfile] = {
             ("OpenAI chat completions", "https://api.openai.com/v1/chat/completions"),
         ),
     ),
+    "minimax": ExternalProviderProfile(
+        provider_id="minimax",
+        label="MiniMax",
+        protocol="openai_chat",
+        default_model="MiniMax-M3",
+        default_base_url="https://api.minimax.io/v1/chat/completions",
+        api_key_env="ACESTEP_MINIMAX_API_KEY",
+        api_key_required=True,
+        secret_path_env="ACESTEP_MINIMAX_SECRET_PATH",
+        secret_file_name="minimax_api_key.enc",
+        base_url_presets=(
+            ("Global chat completions", "https://api.minimax.io/v1/chat/completions"),
+            ("Mainland China chat completions", "https://api.minimaxi.com/v1/chat/completions"),
+        ),
+    ),
+    "minimax_anthropic": ExternalProviderProfile(
+        provider_id="minimax_anthropic",
+        label="MiniMax (Anthropic API)",
+        protocol="anthropic_messages",
+        default_model="MiniMax-M3",
+        default_base_url="https://api.minimax.io/anthropic/v1/messages",
+        api_key_env="ACESTEP_MINIMAX_API_KEY",
+        api_key_required=True,
+        secret_path_env="ACESTEP_MINIMAX_SECRET_PATH",
+        secret_file_name="minimax_api_key.enc",
+        base_url_presets=(
+            ("Global Anthropic messages", "https://api.minimax.io/anthropic/v1/messages"),
+            ("Mainland China Anthropic messages", "https://api.minimaxi.com/anthropic/v1/messages"),
+        ),
+    ),
     "claude": ExternalProviderProfile(
         provider_id="claude",
         label="Anthropic Claude",
@@ -101,7 +131,7 @@ def get_external_provider_profile(provider: str | None) -> ExternalProviderProfi
 def get_external_provider_choices() -> list[tuple[str, str]]:
     """Return provider dropdown choices as ``(label, value)`` pairs."""
 
-    order = ("zai", "openai", "claude", "ollama")
+    order = ("zai", "openai", "minimax", "minimax_anthropic", "claude", "ollama")
     return [
         (_EXTERNAL_PROVIDER_PROFILES[provider_id].label, provider_id)
         for provider_id in order

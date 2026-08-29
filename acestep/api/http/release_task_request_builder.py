@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
 def build_generate_music_request(
@@ -81,6 +81,11 @@ def build_generate_music_request(
         cfg_interval_end=parser.float("cfg_interval_end", 1.0),
         infer_method=parser.str("infer_method", "ode"),
         shift=parser.float("shift", 3.0),
+        sampler_mode=parser.str("sampler_mode", "euler"),
+        velocity_norm_threshold=parser.float("velocity_norm_threshold", 0.0),
+        velocity_ema_factor=parser.float("velocity_ema_factor", 0.0),
+        latent_shift=parser.float("latent_shift", 0.0),
+        latent_rescale=parser.float("latent_rescale", 1.0),
         audio_format=parser.str("audio_format", "mp3"),
         use_tiled_decode=parser.bool("use_tiled_decode", True),
         lm_model_path=parser.str("lm_model_path") or None,

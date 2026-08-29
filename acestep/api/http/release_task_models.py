@@ -97,6 +97,26 @@ class GenerateMusicRequest(BaseModel):
         default=None,
         description="Custom timesteps (comma-separated, e.g., '0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0'). Overrides inference_steps and shift.",
     )
+    sampler_mode: str = Field(
+        default="euler",
+        description="Diffusion sampler mode: 'euler' (first-order) or 'heun' (second-order predictor-corrector).",
+    )
+    velocity_norm_threshold: float = Field(
+        default=0.0,
+        description="Clamp velocity prediction norms during diffusion (0 = disabled, try 2.0).",
+    )
+    velocity_ema_factor: float = Field(
+        default=0.0,
+        description="Velocity EMA smoothing during diffusion (0 = disabled, try 0.1).",
+    )
+    latent_shift: float = Field(
+        default=0.0,
+        description="Additive shift applied to DiT latents before VAE decode (0 = no shift).",
+    )
+    latent_rescale: float = Field(
+        default=1.0,
+        description="Multiplicative rescale applied to DiT latents before VAE decode (1.0 = no rescale).",
+    )
 
     dcw_enabled: Optional[bool] = Field(
         default=None,

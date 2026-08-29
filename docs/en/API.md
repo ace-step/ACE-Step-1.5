@@ -250,6 +250,7 @@ These parameters control 5Hz LM sampling, used for metadata auto-completion and 
 | `instruction` | string | auto | Edit instruction (auto-generated based on task_type if not provided) |
 | `repainting_start` | float | `0.0` | Repainting start time (seconds) |
 | `repainting_end` | float | null | Repainting end time (seconds), -1 for end of audio |
+| `chunk_mask_mode` | string | `"auto"` | Chunk-mask control: `"explicit"` uses the repaint time range as a 0/1 mask; `"auto"` uses automatic chunk control. |
 | `audio_cover_strength` | float | `1.0` | Cover strength (0.0-1.0). Lower values (0.2) for style transfer. |
 
 #### Method B: File Upload (multipart/form-data)
@@ -361,7 +362,10 @@ curl -X POST http://localhost:8001/release_task \
 curl -X POST http://localhost:8001/release_task \
   -F "prompt=remix this song" \
   -F "src_audio=@/path/to/local/song.mp3" \
-  -F "task_type=repaint"
+  -F "task_type=repaint" \
+  -F "repainting_start=10" \
+  -F "repainting_end=20" \
+  -F "chunk_mask_mode=explicit"
 ```
 
 ---

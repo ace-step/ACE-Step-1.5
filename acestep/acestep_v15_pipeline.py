@@ -426,9 +426,28 @@ def main():
     if args.service_mode:
         print(f"  Backend: {args.backend}")
 
+    # Multi-GPU component placement: when the LM is mapped to a different GPU than
+    # the DiT (via ACESTEP_*_DEVICE overrides OR free-VRAM auto-ranking), the LM no
+    # longer competes for the DiT's VRAM, so the single-GPU offload/downgrade
+    # heuristics below do not apply.
+    # Resolve the component->device map ONCE here (before the DiT is loaded) and
+    # reuse it for the LM placement below so both stay consistent. Only consult the
+    # CUDA map when a CUDA/auto device is requested: an explicit cpu/mps/xpu device
+    # must not be silently overridden onto a cuda:N card. Validate env overrides
+    # (e.g. ACESTEP_LM_DEVICE=cuda:9) up front so they fail with a clear message.
+    from acestep.core.generation.device_mapping import (
+        resolve_component_device_map as _rcdm,
+        validate_component_device_map as _vcdm,
+    )
+    _device_kind = str(args.device).split(":", 1)[0]
+    _cmap = _rcdm() if _device_kind in {"auto", "cuda"} else None
+    if _cmap is not None:
+        _vcdm(_cmap)
+    _multi_gpu_lm = bool(_cmap and _cmap.dit and _cmap.lm and _cmap.lm != _cmap.dit)
+
     # Auto-enable CPU offload for tier6 GPUs (16-24GB) when using the 4B LM model
     # The 4B LM (~8GB) + DiT (~4.7GB) + VAE + text encoder exceeds 16-20GB with activations
-    if not args.offload_to_cpu and args.lm_model_path and "4B" in args.lm_model_path:
+    if not args.offload_to_cpu and args.lm_model_path and "4B" in args.lm_model_path and not _multi_gpu_lm:
         if 0 < gpu_memory_gb <= 24:
             args.offload_to_cpu = True
             print(
@@ -438,7 +457,7 @@ def main():
     # Safety: on 16GB GPUs, prevent selecting LM models that are too large.
     # Even with offloading, a 4B LM (8 GB weights + KV cache) leaves almost no
     # headroom for DiT activations on a 16 GB card.
-    if args.lm_model_path and 0 < gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB:
+    if args.lm_model_path and 0 < gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB and not _multi_gpu_lm:
         if "4B" in args.lm_model_path:
             # Downgrade to 1.7B if available
             fallback = args.lm_model_path.replace("4B", "1.7B")
@@ -566,15 +585,23 @@ def main():
                             file=sys.stderr,
                         )
 
+                    # Reuse the map resolved above (None when a non-CUDA device was
+                    # requested); re-resolving here would re-rank GPUs by free VRAM
+                    # after the DiT load and could disagree with the placement above.
+                    _lm_device = (_cmap.lm if _cmap is not None else None) or args.device
+                    # In multi-GPU mode the LM has its own dedicated card, so it must
+                    # stay resident there (do NOT offload it to CPU even if the DiT
+                    # handler offloads VAE/text-encoder to free the DiT's VRAM).
+                    _lm_offload = False if _multi_gpu_lm else args.offload_to_cpu
                     print(
-                        f"Initializing 5Hz LM: {args.lm_model_path} on {args.device}..."
+                        f"Initializing 5Hz LM: {args.lm_model_path} on {_lm_device} (offload_to_cpu={_lm_offload})..."
                     )
                     lm_status, lm_success = llm_handler.initialize(
                         checkpoint_dir=checkpoint_dir,
                         lm_model_path=args.lm_model_path,
                         backend=args.backend,
-                        device=args.device,
-                        offload_to_cpu=args.offload_to_cpu,
+                        device=_lm_device,
+                        offload_to_cpu=_lm_offload,
                         dtype=None,
                     )
 

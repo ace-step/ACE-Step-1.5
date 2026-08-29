@@ -68,7 +68,7 @@
     "init_btn": "Initialize Service",
     "status_label": "Status",
     "language_label": "UI Language",
-    "language_info": "Select interface language.",
+    "language_info": "Select startup language. Changes are applied after server restart.",
     "gpu_auto_tier": "Auto-detected Tier",
     "tier_label": "GPU Tier Override",
     "tier_info": "Override the auto-detected GPU capability tier. Each tier adjusts defaults for offload, quantization, and backend to match your VRAM. Use 'Auto' unless the auto-detection is wrong or you want to force specific optimization settings."
@@ -346,6 +346,8 @@
     "simple_example_loaded": "🎲 Loaded random example from {filename}",
     "format_success": "✅ Caption and lyrics formatted successfully",
     "format_failed": "❌ Format failed: {error}",
+    "language_restart_required": "✅ Language preference saved: {language}. Please restart the server to apply all UI text and direction changes.",
+    "language_save_failed": "❌ Failed to save language preference: {error}",
     "skipping_metas_cot": "⚡ Skipping Phase 1 metas COT (sample already formatted)",
     "invalid_timesteps_format": "⚠️ Invalid timesteps format. Using default schedule.",
     "timesteps_out_of_range": "⚠️ Timesteps must be in range [0, 1]. Using default schedule.",

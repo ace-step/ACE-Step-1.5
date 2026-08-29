@@ -12,7 +12,7 @@ class GenerationServiceConfigRowsTests(unittest.TestCase):
     """Verify service row builder contracts needed by the UI wiring."""
 
     def test_language_dropdown_is_explicitly_interactive(self):
-        """Language selector should remain interactive for runtime language selection."""
+        """Language selector should remain interactive for startup-language selection."""
 
         module = ast.parse(_ROWS_PATH.read_text(encoding="utf-8"))
         func = next(

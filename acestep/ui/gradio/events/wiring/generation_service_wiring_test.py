@@ -49,6 +49,55 @@ class GenerationServiceWiringTests(unittest.TestCase):
             node.name for node in module.body if isinstance(node, ast.FunctionDef)
         }
         self.assertIn("_apply_runtime_language", function_names)
+        self.assertIn("_persist_startup_language", function_names)
+
+    def test_runtime_language_handler_resets_dropdown_to_current_language(self):
+        """Dropdown handler should keep current UI language active until restart."""
+        module = ast.parse(_WIRING_PATH.read_text(encoding="utf-8"))
+        helper = next(
+            node
+            for node in module.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_apply_runtime_language"
+        )
+
+        update_calls = [
+            node
+            for node in ast.walk(helper)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "gr"
+            and node.func.attr == "update"
+        ]
+        self.assertTrue(update_calls, "Expected gr.update call in _apply_runtime_language")
+        self.assertTrue(
+            any(
+                any(
+                    kw.arg == "value"
+                    and isinstance(kw.value, ast.Name)
+                    and kw.value.id == "current_language"
+                    for kw in call.keywords
+                )
+                for call in update_calls
+            ),
+            "Expected gr.update(value=current_language) in _apply_runtime_language",
+        )
+
+        called_names = {
+            node.func.id
+            for node in ast.walk(helper)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn(
+            "_persist_startup_language",
+            called_names,
+            "Expected startup language persistence in _apply_runtime_language",
+        )
+        self.assertNotIn(
+            "set_language_context",
+            called_names,
+            "Runtime language handler should not mutate per-request language context",
+        )
 
 
 if __name__ == "__main__":

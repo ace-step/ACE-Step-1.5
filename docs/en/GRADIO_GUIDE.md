@@ -557,7 +557,7 @@ The interface supports multiple UI languages:
 - **Chinese** (zh)
 - **Japanese** (ja)
 
-Select your preferred language in the Service Configuration section.
+Select your preferred language in the Service Configuration section, then restart the server to rebuild the UI in that language. Runtime dropdown changes do not fully re-render static labels/buttons.
 
 ---
 

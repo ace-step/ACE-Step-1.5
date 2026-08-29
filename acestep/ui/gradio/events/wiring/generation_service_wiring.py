@@ -4,17 +4,21 @@ This module contains wiring related to service initialization, LoRA controls,
 auto-checkbox controls, and visibility updates for generation components.
 """
 
+import re
+from pathlib import Path
 from typing import Any
 
 import gradio as gr
 
 from .. import generation_handlers as gen_h
-from ...i18n import get_i18n, reset_language_context, set_language_context
+from ...i18n import available_languages_info, get_i18n, t
 from .context import (
     GenerationWiringContext,
     build_auto_checkbox_inputs,
     build_auto_checkbox_outputs,
 )
+
+_LANGUAGE_ENV_PATTERN = re.compile(r"^\s*LANGUAGE\s*=")
 
 
 def register_generation_service_handlers(
@@ -226,26 +230,61 @@ def register_generation_service_handlers(
 
 
 def _apply_runtime_language(language: str) -> dict[str, Any]:
-    """Update i18n language at the Gradio request boundary.
+    """Persist selected language for next startup and keep current UI unchanged."""
+    current_language = get_i18n().current_language
 
-    Sets a per-request ``ContextVar`` so any ``t()`` calls within this
-    handler use *language*, then updates the shared instance default so
-    future requests without an explicit context inherit it.  The
-    ``ContextVar`` is reset on exit to avoid poisoning reused
-    thread-pool workers with a stale language value.
+    if language == current_language:
+        return gr.update(value=current_language)
 
-    Args:
-        language: Selected UI language code from the language dropdown.
-
-    Returns:
-        A ``gr.update`` payload preserving the selected dropdown value.
-    """
-    # Set ContextVar for this handler's scope.  No t() calls happen here
-    # today, but the pattern establishes the request-boundary convention
-    # for future handlers that adopt per-request language isolation.
-    token = set_language_context(language)
     try:
-        get_i18n(language)
-        return gr.update(value=language)
-    finally:
-        reset_language_context(token)
+        _persist_startup_language(language)
+    except (OSError, RuntimeError) as exc:
+        gr.Warning(t("messages.language_save_failed", error=str(exc)))
+        return gr.update(value=current_language)
+
+    gr.Info(
+        t(
+            "messages.language_restart_required",
+            language=_language_display_name(language),
+        )
+    )
+    return gr.update(value=current_language)
+
+
+def _language_display_name(language: str) -> str:
+    """Resolve display name for a UI language code."""
+    for code, name, native_name in available_languages_info():
+        if code != language:
+            continue
+        return f"{native_name} ({name})" if native_name != name else name
+    return language
+
+
+def _persist_startup_language(language: str, env_path: Path | None = None) -> None:
+    """Update LANGUAGE in .env so the next server startup uses ``language``."""
+    target_env_path = env_path or _resolve_project_root() / ".env"
+
+    lines: list[str] = []
+    if target_env_path.exists():
+        lines = target_env_path.read_text(encoding="utf-8").splitlines()
+
+    updated = False
+    for idx, line in enumerate(lines):
+        if _LANGUAGE_ENV_PATTERN.match(line):
+            leading_whitespace = line[: len(line) - len(line.lstrip())]
+            lines[idx] = f"{leading_whitespace}LANGUAGE={language}"
+            updated = True
+            break
+
+    if not updated:
+        lines.append(f"LANGUAGE={language}")
+
+    target_env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _resolve_project_root() -> Path:
+    """Find project root by walking up to the nearest directory with ``.git``."""
+    for parent in Path(__file__).resolve().parents:
+        if (parent / ".git").exists():
+            return parent
+    raise RuntimeError("Could not locate project root for .env language persistence")

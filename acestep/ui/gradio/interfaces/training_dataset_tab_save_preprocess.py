@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import gradio as gr
 
+from acestep.ui.gradio.direction_utils import auto_heading_id
 from acestep.ui.gradio.i18n import t
 
 
 def build_dataset_save_and_preprocess_controls() -> dict[str, object]:
     """Render dataset save/load-preprocess controls and return component handles."""
 
-    gr.HTML(f"<hr><h3>💾 {t('training.step4_title')}</h3>")
+    gr.HTML(
+        f"<hr><h3>💾 {t('training.step4_title')}</h3>",
+        elem_id=auto_heading_id(),
+    )
 
     with gr.Row():
         with gr.Column(scale=3):
@@ -34,7 +38,10 @@ def build_dataset_save_and_preprocess_controls() -> dict[str, object]:
         lines=2,
     )
 
-    gr.HTML(f"<hr><h3>⚡ {t('training.step5_title')}</h3>")
+    gr.HTML(
+        f"<hr><h3>⚡ {t('training.step5_title')}</h3>",
+        elem_id=auto_heading_id(),
+    )
 
     gr.Markdown(t("training.step5_intro"))
 

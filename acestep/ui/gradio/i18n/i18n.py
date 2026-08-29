@@ -30,7 +30,7 @@ class I18n:
         """
         self._lock = Lock()
         self.current_language = default_language
-        self.languages_info: list[tuple[str, str, str]] = []
+        self.languages_info: list[tuple[str, str, str, str]] = []
         self.translations: Dict[str, Dict[str, str]] = {}
         self._load_all_translations()
     
@@ -61,7 +61,10 @@ class I18n:
                     lang_native_name = self._get_nested_value(
                         self.translations.get(lang_code, {}),
                         "common.language_metadata.native_name") or lang_code
-                    self.languages_info.append((lang_code, lang_name, lang_native_name))
+                    lang_directionality = self._get_nested_value(
+                        self.translations.get(lang_code, {}),
+                        "common.language_metadata.directionality") or "ltr"
+                    self.languages_info.append((lang_code, lang_name, lang_native_name, lang_directionality))
     
     def set_language(self, language: str):
         """Set the instance-level default language (shared fallback when no ContextVar is active)."""
@@ -132,14 +135,34 @@ class I18n:
         """Get list of available language codes"""
         return list(self.translations.keys())
     
-    def get_available_languages_info(self) -> list[tuple[str, str, str]]:
+    def get_available_languages_info(self) -> list[tuple[str, str, str, str]]:
         """
-        Provides a list of tuples containing ISO codes and descriptive language names
+        Provides a list of tuples containing ISO codes, descriptive language names and text directionalities (dir attribute)
         
         Returns:
-            List of tuples (iso code, english name, native name)
+            List of tuples (iso code, english name, native name, dir attribute)
          """
         return list(self.languages_info)
+    
+    def get_language_directionality(self, language: Optional[str] = None) -> str:
+        """
+        Get the text directionality for a given language (e.g., 'ltr' or 'rtl')
+
+        Args:
+            language: Language code (optional, defaults to current language)
+
+        Returns:
+            Text directionality ('ltr' or 'rtl')
+        """
+        if language is None:
+            language = _current_language_var.get()
+            if language is None:
+                with self._lock:
+                    language = self.current_language
+
+        lang_info = next((info for info in self.languages_info if info[0] == language), None)
+        lang_dir = lang_info[3] if lang_info else "ltr"
+        return lang_dir
 
 
 # Global i18n instance
@@ -210,11 +233,24 @@ def t(key: str, **kwargs) -> str:
     return get_i18n().t(key, **kwargs)
 
 
-def available_languages_info() -> list[tuple[str, str, str]]:
+def available_languages_info() -> list[tuple[str, str, str, str]]:
     """
-    Provides a list of tuples containing ISO codes and descriptive language names
+    Provides a list of tuples containing ISO codes, descriptive language names and text directionalities (dir attribute)
+    
+    Returns:
+        List of tuples (iso code, english name, native name, dir attribute)
+        """
+    return get_i18n().get_available_languages_info()
+
+
+def language_directionality(language: Optional[str] = None) -> str:
+    """
+    Get the text directionality for a given language (e.g., 'ltr' or 'rtl')
+
+    Args:
+        language: Language code (optional, defaults to current language)
 
     Returns:
-        List of tuples (iso code, english name, native name)
+        Text directionality ('ltr' or 'rtl')
     """
-    return get_i18n().get_available_languages_info()
+    return get_i18n().get_language_directionality(language)

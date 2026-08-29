@@ -6,7 +6,8 @@
   "common": {
     "language_metadata": {
       "name": "English",
-      "native_name": "English"
+      "native_name": "English",
+      "directionality": "ltr"
     }
   },
   "dataset": {

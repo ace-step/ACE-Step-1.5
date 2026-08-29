@@ -72,7 +72,7 @@ class PipelineStartupBackendTests(unittest.TestCase):
             "acestep.acestep_v15_pipeline.get_i18n"
         ), patch(
             "acestep.acestep_v15_pipeline.available_languages_info",
-            return_value=[("en", "English", "English")],
+            return_value=[("en", "English", "English", "ltr")],
         ), patch(
             "acestep.acestep_v15_pipeline.AceStepHandler",
             return_value=dit_handler,

@@ -5,6 +5,7 @@ from typing import Any
 import gradio as gr
 
 from acestep.ui.gradio.help_content import create_help_button
+from acestep.ui.gradio.direction_utils import auto_heading_id, auto_textbox_id
 from acestep.ui.gradio.i18n import t
 
 
@@ -81,6 +82,8 @@ def build_custom_mode_controls() -> dict[str, Any]:
                             placeholder=t("generation.caption_placeholder"),
                             lines=12,
                             max_lines=12,
+                            elem_id=auto_textbox_id(),
+                            elem_classes=["alignment-toggle"],
                         )
                         with gr.Row(elem_classes="instrumental-row"):
                             format_caption_btn = gr.Button(
@@ -94,6 +97,8 @@ def build_custom_mode_controls() -> dict[str, Any]:
                             placeholder=t("generation.lyrics_placeholder"),
                             lines=12,
                             max_lines=12,
+                            elem_id=auto_textbox_id(),
+                            elem_classes=["alignment-toggle"],
                         )
                         with gr.Row(elem_classes="instrumental-row"):
                             instrumental_checkbox = gr.Checkbox(
@@ -133,7 +138,10 @@ def build_repainting_controls() -> dict[str, Any]:
 
     with gr.Group(visible=False) as repainting_group:
         create_help_button("generation_repaint")
-        repainting_header_html = gr.HTML(f"<h5>{t('generation.repainting_controls')}</h5>")
+        repainting_header_html = gr.HTML(
+            f"<h5>{t('generation.repainting_controls')}</h5>",
+            elem_id=auto_heading_id(),
+        )
         with gr.Row():
             repainting_start = gr.Number(
                 label=t("generation.repainting_start"),

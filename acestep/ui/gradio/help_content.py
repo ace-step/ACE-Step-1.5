@@ -159,6 +159,7 @@ def create_help_button(section_key: str) -> gr.HTML:
     btn_id = f"help-btn-{uid}"
     md_content = t(f"help.{section_key}")
     html_content = _md_to_html(md_content)
+    btn_label = t("help.btn_label")
     close_label = t("help.close_label")
 
     html = gr.HTML(
@@ -166,7 +167,9 @@ def create_help_button(section_key: str) -> gr.HTML:
         <span class="help-inline-wrapper">
           <button id="{btn_id}" class="help-inline-btn"
                   onclick="document.getElementById('{modal_id}').style.display='flex'"
-                  title="Help">?</button>
+                  title="Help">
+            {btn_label}
+          </button>
         </span>
         <div id="{modal_id}" class="help-modal-overlay" style="display:none;"
              onclick="if(event.target===this)this.style.display='none'">

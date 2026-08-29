@@ -154,6 +154,7 @@ function sidebarEN() {
         items: [
           { text: 'Gradio UI Guide', link: '/en/GRADIO_GUIDE' },
           { text: 'UI Support Baseline', link: '/en/UI_SUPPORT' },
+          { text: 'Next UI Requirements', link: '/en/NEXT_UI_REQUIREMENTS' },
           { text: 'CLI', link: '/en/CLI' },
           { text: "Musician's Guide", link: '/en/ace_step_musicians_guide' },
         ],

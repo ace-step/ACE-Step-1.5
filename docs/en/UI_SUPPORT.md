@@ -62,6 +62,9 @@ friendlier defaults and progressive disclosure.
 
 ## Design Implications For The Next UI
 
+See [Next UI Requirements](NEXT_UI_REQUIREMENTS.md) for the product requirements and information
+architecture that build on this support baseline.
+
 - The first screen should prioritize one successful generation over exposing every parameter.
 - Advanced controls should remain complete, but grouped by intent: model setup, song structure,
   generation quality, LM behavior, source audio editing, and expert code controls.

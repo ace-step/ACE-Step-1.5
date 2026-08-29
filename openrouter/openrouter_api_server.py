@@ -380,11 +380,12 @@ def _extract_prompt_and_lyrics(messages: List[ChatMessage]) -> tuple[str, str, s
                 if remaining and not prompt:
                     prompt = remaining
             else:
-                # No tags - use heuristic detection
+                # No tags - use heuristic detection:
+                # lyrics-looking text -> lyrics mode, otherwise -> sample_query mode
                 if _looks_like_lyrics(content):
                     lyrics = content
                 else:
-                    prompt = content
+                    sample_query = content
             break
 
     return prompt, lyrics, sample_query, audio_paths

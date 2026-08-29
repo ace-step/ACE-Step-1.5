@@ -308,11 +308,12 @@ def _parse_messages(
             if remaining and not prompt:
                 prompt = remaining
         else:
-            # No tags - use heuristic detection
+            # No tags - use heuristic detection:
+            # lyrics-looking text -> lyrics mode, otherwise -> sample_query mode
             if _looks_like_lyrics(content):
                 lyrics = content
             else:
-                prompt = content
+                sample_query = content
         break
 
     return prompt, lyrics, audio_blobs, sample_query

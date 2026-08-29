@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import torch
@@ -10,6 +11,7 @@ import torch
 from acestep.ui.gradio.events.results.generation_progress import (
     _extract_repaint_source_latents,
     _persist_repaint_source_latents,
+    _run_auto_lrc,
     _strip_extra_output_tensors,
 )
 
@@ -53,6 +55,43 @@ class RepaintSourceLatentPersistenceTests(unittest.TestCase):
         self.assertNotIn("pred_latents", stripped)
         self.assertEqual("123", stripped["seed_value"])
         self.assertEqual(["[00:00.00] hello"], stripped["lrcs"])
+
+    def test_run_auto_lrc_forwards_output_dir_to_vtt_generation(self):
+        """Auto-LRC should persist VTT files in the provided batch output directory."""
+        dit_handler = MagicMock()
+        dit_handler.get_lyric_timestamp.return_value = {
+            "success": True,
+            "lrc_text": "[00:00.00] hello",
+        }
+        extra_outputs = {
+            "pred_latents": torch.ones(1, 50, 4),
+            "encoder_hidden_states": torch.ones(1, 2, 4),
+            "encoder_attention_mask": torch.ones(1, 2),
+            "context_latents": torch.ones(1, 2, 4),
+            "lyric_token_idss": torch.ones(1, 2, dtype=torch.long),
+        }
+        lrcs = [""] * 8
+        subtitles = [None] * 8
+
+        with patch(
+            "acestep.ui.gradio.events.results.generation_progress.lrc_to_vtt_file",
+            return_value="/tmp/auto.vtt",
+        ) as mock_lrc_to_vtt_file:
+            _run_auto_lrc(
+                dit_handler=dit_handler,
+                extra_outputs=extra_outputs,
+                sample_idx=0,
+                audio_duration=3.0,
+                vocal_language="en",
+                inference_steps=8,
+                final_lrcs_list=lrcs,
+                final_subtitles_list=subtitles,
+                output_dir="/tmp/batch_123",
+            )
+
+        self.assertEqual("[00:00.00] hello", lrcs[0])
+        self.assertEqual("/tmp/auto.vtt", subtitles[0])
+        self.assertEqual("/tmp/batch_123", mock_lrc_to_vtt_file.call_args.kwargs["output_dir"])
 
 
 if __name__ == "__main__":

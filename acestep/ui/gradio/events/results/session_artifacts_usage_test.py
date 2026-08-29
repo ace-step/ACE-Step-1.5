@@ -59,7 +59,7 @@ class SessionArtifactsUsageTests(unittest.TestCase):
             patch(
                 "acestep.ui.gradio.events.results.lrc_utils.lrc_to_vtt_file",
                 return_value="/tmp/test.vtt",
-            ),
+            ) as mock_lrc_to_vtt_file,
         ):
             lrc_update, _accordion, updated_queue = generate_lrc_handler(
                 dit_handler=dit_handler,
@@ -72,8 +72,13 @@ class SessionArtifactsUsageTests(unittest.TestCase):
 
         self.assertEqual("[00:00.00] hello", lrc_update["value"])
         self.assertEqual("[00:00.00] hello", updated_queue[0]["lrcs"][0])
+        self.assertEqual("/tmp/test.vtt", updated_queue[0]["subtitles"][0])
         call_kwargs = dit_handler.get_lyric_timestamp.call_args.kwargs
         self.assertTrue(torch.equal(call_kwargs["pred_latent"], extra_outputs["pred_latents"][0:1]))
+        self.assertEqual(
+            str(Path(batch_queue[0]["audio_paths"][0]).parent),
+            mock_lrc_to_vtt_file.call_args.kwargs["output_dir"],
+        )
 
     def _batch_queue_with_artifact(self):
         tmp = tempfile.TemporaryDirectory()

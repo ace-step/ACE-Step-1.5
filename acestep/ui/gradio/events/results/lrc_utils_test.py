@@ -1,10 +1,14 @@
 """Unit tests for lrc_utils module."""
 
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from acestep.ui.gradio.events.results.lrc_utils import (
     parse_lrc_to_subtitles,
     _format_vtt_timestamp,
+    lrc_to_vtt_file,
     save_lrc_to_file,
 )
 
@@ -118,6 +122,30 @@ class SaveLrcToFileTests(unittest.TestCase):
         # Should have a value pointing to a .lrc file
         self.assertIn("value", result)
         self.assertTrue(result["value"].endswith(".lrc"))
+
+
+class LrcToVttFileTests(unittest.TestCase):
+    """Tests for lrc_to_vtt_file output directory behavior."""
+
+    def test_uses_custom_output_dir_when_provided(self):
+        """Generated VTT should be written under the caller-provided directory."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vtt_path = lrc_to_vtt_file("[00:00.00]Hello", total_duration=5.0, output_dir=tmp)
+
+            self.assertIsNotNone(vtt_path)
+            self.assertTrue(vtt_path.startswith(tmp.replace("\\", "/")))
+            self.assertTrue(os.path.exists(vtt_path))
+
+    def test_defaults_to_os_temp_subtitle_dir(self):
+        """Without output_dir, generated VTT should use the OS temp subtitle folder."""
+        with tempfile.TemporaryDirectory() as fake_tmp:
+            with patch("tempfile.gettempdir", return_value=fake_tmp):
+                vtt_path = lrc_to_vtt_file("[00:00.00]Hello", total_duration=5.0)
+
+            self.assertIsNotNone(vtt_path)
+            expected_dir = os.path.join(fake_tmp, "acestep_subtitles").replace("\\", "/")
+            self.assertTrue(vtt_path.startswith(expected_dir))
+            self.assertTrue(os.path.exists(vtt_path))
 
 
 if __name__ == "__main__":

@@ -15,7 +15,6 @@ import gradio as gr
 from loguru import logger
 
 from acestep.ui.gradio.i18n import t
-from acestep.ui.gradio.events.results.generation_info import DEFAULT_RESULTS_DIR
 from acestep.ui.gradio.events.results.session_artifacts import load_batch_sample_session_tensors
 
 
@@ -127,12 +126,17 @@ def _format_vtt_timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
 
 
-def lrc_to_vtt_file(lrc_text: str, total_duration: float = None) -> Optional[str]:
+def lrc_to_vtt_file(
+    lrc_text: str,
+    total_duration: float = None,
+    output_dir: Optional[str] = None,
+) -> Optional[str]:
     """Convert LRC text to a VTT subtitle file and return its path.
 
     Args:
         lrc_text: LRC format lyrics string.
         total_duration: Total audio duration in seconds.
+        output_dir: Optional target directory for the generated ``.vtt`` file.
 
     Returns:
         Path to the generated VTT file, or ``None`` on failure.
@@ -153,7 +157,7 @@ def lrc_to_vtt_file(lrc_text: str, total_duration: float = None) -> Optional[str
         vtt_lines.append("")
 
     try:
-        vtt_output_dir = os.path.join(DEFAULT_RESULTS_DIR, "subtitles")
+        vtt_output_dir = output_dir or os.path.join(tempfile.gettempdir(), "acestep_subtitles")
         os.makedirs(vtt_output_dir, exist_ok=True)
         ts = int(time_module.time())
         vtt_filename = f"subtitles_{ts}_{datetime.datetime.now().strftime('%H%M%S')}.vtt"
@@ -294,7 +298,19 @@ def generate_lrc_handler(dit_handler, sample_idx, current_batch_index, batch_que
                 batch_queue[current_batch_index]["lrcs"] = [""] * 8
             batch_queue[current_batch_index]["lrcs"][idx0] = lrc_text
 
-            vtt_path = lrc_to_vtt_file(lrc_text, total_duration=float(audio_duration))
+            custom_dir = None
+            audio_paths = batch_data.get("audio_paths", [])
+            audio_path_idx = idx0 * 2
+            if audio_path_idx < len(audio_paths):
+                candidate = audio_paths[audio_path_idx]
+                if isinstance(candidate, str) and candidate:
+                    custom_dir = os.path.dirname(candidate)
+
+            vtt_path = lrc_to_vtt_file(
+                lrc_text,
+                total_duration=float(audio_duration),
+                output_dir=custom_dir,
+            )
             if "subtitles" not in batch_queue[current_batch_index]:
                 batch_queue[current_batch_index]["subtitles"] = [None] * 8
             batch_queue[current_batch_index]["subtitles"][idx0] = vtt_path

@@ -343,6 +343,7 @@ def generate_with_progress(
                 dit_handler, result.extra_outputs, i,
                 audio_duration, vocal_language, inference_steps,
                 final_lrcs_list, final_subtitles_list,
+                output_dir=temp_dir,
             )
             total_auto_lrc_time += time_module.time() - auto_lrc_start
 
@@ -493,7 +494,7 @@ def _persist_repaint_source_latents(source_latents, json_path: str, audio_params
 
 def _run_auto_lrc(dit_handler, extra_outputs, sample_idx,
                   audio_duration, vocal_language, inference_steps,
-                  final_lrcs_list, final_subtitles_list):
+                  final_lrcs_list, final_subtitles_list, output_dir=None):
     """Run automatic LRC generation for a single sample in-place.
 
     Updates *final_lrcs_list* and *final_subtitles_list* at *sample_idx*.
@@ -530,7 +531,11 @@ def _run_auto_lrc(dit_handler, extra_outputs, sample_idx,
             lrc_text = lrc_result.get("lrc_text", "")
             final_lrcs_list[sample_idx] = lrc_text
             logger.info(f"[auto_lrc] LRC text length for sample {sample_idx + 1}: {len(lrc_text)}")
-            vtt_path = lrc_to_vtt_file(lrc_text, total_duration=float(actual_duration))
+            vtt_path = lrc_to_vtt_file(
+                lrc_text,
+                total_duration=float(actual_duration),
+                output_dir=output_dir,
+            )
             final_subtitles_list[sample_idx] = vtt_path
     except Exception as e:
         logger.warning(f"[auto_lrc] Failed to generate LRC for sample {sample_idx + 1}: {e}")

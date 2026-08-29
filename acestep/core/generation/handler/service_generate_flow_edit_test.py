@@ -27,19 +27,32 @@ class ModelContextTrackingHandler(FakeHandler):
     when prepare_condition runs — catches offload device mismatches."""
 
     def __init__(self, *args, **kwargs):
+        """Set up tracking state and wrap prepare_condition to log context depth.
+
+        The wrapped ``tracked`` appends whether the model context is currently
+        active (depth > 0) for the downstream prepare_condition call, so the
+        offload-path regression test can assert that call runs with the model
+        loaded onto the device.
+        """
         super().__init__(*args, **kwargs)
         self._model_ctx_depth = 0
         self.prepare_condition_model_ctx = []
         enc_hs, enc_am, ctx = self.prepared_enc_hs, self.prepared_enc_am, self.prepared_ctx
 
         def tracked(*args, **kwargs):
+            """Record context depth, then defer to the prepared condition tensors."""
             self.prepare_condition_model_ctx.append(self._model_ctx_depth > 0)
             return (enc_hs, enc_am, ctx)
 
         self.model.prepare_condition = tracked
 
     @contextmanager
-    def _load_model_context(self, name):
+    def _load_model_context(self, name: str):
+        """Teach this handler the real offload context depth tracking.
+
+        Mirrors the production ``_load_model_context`` (a no-op under the test
+        fake otherwise) so depth is visible inside ``prepare_condition``.
+        """
         if name == "model":
             self._model_ctx_depth += 1
         try:
@@ -173,14 +186,33 @@ class CoverStillRunsLmTests(unittest.TestCase):
     skipped because cover already extracts codes from the ref audio)."""
 
     def test_no_edit_in_skip_lm_tasks(self):
+        """skip_lm_tasks must keep cover as direct-conditioning and stay edit-free.
+
+        The literal set-based assertion was stale: inference.py now derives
+        skip_lm_tasks from DIRECT_CONDITIONING_TASKS, which gained complete/lego
+        in the direct-conditioning fix. Assert that contract instead of a frozen
+        source string, so this test does not rot again.
+        """
+        import re
         from pathlib import Path
+
         src = (Path(__file__).resolve().parents[3] / "inference.py").read_text()
-        self.assertIn(
-            'skip_lm_tasks = {"cover", "cover-nofsq", "repaint", "extract"}',
-            src,
-            "edit task is removed; skip_lm_tasks should no longer mention it",
-        )
-        self.assertNotIn('"edit"', src.split("skip_lm_tasks")[1].split("\n")[0])
+
+        # skip_lm_tasks is fed from DIRECT_CONDITIONING_TASKS, not a literal.
+        self.assertIn("skip_lm_tasks = DIRECT_CONDITIONING_TASKS", src)
+
+        # Pull the frozenset body and assert the intended membership.
+        block = src.split("DIRECT_CONDITIONING_TASKS = frozenset(", 1)[1]
+        body = block.split("}", 1)[0]
+        tasks = set(re.findall(r'"([^"]+)"', body))
+
+        self.assertIn("cover", tasks)
+        self.assertIn("cover-nofsq", tasks)
+        self.assertIn("complete", tasks)
+        self.assertIn("lego", tasks)
+        # A flow-edit task that reaches the LM is an overlay, not a direct
+        # condition — it must never be listed as a skip-LM task.
+        self.assertNotIn("edit", tasks)
 
 
 if __name__ == "__main__":

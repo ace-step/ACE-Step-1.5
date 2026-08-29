@@ -552,6 +552,7 @@ params = GenerationParams(
     caption="lead guitar melody with bluesy feel",
     repainting_start=0.0,
     repainting_end=-1,
+    dcw_enabled=False
 )
 ```
 

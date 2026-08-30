@@ -12,6 +12,8 @@
 #   --prompt       Image description prompt (required)
 #   --aspect-ratio Aspect ratio: 16:9, 1:1, 9:16 (default: from config, typically 16:9)
 #   --output       Output image path (default: acestep_output/<timestamp>_thumbnail.png)
+#   --provider     gemini or atlas (default: gemini)
+#   --resolution   Atlas output resolution: 1k, 2k, or 4k (default: 1k)
 #
 # Examples:
 #   ./acestep-thumbnail.sh generate --prompt "Cyberpunk city skyline at night with neon lights"
@@ -108,7 +110,7 @@ handle_config() {
 handle_generate() {
   ensure_config
 
-  local prompt="" aspect_ratio="" output=""
+  local prompt="" aspect_ratio="" output="" provider="gemini" resolution="1k" atlas_model=""
 
   # Parse args
   while [[ $# -gt 0 ]]; do
@@ -116,6 +118,9 @@ handle_generate() {
       --prompt)       prompt="$2"; shift 2 ;;
       --aspect-ratio) aspect_ratio="$2"; shift 2 ;;
       --output)       output="$2"; shift 2 ;;
+      --provider)     provider="$2"; shift 2 ;;
+      --resolution)   resolution="$2"; shift 2 ;;
+      --atlas-model)  atlas_model="$2"; shift 2 ;;
       *)
         echo "Error: unknown argument: $1" >&2
         exit 1
@@ -129,7 +134,7 @@ handle_generate() {
   api_url=$(get_config "api_url")
   model=$(get_config "model")
 
-  if [[ -z "$api_key" ]]; then
+  if [[ "$provider" == "gemini" && -z "$api_key" ]]; then
     echo "Error: Gemini API key not configured." >&2
     echo "Get a free key at: https://aistudio.google.com/apikey" >&2
     echo "Then run: ./scripts/acestep-thumbnail.sh config --set api_key <YOUR_KEY>" >&2
@@ -148,6 +153,16 @@ handle_generate() {
 
   if [[ -z "$prompt" ]]; then
     echo "Error: --prompt is required" >&2
+    exit 1
+  fi
+
+  if [[ "$provider" != "gemini" && "$provider" != "atlas" ]]; then
+    echo "Error: --provider must be gemini or atlas" >&2
+    exit 1
+  fi
+
+  if [[ "$resolution" != "1k" && "$resolution" != "2k" && "$resolution" != "4k" ]]; then
+    echo "Error: --resolution must be 1k, 2k, or 4k" >&2
     exit 1
   fi
 
@@ -173,6 +188,22 @@ handle_generate() {
 
   # Ensure output directory exists
   mkdir -p "$(dirname "$output")"
+
+  if [[ "$provider" == "atlas" ]]; then
+    if [[ -z "${ATLASCLOUD_API_KEY:-${ATLAS_CLOUD_API_KEY:-}}" ]]; then
+      echo "Error: ATLASCLOUD_API_KEY is required for --provider atlas" >&2
+      exit 1
+    fi
+    local atlas_args=(
+      --prompt "$prompt"
+      --aspect-ratio "$aspect_ratio"
+      --resolution "$resolution"
+      --output "$output"
+    )
+    [[ -n "$atlas_model" ]] && atlas_args+=(--model "$atlas_model")
+    python3 "$SCRIPT_DIR/atlas_thumbnail.py" "${atlas_args[@]}"
+    return
+  fi
 
   echo "Generating thumbnail..."
   echo "  Prompt: ${prompt:0:100}$([ ${#prompt} -gt 100 ] && echo '...')"

@@ -5,6 +5,24 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
+def _optional_str(parser: Any, name: str) -> Optional[str]:
+    """Read a parameter as a string, preserving absence as ``None``.
+
+    ``parser.str`` substitutes a default for a missing key, which makes an
+    omitted value indistinguishable from an explicitly supplied one. Fields whose
+    downstream behaviour depends on that distinction use this instead.
+
+    Args:
+        parser: Request parser exposing ``get``.
+        name: Canonical parameter name.
+
+    Returns:
+        The value as a string, or ``None`` when the caller supplied nothing.
+    """
+    value = parser.get(name)
+    return None if value is None else str(value)
+
+
 def build_generate_music_request(
     parser: Any,
     request_model_cls: Any,
@@ -52,7 +70,7 @@ def build_generate_music_request(
         key_scale=parser.str("key_scale"),
         time_signature=parser.str("time_signature"),
         audio_duration=parser.float("audio_duration"),
-        vocal_language=parser.str("vocal_language", "en"),
+        vocal_language=_optional_str(parser, "vocal_language"),
         inference_steps=parser.int("inference_steps", 8),
         guidance_scale=parser.float("guidance_scale", 7.0),
         use_random_seed=parser.bool("use_random_seed", True),

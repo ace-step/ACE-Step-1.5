@@ -62,9 +62,12 @@ class CotLanguageDefaultsTests(unittest.TestCase):
         """CoT detection is on by default, so callers must opt out explicitly."""
         self.assertTrue(GenerateMusicRequest.model_fields["use_cot_language"].default)
 
-    def test_release_task_default_language_is_english(self):
-        """The HTTP default 'en' reads as a choice, so opting out needs the flag."""
-        self.assertEqual(GenerateMusicRequest.model_fields["vocal_language"].default, "en")
+    def test_release_task_language_default_is_none(self):
+        """Defaulting to "en" would make an omitted language look explicit."""
+        self.assertIsNone(GenerateMusicRequest.model_fields["vocal_language"].default)
+
+    def test_explicit_english_is_treated_as_a_choice(self):
+        """An explicit "en" must survive a conflicting CoT detection."""
         self.assertFalse(_is_vocal_language_unset("en"))
 
 

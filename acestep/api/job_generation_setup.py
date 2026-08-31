@@ -96,6 +96,31 @@ def _resolve_generation_seeds(req: Any) -> Optional[list[int]]:
     return resolved_seeds
 
 
+def _resolve_vocal_language(requested: Optional[str], use_cot_language: bool) -> str:
+    """Resolve the vocal language to condition on from the request.
+
+    ``None`` means the caller supplied no language. CoT detection should then
+    remain free to fill it in, so the ``"unknown"`` placeholder is returned;
+    ``inference._is_vocal_language_unset`` treats that as unset. When detection is
+    disabled there is nothing to fill it in, so the historical API default
+    ``"en"`` is kept instead of conditioning on a placeholder.
+
+    An explicitly supplied value is returned unchanged, including ``"en"``. That
+    is what stops CoT from replacing a deliberate choice, and it is why an
+    omitted value must not be defaulted before reaching this point.
+
+    Args:
+        requested: The language the caller supplied, or ``None`` if omitted.
+        use_cot_language: Whether CoT language detection is enabled.
+
+    Returns:
+        The language code to place in ``GenerationParams.vocal_language``.
+    """
+    if requested is not None:
+        return requested
+    return "unknown" if use_cot_language else "en"
+
+
 def build_generation_setup(
     *,
     req: Any,
@@ -161,7 +186,9 @@ def build_generation_setup(
         global_caption=global_caption,
         lyrics=lyrics,
         instrumental=is_instrumental(lyrics),
-        vocal_language=req.vocal_language,
+        vocal_language=_resolve_vocal_language(
+            getattr(req, "vocal_language", None), use_cot_language
+        ),
         bpm=bpm,
         keyscale=key_scale,
         timesignature=time_signature,

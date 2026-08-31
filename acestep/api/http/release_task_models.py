@@ -37,7 +37,7 @@ class GenerateMusicRequest(BaseModel):
     bpm: Optional[int] = None
     key_scale: str = ""
     time_signature: str = ""
-    vocal_language: str = "en"
+    vocal_language: Optional[str] = None
     inference_steps: int = 8
     guidance_scale: float = 7.0
     use_random_seed: bool = True

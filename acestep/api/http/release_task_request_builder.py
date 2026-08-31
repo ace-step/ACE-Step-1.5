@@ -8,10 +8,6 @@ from typing import Any, Optional
 def _optional_str(parser: Any, name: str) -> Optional[str]:
     """Read a parameter as a string, preserving absence as ``None``.
 
-    ``parser.str`` substitutes a default for a missing key, which makes an
-    omitted value indistinguishable from an explicitly supplied one. Fields whose
-    downstream behaviour depends on that distinction use this instead.
-
     Args:
         parser: Request parser exposing ``get``.
         name: Canonical parameter name.

@@ -7,19 +7,10 @@ plus the two defaults that give it its meaning.
 
 import unittest
 
-try:
-    from acestep.inference import GenerationParams, _is_vocal_language_unset
-    from acestep.api.http.release_task_models import GenerateMusicRequest
-
-    _IMPORT_ERROR = None
-except ImportError as exc:  # pragma: no cover
-    GenerationParams = None
-    GenerateMusicRequest = None
-    _is_vocal_language_unset = None
-    _IMPORT_ERROR = exc
+from acestep.api.http.release_task_models import GenerateMusicRequest
+from acestep.inference import GenerationParams, _is_vocal_language_unset
 
 
-@unittest.skipIf(_is_vocal_language_unset is None, f"import unavailable: {_IMPORT_ERROR}")
 class IsVocalLanguageUnsetTests(unittest.TestCase):
     """Cover the guard that decides whether CoT may set the vocal language."""
 
@@ -46,7 +37,6 @@ class IsVocalLanguageUnsetTests(unittest.TestCase):
         self.assertFalse(_is_vocal_language_unset("  pa  "))
 
 
-@unittest.skipIf(GenerationParams is None, f"import unavailable: {_IMPORT_ERROR}")
 class CotLanguageDefaultsTests(unittest.TestCase):
     """Pin the defaults the fix relies on.
 

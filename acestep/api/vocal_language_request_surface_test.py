@@ -9,23 +9,12 @@ from __future__ import annotations
 
 import unittest
 
-try:
-    from acestep.api.http.release_task_models import GenerateMusicRequest
-    from acestep.api.http.release_task_param_parser import RequestParser
-    from acestep.api.http.release_task_request_builder import build_generate_music_request
-    from acestep.api.job_generation_setup import build_generation_setup
-    from acestep.constants import DEFAULT_DIT_INSTRUCTION
-    from acestep.inference import _is_vocal_language_unset
-
-    _IMPORT_ERROR = None
-except ImportError as exc:  # pragma: no cover
-    GenerateMusicRequest = None
-    RequestParser = None
-    build_generate_music_request = None
-    build_generation_setup = None
-    DEFAULT_DIT_INSTRUCTION = ""
-    _is_vocal_language_unset = None
-    _IMPORT_ERROR = exc
+from acestep.api.http.release_task_models import GenerateMusicRequest
+from acestep.api.http.release_task_param_parser import RequestParser
+from acestep.api.http.release_task_request_builder import build_generate_music_request
+from acestep.api.job_generation_setup import build_generation_setup
+from acestep.constants import DEFAULT_DIT_INSTRUCTION
+from acestep.inference import _is_vocal_language_unset
 
 
 def _request(body: dict):
@@ -60,7 +49,6 @@ def _params(body: dict, use_cot_language: bool = True):
     return setup.params
 
 
-@unittest.skipIf(build_generation_setup is None, f"import unavailable: {_IMPORT_ERROR}")
 class OmittedVocalLanguageTests(unittest.TestCase):
     """An omitted language must leave CoT detection free to fill it in."""
 
@@ -85,7 +73,6 @@ class OmittedVocalLanguageTests(unittest.TestCase):
         self.assertEqual(params.vocal_language, "en")
 
 
-@unittest.skipIf(build_generation_setup is None, f"import unavailable: {_IMPORT_ERROR}")
 class ExplicitVocalLanguageTests(unittest.TestCase):
     """An explicitly supplied language must be preserved against detection."""
 

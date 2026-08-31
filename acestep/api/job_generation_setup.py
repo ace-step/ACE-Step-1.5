@@ -99,12 +99,6 @@ def _resolve_generation_seeds(req: Any) -> Optional[list[int]]:
 def _resolve_vocal_language(requested: Optional[str], use_cot_language: bool) -> str:
     """Resolve the vocal language to condition on from the request.
 
-    ``None`` means the caller supplied no language. CoT detection should then
-    remain free to fill it in, so the ``"unknown"`` placeholder is returned;
-    ``inference._is_vocal_language_unset`` treats that as unset. When detection is
-    disabled there is nothing to fill it in, so the historical API default
-    ``"en"`` is kept instead of conditioning on a placeholder.
-
     An explicitly supplied value is returned unchanged, including ``"en"``. That
     is what stops CoT from replacing a deliberate choice, and it is why an
     omitted value must not be defaulted before reaching this point.

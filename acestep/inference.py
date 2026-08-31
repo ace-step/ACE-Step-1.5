@@ -36,6 +36,7 @@ IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
 DIRECT_CONDITIONING_TASKS = frozenset(
     {"cover", "cover-nofsq", "repaint", "extract", "complete", "lego"}
 )
+_UNSET_VOCAL_LANGUAGES = frozenset({"", "unknown"})
 
 def _get_spaces_gpu_decorator(duration=180):
     """
@@ -338,6 +339,23 @@ class UnderstandResult:
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for JSON serialization."""
         return asdict(self)
+
+
+def _is_vocal_language_unset(vocal_language: Optional[str]) -> bool:
+    """Report whether a vocal language names no language, so CoT may set it.
+
+    ``"unknown"`` counts as unset because it is the
+    ``GenerationParams.vocal_language`` default.
+
+    Args:
+        vocal_language: Requested language code, if any.
+
+    Returns:
+        True when CoT detection may replace the value.
+    """
+    if not vocal_language:
+        return True
+    return vocal_language.strip().lower() in _UNSET_VOCAL_LANGUAGES
 
 
 def _update_metadata_from_lm(
@@ -825,7 +843,18 @@ def generate_music(
             if params.use_cot_caption:
                 dit_input_caption = lm_generated_metadata.get("caption", dit_input_caption)
             if params.use_cot_language:
-                dit_input_vocal_language = lm_generated_metadata.get("vocal_language", dit_input_vocal_language)
+                if _is_vocal_language_unset(params.vocal_language):
+                    dit_input_vocal_language = lm_generated_metadata.get(
+                        "vocal_language", dit_input_vocal_language
+                    )
+                else:
+                    detected_language = lm_generated_metadata.get("vocal_language")
+                    if detected_language and detected_language != dit_input_vocal_language:
+                        logger.info(
+                            f"[generate_music] Keeping requested vocal_language "
+                            f"'{dit_input_vocal_language}' over CoT-detected "
+                            f"'{detected_language}'"
+                        )
 
         # Direct-conditioning tasks: no LM run, so conditioning must come from params (caption + lyrics from GUI).
         if params.task_type in DIRECT_CONDITIONING_TASKS:

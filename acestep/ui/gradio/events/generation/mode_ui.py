@@ -56,7 +56,9 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     if is_cover:
         strength_kwargs["value"] = 0.0
     strength_update = gr.update(**strength_kwargs)
-    cover_noise_update = gr.update(visible=is_cover, value=0.2) if is_cover else gr.update(visible=False)
+    # Reset the value (not just hide) when leaving cover mode so a stale
+    # cover_noise_strength cannot leak into text2music (issue #1271).
+    cover_noise_update = gr.update(visible=is_cover, value=0.2) if is_cover else gr.update(visible=False, value=0.0)
 
     # Think checkbox
     lm_initialized = llm_handler.llm_initialized if llm_handler else False

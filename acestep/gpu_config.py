@@ -1041,7 +1041,14 @@ def get_lm_gpu_memory_ratio(
             # Convert to ratio of total GPU memory
             # nano-vllm uses: target_total_usage = total * gpu_memory_utilization
             # We want: (total * ratio) = current_usage + usable_for_lm
-            current_usage_gb = actual_total_gb - free_gb
+            # current_usage = live tensors in the process (memory_allocated), i.e. the
+            # DiT/VAE/text baseline at LM-init since unload() tears down the prior LM
+            # engine first. NOT the driver's total-free, which counts the caching
+            # allocator's `inactive` pool plus the fixed CUDA-context floor — both
+            # grow across reloads and inflate the ratio -> KV cache. The live-tensor
+            # view matches allocate_kv_cache (model_runner.py), so re-init no longer
+            # inflates the KV cache and the LM gets its design-sized budget.
+            current_usage_gb = torch.cuda.memory_allocated() / (1024**3)
             desired_total_usage = current_usage_gb + usable_for_lm
             ratio = desired_total_usage / actual_total_gb
 

@@ -109,6 +109,13 @@ class _Host(GenerateMusicMixin):
         self.calls["_resolve_generate_music_task"] = kwargs
         return kwargs["task_type"], kwargs["instruction"]
 
+    def _neutralize_cover_only_params(self, **kwargs):
+        """Mirror ``GenerateMusicRequestMixin``'s text2music-only reset (issue #1271)."""
+        self.calls["_neutralize_cover_only_params"] = kwargs
+        if kwargs["task_type"] == "text2music":
+            return 1.0, 0.0
+        return kwargs["audio_cover_strength"], kwargs["cover_noise_strength"]
+
     def _prepare_generate_music_runtime(self, **kwargs):
         """Capture runtime args and return deterministic runtime state."""
         self.calls["_prepare_generate_music_runtime"] = kwargs
@@ -290,6 +297,58 @@ class VramPreflightCheckTests(unittest.TestCase):
             guidance_scale=7.0,
         )
         self.assertIsNone(result)
+
+
+class VramPreflightOrchestrationTests(unittest.TestCase):
+    """Verify CUDA cleanup and the explicit preflight escape hatch."""
+
+    _GM_MOD = GENERATE_MUSIC_MODULE
+
+    @patch.object(_GM_MOD.gc, "collect")
+    @patch.object(_GM_MOD.torch.cuda, "empty_cache")
+    @patch.object(_GM_MOD.torch.cuda, "is_available", return_value=True)
+    def test_generate_music_runs_preflight_by_default(
+        self, _mock_cuda, mock_empty_cache, mock_collect
+    ):
+        """The safety check stays enabled when no opt-out is requested."""
+        host = _Host()
+        with (
+            patch.dict(
+                self._GM_MOD.os.environ,
+                {"ACESTEP_SKIP_VRAM_PREFLIGHT": ""},
+            ),
+            patch.object(
+                host, "_vram_preflight_check", return_value=None
+            ) as mock_preflight,
+        ):
+            out = host.generate_music(captions="cap", lyrics="lyr")
+
+        self.assertEqual(out, host._final_payload)
+        mock_collect.assert_called_with()
+        mock_empty_cache.assert_called_once_with()
+        mock_preflight.assert_called_once()
+
+    @patch.object(_GM_MOD.gc, "collect")
+    @patch.object(_GM_MOD.torch.cuda, "empty_cache")
+    @patch.object(_GM_MOD.torch.cuda, "is_available", return_value=True)
+    def test_generate_music_skips_preflight_only_when_explicitly_requested(
+        self, _mock_cuda, mock_empty_cache, mock_collect
+    ):
+        """The documented environment flag bypasses only the safety check."""
+        host = _Host()
+        with (
+            patch.dict(
+                self._GM_MOD.os.environ,
+                {"ACESTEP_SKIP_VRAM_PREFLIGHT": "true"},
+            ),
+            patch.object(host, "_vram_preflight_check") as mock_preflight,
+        ):
+            out = host.generate_music(captions="cap", lyrics="lyr")
+
+        self.assertEqual(out, host._final_payload)
+        mock_collect.assert_called_with()
+        mock_empty_cache.assert_called_once_with()
+        mock_preflight.assert_not_called()
 
 
 class TurboGuidanceScaleTests(unittest.TestCase):

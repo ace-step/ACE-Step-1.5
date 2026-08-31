@@ -5,6 +5,7 @@ This module provides the public ``generate_music`` entry point extracted from
 """
 
 import gc
+import os
 import traceback
 from typing import Any, Dict, List, Optional, Union
 
@@ -296,6 +297,15 @@ class GenerateMusicMixin:
             instruction=instruction,
         )
 
+        # Neutralize stale cover-only params for text2music; preserve them for
+        # source-audio tasks. All entry points (single/batch/API) pass through
+        # here (issue #1271).
+        audio_cover_strength, cover_noise_strength = self._neutralize_cover_only_params(
+            task_type=task_type,
+            audio_cover_strength=audio_cover_strength,
+            cover_noise_strength=cover_noise_strength,
+        )
+
         # Turbo models bake guidance into the distillation process and do not
         # use CFG.  Forcing guidance_scale to 1.0 avoids double-application of
         # guidance that produces noise or NaN/Inf on float16 (see issue #927).
@@ -386,13 +396,26 @@ class GenerateMusicMixin:
                 repainting_end=repainting_end,
                 chunk_mask_mode=chunk_mask_mode,
             )
-            vram_error = self._vram_preflight_check(
-                actual_batch_size=actual_batch_size,
-                audio_duration=audio_duration,
-                guidance_scale=guidance_scale,
-            )
-            if vram_error is not None:
-                return vram_error
+            if torch.cuda.is_available():
+                gc.collect()
+                torch.cuda.empty_cache()
+                skip_preflight = os.environ.get(
+                    "ACESTEP_SKIP_VRAM_PREFLIGHT", "",
+                ).lower() in ("1", "true", "yes")
+                if skip_preflight:
+                    logger.warning(
+                        "[generate_music] VRAM pre-flight check skipped via "
+                        "ACESTEP_SKIP_VRAM_PREFLIGHT=1. If generation OOMs, "
+                        "unset this variable to re-enable the safety check."
+                    )
+                else:
+                    vram_error = self._vram_preflight_check(
+                        actual_batch_size=actual_batch_size,
+                        audio_duration=audio_duration,
+                        guidance_scale=guidance_scale,
+                    )
+                    if vram_error is not None:
+                        return vram_error
 
             injection_ratio, resolved_cf_frames, resolved_wav_cf = (
                 _resolve_repaint_config(repaint_mode, repaint_strength)

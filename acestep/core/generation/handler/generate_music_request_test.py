@@ -47,6 +47,32 @@ class GenerateMusicRequestMixinTests(unittest.TestCase):
         self.assertEqual(task, "cover")
         self.assertNotEqual(instruction, "old")
 
+    def test_neutralize_cover_params_reset_for_text2music(self):
+        """text2music must drop leaked cover params to neutral (issue #1271)."""
+        host = _Host()
+        strength, noise = host._neutralize_cover_only_params(
+            task_type="text2music",
+            audio_cover_strength=0.0,
+            cover_noise_strength=0.2,
+        )
+        self.assertEqual((strength, noise), (1.0, 0.0))
+
+    def test_neutralize_cover_params_preserved_for_src_audio_tasks(self):
+        """Tasks operating on real source audio/codes must keep their params.
+
+        Only text2music lacks real source content (it runs on a silence
+        latent); every other task type -- including repaint/lego/extract/
+        complete, not just cover -- must be unaffected by this guard.
+        """
+        host = _Host()
+        for task in ("cover", "cover-nofsq", "repaint", "lego", "extract", "complete"):
+            strength, noise = host._neutralize_cover_only_params(
+                task_type=task,
+                audio_cover_strength=0.3,
+                cover_noise_strength=0.15,
+            )
+            self.assertEqual((strength, noise), (0.3, 0.15), task)
+
     def test_prepare_runtime_normalizes_batch_and_duration(self):
         """Runtime helper should clamp batch floor and normalize invalid duration/end values."""
         host = _Host()

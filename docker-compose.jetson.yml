@@ -55,7 +55,26 @@ services:
       # CUDA graph capture is auto-disabled on Jetson (enforce_eager).
       - ACESTEP_LLM_BACKEND=${ACESTEP_LLM_BACKEND:-vllm}
       - ACESTEP_INIT_SERVICE=${ACESTEP_INIT_SERVICE:-true}
+      #
+      # ---- DiT model (ACESTEP_CONFIG_PATH) ----
+      # acestep-v15-turbo              — Fast turbo model (default, recommended)
+      # acestep-v15-base               — Full base model (Extract/Lego/Complete)
+      # acestep-v15-sft                — Supervised fine-tuned
+      # acestep-v15-base-sft-fix-inst  — Base-SFT with instruction fix
+      # acestep-v15-turbo-shift1       — Turbo shift-1 variant
+      # acestep-v15-turbo-shift3       — Turbo shift-3 variant
+      # acestep-v15-turbo-continuous   — Turbo continuous variant
+      # acestep-v15-turbo-rl           — Turbo reinforcement-learned
+      # acestep-v15-xl-base            — XL 4B DiT base (requires more VRAM)
+      # acestep-v15-xl-sft             — XL 4B DiT supervised fine-tuned
+      # acestep-v15-xl-turbo           — XL 4B DiT turbo
       - ACESTEP_CONFIG_PATH=${ACESTEP_CONFIG_PATH:-acestep-v15-turbo}
+      #
+      # ---- LM model (ACESTEP_LM_MODEL_PATH) ----
+      # ≤6GB devices: set ACESTEP_INIT_SERVICE=false, then initialize only the DiT.
+      # acestep-5Hz-lm-0.6B  — Smallest, ~3GB  (Orin Nano 8GB)
+      # acestep-5Hz-lm-1.7B  — Mid-size, ~8GB  (Orin NX 16GB)
+      # acestep-5Hz-lm-4B    — Best quality, ~12GB (AGX Orin ≥32GB)
       - ACESTEP_LM_MODEL_PATH=${ACESTEP_LM_MODEL_PATH:-acestep-5Hz-lm-4B}
       - ACESTEP_EXTRA_ARGS=${ACESTEP_EXTRA_ARGS:-}
       - TOKENIZERS_PARALLELISM=false

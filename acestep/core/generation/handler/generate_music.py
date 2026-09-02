@@ -323,8 +323,13 @@ class GenerateMusicMixin:
         # adapter weights on the wrong device, causing NaN in the diffusion
         # forward pass.  The check is cheap and prevents a hard-to-debug
         # generation failure.
-        if getattr(self, "lora_loaded", False) and getattr(self, "use_lora", False):
+        if (
+            getattr(self, "lora_loaded", False)
+            and getattr(self, "use_lora", False)
+            and not getattr(self, "offload_dit_to_cpu", False)
+        ):
             self._verify_decoder_device_dtype()
+
 
         logger.info("[generate_music] Starting generation...")
         if progress:

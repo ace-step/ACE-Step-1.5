@@ -297,6 +297,15 @@ class GenerateMusicMixin:
             instruction=instruction,
         )
 
+        # Neutralize stale cover-only params for text2music; preserve them for
+        # source-audio tasks. All entry points (single/batch/API) pass through
+        # here (issue #1271).
+        audio_cover_strength, cover_noise_strength = self._neutralize_cover_only_params(
+            task_type=task_type,
+            audio_cover_strength=audio_cover_strength,
+            cover_noise_strength=cover_noise_strength,
+        )
+
         # Turbo models bake guidance into the distillation process and do not
         # use CFG.  Forcing guidance_scale to 1.0 avoids double-application of
         # guidance that produces noise or NaN/Inf on float16 (see issue #927).

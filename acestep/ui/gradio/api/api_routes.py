@@ -127,8 +127,14 @@ atexit.register(_close_result_cache)
 # =============================================================================
 
 def _get_project_root() -> str:
-    """Get project root directory"""
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    """Get project root directory.
+
+    Returns:
+        Absolute path to the repository root, five directories up from
+        this file (acestep/ui/gradio/api/api_routes.py).
+    """
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))))
 
 
 def _load_all_examples(sample_mode: str = "simple_mode") -> List[Dict[str, Any]]:

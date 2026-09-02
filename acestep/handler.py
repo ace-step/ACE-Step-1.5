@@ -9,7 +9,7 @@ import sys
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 import warnings
@@ -122,6 +122,10 @@ class AceStepHandler(
         
         # Reward model (temporarily disabled)
         self.reward_model = None
+
+        # Experimental PyTorch-only sampler hook. It remains None unless an
+        # independently qualified topology corrector is installed explicitly.
+        self.topology_corrector = None
         
         # Batch size
         self.batch_size = 2
@@ -173,4 +177,11 @@ class AceStepHandler(
         # MLX VAE decode chunk size — auto-detected from gpu_config,
         # overridable via the Gradio UI slider or ACESTEP_MLX_VAE_CHUNK env var.
         self.mlx_vae_chunk_size = _get_gpu_cfg().mlx_vae_chunk_size
+
+    def set_topology_corrector(self, corrector: Optional[Any]) -> None:
+        """Install an explicitly qualified PyTorch sampler corrector or clear it."""
+
+        if corrector is not None and not callable(corrector):
+            raise TypeError("topology corrector must be callable or None")
+        self.topology_corrector = corrector
 

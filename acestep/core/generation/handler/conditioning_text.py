@@ -33,12 +33,22 @@ class ConditioningTextMixin:
                 if hints is not None:
                     if hints.shape[1] < max_latent_length:
                         pad_length = max_latent_length - hints.shape[1]
-                        pad = self.silence_latent
-                        if pad.dim() == 2:
-                            pad = pad.unsqueeze(0)
                         if hints.dim() == 2:
                             hints = hints.unsqueeze(0)
-                        pad_chunk = pad[:, :pad_length, :]
+                        # 用 _get_silence_latent_slice 而不是 self.silence_latent[:, :pad_length, :]:
+                        # 后者在 silence_latent 的帧数不足 pad_length 时会静默给出一个更短的
+                        # 切片, cat 之后 hints 达不到 max_latent_length, 一直到下面 torch.stack
+                        # 才炸 —— 而 stack 那一行要把它和 silence_latent_tiled 并排, 后者是走
+                        # _get_silence_latent_slice 平铺出来的、长度精确, 于是报
+                        #   stack expects each tensor to be equal size,
+                        #   but got [15010, 64] at entry 0 and [17500, 64] at entry 1
+                        #
+                        # conditioning_target.py 里的 _get_silence_latent_slice 本来就是为这个
+                        # 问题加的(见它的 docstring: audio_duration 为 null 且生成的 code 数
+                        # 超过存储的 silence latent 尺寸), 但当时只改了 target 那条路径,
+                        # text 这条漏了。本次现场正是 task_type=text2music、duration=None,
+                        # 同一个触发条件。
+                        pad_chunk = self._get_silence_latent_slice(pad_length).unsqueeze(0)
                         if pad_chunk.device != hints.device or pad_chunk.dtype != hints.dtype:
                             pad_chunk = pad_chunk.to(device=hints.device, dtype=hints.dtype)
                         hints = torch.cat([hints, pad_chunk], dim=1)
@@ -51,7 +61,22 @@ class ConditioningTextMixin:
                 precomputed_lm_hints_25hz_list.append(None)
 
         if any(h is not None for h in precomputed_lm_hints_25hz_list):
-            return torch.stack([h if h is not None else silence_latent_tiled for h in precomputed_lm_hints_25hz_list])
+            stack_items = [h if h is not None else silence_latent_tiled
+                           for h in precomputed_lm_hints_25hz_list]
+            # 上面的 padding 已经保证长度一致, 这里再兜一道: torch.stack 原生的报错
+            # 只说 "entry 0 / entry 1" 和两个形状, 不说是哪一批、哪个 batch 位、
+            # 期望多长 —— 这个 bug 上次就是因此只能靠猜(fp 71c68dad)。真出问题时
+            # 直接说清楚, 而不是把诊断成本推给下一次排查。
+            bad = [(i, tuple(t.shape)) for i, t in enumerate(stack_items)
+                   if t.shape[0] != max_latent_length]
+            if bad:
+                raise RuntimeError(
+                    "precomputed LM hints 长度与 max_latent_length(%d) 不一致: %s; "
+                    "silence_latent 可用帧=%s, silence_latent_tiled=%s"
+                    % (max_latent_length, bad,
+                       getattr(self.silence_latent, "shape", None),
+                       tuple(silence_latent_tiled.shape)))
+            return torch.stack(stack_items)
         return None
 
     def _prepare_text_conditioning_inputs(

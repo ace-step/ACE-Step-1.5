@@ -6,6 +6,8 @@ Handler wrapper connecting model and UI
 import os
 import sys
 
+from loguru import logger
+
 # Load environment variables from .env file at most once per process to avoid
 # epoch-boundary stalls (e.g. on Windows when Gradio yields during training)
 _env_loaded = False  # module-level so we never reload .env in the same process

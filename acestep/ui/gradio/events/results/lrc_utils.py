@@ -292,12 +292,12 @@ def generate_lrc_handler(dit_handler, sample_idx, current_batch_index, batch_que
 
             if "lrcs" not in batch_queue[current_batch_index]:
                 batch_queue[current_batch_index]["lrcs"] = [""] * 8
-            batch_queue[current_batch_index]["lrcs"][idx0] = lrc_text
+            batch_queue[current_batch_index]["lrcs"][sample_idx - 1] = lrc_text
 
             vtt_path = lrc_to_vtt_file(lrc_text, total_duration=float(audio_duration))
             if "subtitles" not in batch_queue[current_batch_index]:
                 batch_queue[current_batch_index]["subtitles"] = [None] * 8
-            batch_queue[current_batch_index]["subtitles"][idx0] = vtt_path
+            batch_queue[current_batch_index]["subtitles"][sample_idx - 1] = vtt_path
 
             return gr.update(value=lrc_text, visible=True), gr.skip(), batch_queue
         else:

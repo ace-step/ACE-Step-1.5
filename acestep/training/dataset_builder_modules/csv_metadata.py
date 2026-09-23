@@ -1,3 +1,5 @@
+"""Load per-audio training annotations from CSV metadata files."""
+
 import os
 import csv
 from typing import Any, Dict
@@ -22,7 +24,7 @@ def load_csv_metadata(directory: str) -> Dict[str, Dict[str, Any]]:
 
     for csv_path in csv_files:
         try:
-            with open(csv_path, "r", encoding="utf-8") as f:
+            with open(csv_path, "r", encoding="utf-8-sig") as f:
                 sample = f.read(4096)
                 f.seek(0)
 

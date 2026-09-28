@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 import torch
 import numpy as np
 
-from acestep.audio_utils import AudioSaver, apply_fade, save_audio
+from acestep.audio_utils import AudioSaver, AudioExportDegradedError, apply_fade, save_audio
 
 class AudioSaverFormatTests(unittest.TestCase):
     """Tests for AudioSaver format support, especially new Opus and AAC formats."""
@@ -334,6 +334,106 @@ class AudioSaverFormatTests(unittest.TestCase):
                     sample_rate=self.sample_rate,
                     format="mp3",
                 )
+
+    def test_save_mp3_missing_ffmpeg_preserves_wav_fallback(self):
+        """When ffmpeg is missing, the already-synthesized WAV must be preserved.
+
+        Generation itself already succeeded before the ffmpeg step runs; a
+        missing ffmpeg binary should not discard that valid audio.
+        """
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with patch(
+            "acestep.audio_utils.subprocess.run",
+            side_effect=FileNotFoundError("ffmpeg not found"),
+        ):
+            with self.assertRaises(AudioExportDegradedError) as ctx:
+                saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
+
+        exc = ctx.exception
+        self.assertEqual(exc.requested_format, "mp3")
+        self.assertTrue(exc.wav_fallback_path.endswith(".wav"))
+        self.assertTrue(os.path.exists(exc.wav_fallback_path))
+        self.assertIn("ffmpeg", str(exc).lower())
+
+    def test_save_mp3_fallback_does_not_overwrite_existing_wav(self):
+        """Fallback WAV should use a unique name if the default <stem>.wav already exists."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+        existing_wav = output_path.with_suffix(".wav")
+        existing_data = b"original data"
+        existing_wav.write_bytes(existing_data)
+
+        with patch(
+            "acestep.audio_utils.subprocess.run",
+            side_effect=FileNotFoundError("ffmpeg not found"),
+        ):
+            with self.assertRaises(AudioExportDegradedError) as ctx:
+                saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
+
+        exc = ctx.exception
+        # Ensure the original file is untouched
+        self.assertEqual(existing_wav.read_bytes(), existing_data)
+        # Ensure a different fallback file was created and returned
+        self.assertNotEqual(exc.wav_fallback_path, str(existing_wav))
+        self.assertTrue(os.path.exists(exc.wav_fallback_path))
+        self.assertTrue(Path(exc.wav_fallback_path).name.startswith("test_fallback_"))
+
+    def test_save_mp3_timeout_preserves_wav_fallback(self):
+        """An ffmpeg timeout also preserves the already-synthesized WAV."""
+        import subprocess as subprocess_module
+
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with patch(
+            "acestep.audio_utils.subprocess.run",
+            side_effect=subprocess_module.TimeoutExpired(cmd="ffmpeg", timeout=120),
+        ):
+            with self.assertRaises(AudioExportDegradedError) as ctx:
+                saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
+
+        self.assertTrue(os.path.exists(ctx.exception.wav_fallback_path))
+
+    def test_save_audio_mp3_missing_ffmpeg_raises_degraded_error_with_valid_wav(self):
+        """save_audio() propagates AudioExportDegradedError with a playable WAV fallback."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with patch(
+            "acestep.audio_utils.subprocess.run",
+            side_effect=FileNotFoundError("ffmpeg not found"),
+        ):
+            with self.assertRaises(AudioExportDegradedError) as ctx:
+                saver.save_audio(
+                    self.sample_audio,
+                    output_path,
+                    sample_rate=self.sample_rate,
+                    format="mp3",
+                )
+
+        wav_path = ctx.exception.wav_fallback_path
+        self.assertTrue(os.path.exists(wav_path))
+        self.assertGreater(os.path.getsize(wav_path), 0)
+
+    def test_save_mp3_temp_file_cleaned_up_when_fallback_move_fails(self):
+        """If even the WAV fallback move fails, the original ffmpeg reason still surfaces."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+
+        with (
+            patch(
+                "acestep.audio_utils.subprocess.run",
+                side_effect=FileNotFoundError("ffmpeg not found"),
+            ),
+            patch("acestep.audio_utils.shutil.move", side_effect=OSError("disk full")),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
+
+        self.assertNotIsInstance(ctx.exception, AudioExportDegradedError)
+        self.assertIn("ffmpeg", str(ctx.exception).lower())
 
 class ApplyFadeTests(unittest.TestCase):
     """Tests for apply_fade function."""

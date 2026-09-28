@@ -357,6 +357,29 @@ class AudioSaverFormatTests(unittest.TestCase):
         self.assertTrue(os.path.exists(exc.wav_fallback_path))
         self.assertIn("ffmpeg", str(exc).lower())
 
+    def test_save_mp3_fallback_does_not_overwrite_existing_wav(self):
+        """Fallback WAV should use a unique name if the default <stem>.wav already exists."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.mp3"
+        existing_wav = output_path.with_suffix(".wav")
+        existing_data = b"original data"
+        existing_wav.write_bytes(existing_data)
+
+        with patch(
+            "acestep.audio_utils.subprocess.run",
+            side_effect=FileNotFoundError("ffmpeg not found"),
+        ):
+            with self.assertRaises(AudioExportDegradedError) as ctx:
+                saver._save_mp3(self.sample_audio, output_path, self.sample_rate)
+
+        exc = ctx.exception
+        # Ensure the original file is untouched
+        self.assertEqual(existing_wav.read_bytes(), existing_data)
+        # Ensure a different fallback file was created and returned
+        self.assertNotEqual(exc.wav_fallback_path, str(existing_wav))
+        self.assertTrue(os.path.exists(exc.wav_fallback_path))
+        self.assertTrue(Path(exc.wav_fallback_path).name.startswith("test_fallback_"))
+
     def test_save_mp3_timeout_preserves_wav_fallback(self):
         """An ffmpeg timeout also preserves the already-synthesized WAV."""
         import subprocess as subprocess_module

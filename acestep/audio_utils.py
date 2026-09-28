@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import hashlib
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Union, Optional, List, Tuple
 import torch
@@ -33,6 +34,14 @@ class AudioExportDegradedError(RuntimeError):
     """
 
     def __init__(self, message: str, wav_fallback_path: str, requested_format: str):
+        """
+        Initialize degraded export error.
+
+        Args:
+            message: Error message describing the failure.
+            wav_fallback_path: Path to the preserved WAV fallback file.
+            requested_format: The audio format that failed to export.
+        """
         super().__init__(message)
         self.wav_fallback_path = wav_fallback_path
         self.requested_format = requested_format
@@ -209,6 +218,8 @@ class AudioSaver:
             # The WAV was already synthesized successfully before the ffmpeg
             # step -- preserve it instead of discarding a valid result.
             wav_fallback_path = output_path.with_suffix(".wav")
+            if wav_fallback_path.exists():
+                wav_fallback_path = output_path.with_name(f"{output_path.stem}_fallback_{uuid.uuid4().hex[:8]}.wav")
             try:
                 shutil.move(str(temp_wav_path), str(wav_fallback_path))
             except Exception:

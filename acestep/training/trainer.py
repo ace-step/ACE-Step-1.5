@@ -81,21 +81,17 @@ def _normalize_device_type(device: Any) -> str:
 
 def _select_compute_dtype(device_type: str) -> torch.dtype:
     """Pick the compute dtype for each accelerator."""
-    if device_type in ("cuda", "xpu"):
+    if device_type in ("cuda", "xpu", "mps"):
+        # MPS fp16 overflows in the XL decoder and turns every LoRA gradient
+        # non-finite. bfloat16 keeps the fp32 range on Apple Silicon.
         return torch.bfloat16
-    if device_type == "mps":
-        return torch.float16
     return torch.float32
 
 
 def _select_fabric_precision(device_type: str) -> str:
     """Pick Fabric precision plugin setting for each accelerator."""
-    if device_type in ("cuda", "xpu"):
+    if device_type in ("cuda", "xpu", "mps"):
         return "bf16-mixed"
-    if device_type == "mps":
-        # Use AMP on MPS for better throughput. Trainable LoRA parameters are
-        # explicitly forced to fp32 before optimizer/Fabric setup.
-        return "16-mixed"
     return "32-true"
 
 
@@ -473,7 +469,7 @@ class PreprocessedLoRAModule(nn.Module):
         Returns:
             Loss tensor (float32 for stable backward)
         """
-        # Use autocast for mixed precision training (bf16 on CUDA/XPU, fp16 on MPS)
+        # Use autocast for mixed precision training (bf16 on CUDA/XPU/MPS)
         if self.device_type in ("cuda", "xpu", "mps"):
             autocast_ctx = torch.autocast(
                 device_type=self.device_type, dtype=self.dtype
@@ -711,6 +707,10 @@ class LoRATrainer:
         accelerator = (
             device_type if device_type in ("cuda", "xpu", "mps", "cpu") else "auto"
         )
+        # 16-mixed multiplies the loss before backward. Those scaled gradients
+        # overflow and are not the values Adam would apply. bf16-mixed does not
+        # scale, so a finite check there sees the real gradient.
+        manual_nonfinite_check = precision != "16-mixed"
 
         # Create TensorBoard logger when available; continue without it otherwise.
         tb_logger = None
@@ -740,9 +740,8 @@ class LoRATrainer:
             f"🚀 Starting training (device: {device_type}, precision: {precision})...",
         )
 
-        # Keep decoder weights in a stable dtype before optimizer/Fabric setup.
-        # MPS stays in fp32 weights for stability; computation still uses fp16
-        # autocast inside training_step.
+        # Keep decoder weights in fp32. Mixed precision still autocasts the
+        # forward to the compute dtype selected for this device.
         if device_type == "mps" or precision.endswith("-mixed"):
             self.module.model.decoder = self.module.model.decoder.to(
                 dtype=torch.float32
@@ -965,22 +964,23 @@ class LoRATrainer:
                     accumulation_step
                     >= self.training_config.gradient_accumulation_steps
                 ):
-                    nonfinite_grads, grad_tensors = _count_nonfinite_grads(
-                        trainable_params
-                    )
-                    if nonfinite_grads > 0:
-                        optimizer.zero_grad(set_to_none=True)
-                        yield (
-                            global_step,
-                            float("nan"),
-                            (
-                                f"⚠️ Non-finite gradients ({nonfinite_grads}/{grad_tensors}); "
-                                "skipping optimizer step"
-                            ),
+                    if manual_nonfinite_check:
+                        nonfinite_grads, grad_tensors = _count_nonfinite_grads(
+                            trainable_params
                         )
-                        accumulated_loss = 0.0
-                        accumulation_step = 0
-                        continue
+                        if nonfinite_grads > 0:
+                            optimizer.zero_grad(set_to_none=True)
+                            yield (
+                                global_step,
+                                float("nan"),
+                                (
+                                    f"⚠️ Non-finite gradients ({nonfinite_grads}/{grad_tensors}); "
+                                    "skipping optimizer step"
+                                ),
+                            )
+                            accumulated_loss = 0.0
+                            accumulation_step = 0
+                            continue
 
                     self.fabric.clip_gradients(
                         self.module.model.decoder,
@@ -1026,20 +1026,26 @@ class LoRATrainer:
             # Flush remainder to avoid dropping gradients when epoch length is not
             # divisible by gradient_accumulation_steps.
             if accumulation_step > 0:
-                nonfinite_grads, grad_tensors = _count_nonfinite_grads(trainable_params)
-                if nonfinite_grads > 0:
-                    optimizer.zero_grad(set_to_none=True)
-                    yield (
-                        global_step,
-                        float("nan"),
-                        (
-                            f"⚠️ Non-finite gradients ({nonfinite_grads}/{grad_tensors}); "
-                            "skipping optimizer remainder step"
-                        ),
+                nonfinite_remainder = False
+                if manual_nonfinite_check:
+                    nonfinite_grads, grad_tensors = _count_nonfinite_grads(
+                        trainable_params
                     )
-                    accumulated_loss = 0.0
-                    accumulation_step = 0
-                else:
+                    if nonfinite_grads > 0:
+                        optimizer.zero_grad(set_to_none=True)
+                        yield (
+                            global_step,
+                            float("nan"),
+                            (
+                                f"⚠️ Non-finite gradients ({nonfinite_grads}/{grad_tensors}); "
+                                "skipping optimizer remainder step"
+                            ),
+                        )
+                        accumulated_loss = 0.0
+                        accumulation_step = 0
+                        nonfinite_remainder = True
+
+                if not nonfinite_remainder:
                     self.fabric.clip_gradients(
                         self.module.model.decoder,
                         optimizer,
@@ -1051,31 +1057,41 @@ class LoRATrainer:
                     scheduler.step()
                     optimizer.zero_grad(set_to_none=True)
 
-                global_step += 1
-                avg_loss = accumulated_loss / accumulation_step
-                if global_step % self.training_config.log_every_n_steps == 0:
-                    if training_state is not None:
-                        if ema_loss is None:
-                            ema_loss = avg_loss
-                        else:
-                            ema_loss = ema_alpha * avg_loss + (1 - ema_alpha) * ema_loss
-                        training_state["plot_steps"].append(global_step)
-                        training_state["plot_loss"].append(avg_loss)
-                        training_state["plot_ema"].append(ema_loss)
-                    self.fabric.log("train/loss", avg_loss, step=global_step)
-                    self.fabric.log(
-                        "train/lr", scheduler.get_last_lr()[0], step=global_step
-                    )
-                    yield (
-                        global_step,
-                        avg_loss,
-                        f"Epoch {epoch + 1}/{self.training_config.max_epochs}, Step {global_step}, Loss: {avg_loss:.4f}",
-                    )
+                    global_step += 1
+                    avg_loss = accumulated_loss / accumulation_step
+                    if global_step % self.training_config.log_every_n_steps == 0:
+                        if training_state is not None:
+                            if ema_loss is None:
+                                ema_loss = avg_loss
+                            else:
+                                ema_loss = (
+                                    ema_alpha * avg_loss + (1 - ema_alpha) * ema_loss
+                                )
+                            training_state["plot_steps"].append(global_step)
+                            training_state["plot_loss"].append(avg_loss)
+                            training_state["plot_ema"].append(ema_loss)
+                        self.fabric.log("train/loss", avg_loss, step=global_step)
+                        self.fabric.log(
+                            "train/lr", scheduler.get_last_lr()[0], step=global_step
+                        )
+                        yield (
+                            global_step,
+                            avg_loss,
+                            f"Epoch {epoch + 1}/{self.training_config.max_epochs}, Step {global_step}, Loss: {avg_loss:.4f}",
+                        )
 
                     epoch_loss += avg_loss
                     num_updates += 1
                     accumulated_loss = 0.0
                     accumulation_step = 0
+
+            if num_updates == 0:
+                yield (
+                    global_step,
+                    float("nan"),
+                    "❌ Training failed: every step produced non-finite gradients",
+                )
+                return
 
             # End of epoch
             epoch_time = time.time() - epoch_start_time

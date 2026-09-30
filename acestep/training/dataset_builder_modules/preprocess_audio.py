@@ -6,20 +6,32 @@ import numpy as np
 import torch
 import torchaudio
 
+# A long clip decodes in well under a minute. The cap stops a stuck ffmpeg
+# from blocking preprocessing forever.
+_FFMPEG_TIMEOUT_SECONDS = 300
 
-def _load_via_ffmpeg(audio_path: str) -> tuple[torch.Tensor, int]:
-    """Decode with the ffmpeg binary when torchaudio's TorchCodec build cannot.
 
-    TorchCodec wheels only link FFmpeg 4–8. A newer system FFmpeg (for example
-    Homebrew FFmpeg 9, libavutil.61) makes torchaudio.load raise before any
-    samples are read. The ffmpeg CLI on PATH can still decode the file.
-    """
-    ffmpeg = shutil.which("ffmpeg")
-    ffprobe = shutil.which("ffprobe")
-    if not ffmpeg or not ffprobe:
-        raise RuntimeError("ffmpeg and ffprobe are not on PATH")
+def _run_checked(command: list[str], *, text: bool) -> subprocess.CompletedProcess:
+    """Run a command and include its stderr when it fails."""
+    try:
+        return subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=text,
+            timeout=_FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr or ""
+        if isinstance(detail, bytes):
+            detail = detail.decode("utf-8", errors="replace")
+        detail = detail.strip() or f"command exited {exc.returncode}"
+        raise RuntimeError(detail) from exc
 
-    probe = subprocess.run(
+
+def _probe_audio_stream(ffprobe: str, audio_path: str) -> tuple[int, int]:
+    """Return the sample rate and channel count of the first audio stream."""
+    probe = _run_checked(
         [
             ffprobe,
             "-v",
@@ -30,37 +42,68 @@ def _load_via_ffmpeg(audio_path: str) -> tuple[torch.Tensor, int]:
             "stream=sample_rate,channels",
             "-of",
             "json",
+            "-i",
             audio_path,
         ],
-        check=True,
-        capture_output=True,
         text=True,
     )
-    stream = json.loads(probe.stdout)["streams"][0]
-    sample_rate = int(stream["sample_rate"])
-    channels = int(stream["channels"])
+    try:
+        streams = json.loads(probe.stdout)["streams"]
+        stream = streams[0]
+        sample_rate = int(stream["sample_rate"])
+        channels = int(stream["channels"])
+    except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"ffprobe returned no usable audio stream for {audio_path}"
+        ) from exc
+    if sample_rate < 1:
+        raise RuntimeError(
+            f"ffprobe reported sample rate {sample_rate} for {audio_path}"
+        )
     if channels < 1:
         raise RuntimeError(f"ffprobe reported no audio channels for {audio_path}")
+    return sample_rate, channels
 
-    decoded = subprocess.run(
+
+def _load_via_ffmpeg(audio_path: str) -> tuple[torch.Tensor, int]:
+    """Decode with the ffmpeg binary when torchaudio's TorchCodec build cannot.
+
+    TorchCodec wheels only link FFmpeg 4-8. A newer system FFmpeg (for example
+    Homebrew FFmpeg 9, libavutil.61) makes torchaudio.load raise before any
+    samples are read. The ffmpeg CLI on PATH can still decode the file.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if not ffmpeg or not ffprobe:
+        raise RuntimeError("ffmpeg and ffprobe are not on PATH")
+
+    sample_rate, channels = _probe_audio_stream(ffprobe, audio_path)
+    decoded = _run_checked(
         [
             ffmpeg,
             "-v",
             "error",
             "-i",
             audio_path,
+            "-map",
+            "0:a:0",
+            "-ac",
+            str(channels),
             "-f",
             "f32le",
             "-acodec",
             "pcm_f32le",
             "-",
         ],
-        check=True,
-        capture_output=True,
+        text=False,
     )
     pcm = np.frombuffer(decoded.stdout, dtype=np.float32).copy()
+    if pcm.size == 0:
+        raise RuntimeError(f"ffmpeg decoded no samples from {audio_path}")
     if pcm.size % channels != 0:
-        raise RuntimeError(f"ffmpeg output size is not divisible by {channels} channels")
+        raise RuntimeError(
+            f"ffmpeg output size is not divisible by {channels} channels"
+        )
     audio = torch.from_numpy(pcm.reshape(-1, channels).T).contiguous()
     return audio, sample_rate
 

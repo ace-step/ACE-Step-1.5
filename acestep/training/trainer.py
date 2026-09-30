@@ -1592,7 +1592,11 @@ class LoKRTrainer:
         accelerator = (
             device_type if device_type in ("cuda", "xpu", "mps", "cpu") else "auto"
         )
-        manual_nonfinite_check = not precision.endswith("-mixed")
+        # Same rule as LoRA. 16-mixed scales the loss, so a pre-unscale check
+        # sees scaled infs. bf16-mixed does not scale. MPS now selects
+        # bf16-mixed, and skipping the check there would let a non-finite
+        # LoKr step update the adapter.
+        manual_nonfinite_check = precision != "16-mixed"
 
         tb_logger = None
         try:

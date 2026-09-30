@@ -43,13 +43,15 @@ class AutoMlxVaeChunkSizeTests(unittest.TestCase):
         from acestep.gpu_config import _auto_mlx_vae_chunk_size
         self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=36), 512)
 
-    def test_high_memory_returns_1024(self):
+    def test_high_memory_stays_at_512(self):
+        """64 GB stays on a 512-frame decode window."""
         from acestep.gpu_config import _auto_mlx_vae_chunk_size
-        self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=64), 1024)
+        self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=64), 512)
 
-    def test_very_high_memory_returns_2048(self):
+    def test_very_high_memory_stays_at_512(self):
+        """128 GB stays on a 512-frame decode window."""
         from acestep.gpu_config import _auto_mlx_vae_chunk_size
-        self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=128), 2048)
+        self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=128), 512)
 
     def test_env_var_override(self):
         import os
@@ -74,12 +76,14 @@ class AutoMlxVaeChunkSizeTests(unittest.TestCase):
         self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=17), 512)
 
     def test_boundary_37gb(self):
+        """The 37 GB boundary stays on a 512-frame decode window."""
         from acestep.gpu_config import _auto_mlx_vae_chunk_size
-        self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=37), 1024)
+        self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=37), 512)
 
     def test_boundary_65gb(self):
+        """The 65 GB boundary stays on a 512-frame decode window."""
         from acestep.gpu_config import _auto_mlx_vae_chunk_size
-        self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=65), 2048)
+        self.assertEqual(_auto_mlx_vae_chunk_size(mem_gb=65), 512)
 
 
 if __name__ == "__main__":

@@ -801,12 +801,14 @@ def _auto_mlx_vae_chunk_size(mem_gb: Optional[float] = None) -> int:
         mem_gb = get_gpu_memory_gb()
     if mem_gb <= 16:
         size = 256
-    elif mem_gb <= 36:
-        size = 512
-    elif mem_gb <= 64:
-        size = 1024
     else:
-        size = 2048
+        # 512 latent frames is about 20 seconds of audio. A 1024 or 2048 frame
+        # window compiles into one MLX graph of roughly 40–80 seconds. That
+        # graph is allocated while the DiT is still resident, and on Apple
+        # Silicon macOS jetsam kills the process (exit 137) after diffusion
+        # has finished, so no audio is saved. Extra unified memory used to
+        # select the larger window, which made the kill more likely.
+        size = 512
     return max(192, size)
 
 

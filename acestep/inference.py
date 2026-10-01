@@ -546,7 +546,9 @@ def generate_music(
                     all_metadata_list.extend(metadata_list)
                     all_audio_codes_list.extend(audio_codes_list)
 
-                    server_logger.error(content=f"生成metadata: {metadata_list}", robot=True)
+                    # 每次生成都会走到的调试输出：只记本地，不推飞书（2026-10-01，见外层
+                    # tasks/consume_ace_step.py 的 _record_generation_log：此前每次生成都以 ERROR 级推进告警群）
+                    server_logger.error(content=f"生成metadata: {metadata_list}", robot=False)
 
                 else:
                     metadata = result.get("metadata", {})
@@ -554,7 +556,7 @@ def generate_music(
                     all_metadata_list.append(metadata)
                     all_audio_codes_list.append(audio_codes)
 
-                    server_logger.error(content=f"生成metadata: {metadata}", robot=True)
+                    server_logger.error(content=f"生成metadata: {metadata}", robot=False)   # 同上，只记本地
 
                 # Collect time costs from LM extra_outputs
                 lm_extra = result.get("extra_outputs", {})

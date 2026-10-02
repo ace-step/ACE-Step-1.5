@@ -3,7 +3,7 @@
 import contextlib
 import types
 import unittest
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import torch
 
@@ -18,14 +18,22 @@ class CoverNoiseStrengthForwardingTests(unittest.TestCase):
     """Verify `cover_noise_strength` survives the service-generation flow."""
 
     def test_service_generate_forwards_cover_noise_strength(self) -> None:
-        """`service_generate` should pass `cover_noise_strength` to model generation."""
+        """Preserve cover strength forwarding to the PyTorch backend."""
+        self._assert_cover_noise_strength_forwarded(use_mlx_dit=False)
+
+    def test_service_generate_forwards_cover_noise_strength_to_mlx(self) -> None:
+        """Forward cover strength to MLX without silently falling back to PyTorch."""
+        self._assert_cover_noise_strength_forwarded(use_mlx_dit=True)
+
+    def _assert_cover_noise_strength_forwarded(self, use_mlx_dit: bool) -> None:
+        """Check the selected backend receives the service's cover strength."""
         handler = AceStepHandler.__new__(AceStepHandler)
 
         handler.config = types.SimpleNamespace(is_turbo=False)
         handler.device = "cpu"
         handler.dtype = torch.float32
-        handler.use_mlx_dit = False
-        handler.mlx_decoder = None
+        handler.use_mlx_dit = use_mlx_dit
+        handler.mlx_decoder = object() if use_mlx_dit else None
         handler.silence_latent = torch.zeros(1, 16, 4, dtype=torch.float32)
 
         handler._normalize_instructions = lambda instructions, _batch, _default: instructions
@@ -70,6 +78,9 @@ class CoverNoiseStrengthForwardingTests(unittest.TestCase):
         )
         model.generate_audio = Mock(return_value={"target_latents": src_latents.clone()})
         handler.model = model
+        handler._mlx_run_diffusion = MagicMock(
+            return_value={"target_latents": src_latents.clone()}
+        )
 
         cover_noise_strength = 0.42
         handler.service_generate(
@@ -84,10 +95,12 @@ class CoverNoiseStrengthForwardingTests(unittest.TestCase):
             prepare_batch_mock.call_args.kwargs.get("cover_noise_strength"),
             cover_noise_strength,
         )
-        self.assertEqual(
-            model.generate_audio.call_args.kwargs.get("cover_noise_strength"),
-            cover_noise_strength,
-        )
+        generate = handler._mlx_run_diffusion if use_mlx_dit else model.generate_audio
+        unused = model.generate_audio if use_mlx_dit else handler._mlx_run_diffusion
+        generate.assert_called_once()
+        unused.assert_not_called()
+        self.assertEqual(generate.call_args.kwargs["cover_noise_strength"], cover_noise_strength)
+        self.assertIs(generate.call_args.kwargs["src_latents"], src_latents)
 
 
 if __name__ == "__main__":

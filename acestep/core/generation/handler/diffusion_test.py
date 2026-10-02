@@ -1,3 +1,5 @@
+"""Unit tests for the PyTorch-to-MLX diffusion bridge."""
+
 import unittest
 from unittest.mock import patch
 
@@ -23,12 +25,15 @@ class _IterableTimesteps:
 
 
 class DiffusionMixinTests(unittest.TestCase):
-    def test_mlx_run_diffusion_converts_inputs_and_outputs_tensor(self):
+    """Validate diffusion input conversion and argument forwarding."""
+
+    def test_mlx_run_diffusion_converts_inputs_and_outputs_tensor(self) -> None:
+        """Forward cover strength and source values as float32 NumPy arrays."""
         host = _Host(dtype=torch.float16)
         encoder_hidden_states = torch.randn(2, 4, 8, dtype=torch.float64)
         encoder_attention_mask = torch.ones(2, 4, dtype=torch.int64)
         context_latents = torch.randn(2, 16, 8, dtype=torch.float64)
-        src_latents = torch.zeros(2, 3, 5, dtype=torch.float32)
+        src_latents = torch.arange(30, dtype=torch.float64).reshape(2, 3, 5)
         timesteps = torch.tensor([1.0, 0.5], dtype=torch.float32)
         non_cover_hidden = torch.randn(2, 4, 8, dtype=torch.float64)
         non_cover_mask = torch.ones(2, 4, dtype=torch.int64)
@@ -36,8 +41,14 @@ class DiffusionMixinTests(unittest.TestCase):
         fake_target = np.ones((2, 3, 5), dtype=np.float32)
 
         def _fake_generate(**kwargs):
+            """Check the bridge inputs and return a fixed latent result."""
             self.assertIs(kwargs["mlx_decoder"], host.mlx_decoder)
             self.assertEqual(kwargs["src_latents_shape"], (2, 3, 5))
+            self.assertEqual(kwargs["cover_noise_strength"], 0.42)
+            self.assertEqual(kwargs["src_latents_np"].dtype, np.float32)
+            np.testing.assert_array_equal(
+                kwargs["src_latents_np"], np.arange(30, dtype=np.float32).reshape(2, 3, 5)
+            )
             self.assertEqual(kwargs["timesteps"], [1.0, 0.5])
             self.assertEqual(kwargs["infer_method"], "sde")
             self.assertEqual(kwargs["shift"], 2.0)
@@ -59,6 +70,7 @@ class DiffusionMixinTests(unittest.TestCase):
                 shift=2.0,
                 timesteps=timesteps,
                 audio_cover_strength=0.6,
+                cover_noise_strength=0.42,
                 encoder_hidden_states_non_cover=non_cover_hidden,
                 encoder_attention_mask_non_cover=non_cover_mask,
                 context_latents_non_cover=non_cover_context,
@@ -71,7 +83,8 @@ class DiffusionMixinTests(unittest.TestCase):
         self.assertEqual(result["target_latents"].device.type, "cpu")
         self.assertTrue(torch.allclose(result["target_latents"], torch.ones_like(result["target_latents"])))
 
-    def test_mlx_run_diffusion_handles_optional_and_iterable_timesteps(self):
+    def test_mlx_run_diffusion_handles_optional_and_iterable_timesteps(self) -> None:
+        """Keep zero-strength calls free of unnecessary source-array transfers."""
         host = _Host(dtype=torch.float32)
         encoder_hidden_states = torch.randn(1, 2, 3, dtype=torch.float32)
         encoder_attention_mask = torch.ones(1, 2, dtype=torch.int64)
@@ -80,7 +93,10 @@ class DiffusionMixinTests(unittest.TestCase):
         timesteps = _IterableTimesteps([0.9, 0.8, 0.7])
 
         def _fake_generate(**kwargs):
+            """Check default cover arguments and return a fixed latent result."""
             self.assertEqual(kwargs["timesteps"], [0.9, 0.8, 0.7])
+            self.assertEqual(kwargs["cover_noise_strength"], 0.0)
+            self.assertIsNone(kwargs["src_latents_np"])
             self.assertIsNone(kwargs["encoder_hidden_states_non_cover_np"])
             self.assertIsNone(kwargs["context_latents_non_cover_np"])
             return {"target_latents": np.zeros((1, 2, 3), dtype=np.float32), "time_costs": {}}

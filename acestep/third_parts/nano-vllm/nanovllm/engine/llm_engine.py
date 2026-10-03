@@ -1,3 +1,5 @@
+"""nano-vLLM request scheduling and GPU worker lifecycle."""
+
 import atexit
 import threading
 from dataclasses import fields
@@ -14,6 +16,7 @@ from nanovllm.engine.model_runner import ModelRunner
 
 
 class LLMEngine:
+    """Manage inference requests and explicitly releasable model workers."""
 
     def __init__(self, model, **kwargs):
         config_fields = {field.name for field in fields(Config)}
@@ -47,11 +50,18 @@ class LLMEngine:
         self.scheduler = Scheduler(config)
         atexit.register(self.exit)
 
-    def exit(self):
-        self.model_runner.call("exit")
-        del self.model_runner
-        for p in self.ps:
-            p.join()
+    def exit(self) -> None:
+        """Release worker weights/caches and unregister shutdown; repeated calls are safe."""
+        runner = getattr(self, "model_runner", None)
+        if runner is None:
+            return
+        atexit.unregister(self.exit)
+        try:
+            runner.call("exit")
+        finally:
+            del self.model_runner
+            for p in self.ps:
+                p.join()
 
     def add_request(self, prompt: str | list[int], sampling_params: SamplingParams, unconditional_prompt: str | list[int] | None = None):
         if isinstance(prompt, str):

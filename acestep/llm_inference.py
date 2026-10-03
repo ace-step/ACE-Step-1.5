@@ -131,6 +131,8 @@ class LLMHandler:
                         self.llm.reset()
                 except Exception:
                     pass
+                if self.llm is not None and hasattr(self.llm, "exit"):
+                    self.llm.exit()
                 self._cleanup_torch_distributed_state()
             self.llm = None
             self.llm_tokenizer = None
@@ -520,6 +522,8 @@ class LLMHandler:
             (status_message, success)
         """
         try:
+            if self.llm_backend == "vllm" and self.llm is not None:
+                self.unload()
             if device == "auto":
                 if torch.cuda.is_available():
                     device = "cuda"

@@ -174,6 +174,9 @@ def _temporary_unload_interactive_lm_for_scoring(llm_handler):
             llm_runtime.reset()
     except Exception as exc:
         logger.warning("[scoring] vLLM reset during PMI offload failed: {}", exc)
+    # Reset only clears sequences; exit releases worker weights and KV cache.
+    if hasattr(llm_runtime, "exit"):
+        llm_runtime.exit()
     try:
         llm_handler._cleanup_torch_distributed_state()
     except Exception as exc:

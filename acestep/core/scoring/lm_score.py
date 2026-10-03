@@ -170,22 +170,28 @@ def _temporary_unload_interactive_lm_for_scoring(llm_handler):
     logger.info("[scoring] Temporarily unloading vLLM runtime for PMI scoring")
     llm_runtime = llm_handler.llm
     try:
-        if hasattr(llm_runtime, "reset"):
-            llm_runtime.reset()
-    except Exception as exc:
-        logger.warning("[scoring] vLLM reset during PMI offload failed: {}", exc)
-    try:
-        llm_handler._cleanup_torch_distributed_state()
-    except Exception as exc:
-        logger.warning("[scoring] vLLM distributed cleanup during PMI offload failed: {}", exc)
-    llm_handler.llm = None
-    llm_handler.llm_initialized = False
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
-    try:
+        try:
+            try:
+                if hasattr(llm_runtime, "reset"):
+                    llm_runtime.reset()
+            except Exception as exc:
+                logger.warning("[scoring] vLLM reset during PMI offload failed: {}", exc)
+            # Reset only clears sequences; exit releases worker weights and KV cache.
+            if hasattr(llm_runtime, "exit"):
+                llm_runtime.exit()
+        finally:
+            llm_handler.llm = None
+            llm_handler.llm_initialized = False
+            # Do not keep the worker alive in this generator during HF scoring.
+            del llm_runtime
+            try:
+                llm_handler._cleanup_torch_distributed_state()
+            except Exception as exc:
+                logger.warning("[scoring] vLLM distributed cleanup failed: {}", exc)
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
         yield
     finally:
         _release_cached_hf_scoring_model(llm_handler)

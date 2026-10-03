@@ -123,7 +123,7 @@ class LLMHandler:
                 torch.mps.empty_cache()
 
     def unload(self) -> None:
-        """Release LM weights/tokenizer and clear caches to free memory."""
+        """Release LM resources; clear readiness even if shutdown fails (logged)."""
         try:
             if self.llm_backend == "vllm":
                 try:
@@ -131,6 +131,12 @@ class LLMHandler:
                         self.llm.reset()
                 except Exception:
                     pass
+                if self.llm is not None and hasattr(self.llm, "exit"):
+                    self.llm.exit()
+        except Exception:
+            logger.exception("[LLM] Runtime shutdown failed during unload")
+        finally:
+            if self.llm_backend == "vllm":
                 self._cleanup_torch_distributed_state()
             self.llm = None
             self.llm_tokenizer = None
@@ -139,20 +145,21 @@ class LLMHandler:
             self.llm_backend = None
             self._mlx_model = None
             self._mlx_model_path = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            elif hasattr(torch, "mps") and torch.backends.mps.is_available():
-                if hasattr(torch.mps, "synchronize"):
-                    torch.mps.synchronize()
-                if hasattr(torch.mps, "empty_cache"):
-                    torch.mps.empty_cache()
-            elif hasattr(torch, "xpu") and torch.xpu.is_available():
-                torch.xpu.empty_cache()
-                torch.xpu.synchronize()
-        except Exception:
-            pass
+            try:
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                elif hasattr(torch, "mps") and torch.backends.mps.is_available():
+                    if hasattr(torch.mps, "synchronize"):
+                        torch.mps.synchronize()
+                    if hasattr(torch.mps, "empty_cache"):
+                        torch.mps.empty_cache()
+                elif hasattr(torch, "xpu") and torch.xpu.is_available():
+                    torch.xpu.empty_cache()
+                    torch.xpu.synchronize()
+            except Exception as exc:
+                logger.warning("[LLM] Cache cleanup during unload failed: {}", exc)
 
     def _cleanup_torch_distributed_state(self) -> None:
         """Destroy default torch distributed process group when already initialized."""
@@ -520,6 +527,16 @@ class LLMHandler:
             (status_message, success)
         """
         try:
+            # If lm_model_path is None, use default
+            if lm_model_path is None:
+                lm_model_path = "acestep-5Hz-lm-1.7B"
+                logger.info(f"[initialize] lm_model_path is None, using default: {lm_model_path}")
+
+            full_lm_model_path = os.path.join(checkpoint_dir, lm_model_path)
+            if not os.path.exists(full_lm_model_path):
+                return f"❌ 5Hz LM model not found at {full_lm_model_path}", False
+            if self.llm_backend == "vllm" and self.llm is not None:
+                self.unload()
             if device == "auto":
                 if torch.cuda.is_available():
                     device = "cuda"
@@ -582,14 +599,6 @@ class LLMHandler:
                     )
                     self.dtype = torch.float32
 
-            # If lm_model_path is None, use default
-            if lm_model_path is None:
-                lm_model_path = "acestep-5Hz-lm-1.7B"
-                logger.info(f"[initialize] lm_model_path is None, using default: {lm_model_path}")
-
-            full_lm_model_path = os.path.join(checkpoint_dir, lm_model_path)
-            if not os.path.exists(full_lm_model_path):
-                return f"❌ 5Hz LM model not found at {full_lm_model_path}", False
             self._lm_full_model_path = full_lm_model_path
             self._last_initialize_config = {
                 "checkpoint_dir": checkpoint_dir,

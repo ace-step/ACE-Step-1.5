@@ -49,6 +49,7 @@ class DiffusionMixin:
         clean_src_latents: Optional[torch.Tensor] = None,
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        cover_noise_strength: float = 0.0,
     ) -> Dict[str, Any]:
         """Run the MLX diffusion loop and return generated latents.
 
@@ -67,6 +68,7 @@ class DiffusionMixin:
             cfg_interval_start: Timestep ratio below which CFG is disabled.
             cfg_interval_end: Timestep ratio above which CFG is disabled.
             audio_cover_strength: Blend factor for cover conditioning.
+            cover_noise_strength: Source retention for initialization (0 = pure noise).
             encoder_hidden_states_non_cover: Optional non-cover conditioning tensor.
             encoder_attention_mask_non_cover: Unused; accepted for API compatibility.
             context_latents_non_cover: Optional non-cover context latent tensor.
@@ -121,6 +123,10 @@ class DiffusionMixin:
         enc_np = encoder_hidden_states.detach().cpu().float().numpy()
         ctx_np = context_latents.detach().cpu().float().numpy()
         src_shape = (src_latents.shape[0], src_latents.shape[1], src_latents.shape[2])
+        src_np = (
+            src_latents.detach().cpu().float().numpy()
+            if cover_noise_strength > 0.0 else None
+        )
 
         enc_nc_np = (
             encoder_hidden_states_non_cover.detach().cpu().float().numpy()
@@ -157,6 +163,8 @@ class DiffusionMixin:
             encoder_hidden_states_np=enc_np,
             context_latents_np=ctx_np,
             src_latents_shape=src_shape,
+            src_latents_np=src_np,
+            cover_noise_strength=cover_noise_strength,
             seed=seed,
             infer_method=infer_method,
             shift=shift,

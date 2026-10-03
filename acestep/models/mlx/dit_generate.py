@@ -1,4 +1,4 @@
-# MLX diffusion generation loop for AceStep DiT decoder.
+"""MLX diffusion generation loop for AceStep DiT decoder."""
 #
 # Replicates the timestep scheduling and ODE/SDE stepping from
 # ``AceStepConditionGenerationModel.generate_audio`` using pure MLX arrays.
@@ -198,6 +198,8 @@ def mlx_generate_diffusion(
     clean_src_latents_np: Optional[np.ndarray] = None,
     repaint_crossfade_frames: int = 10,
     repaint_injection_ratio: float = 0.5,
+    cover_noise_strength: float = 0.0,
+    src_latents_np: Optional[np.ndarray] = None,
 ) -> Dict[str, object]:
     """Run the complete MLX diffusion loop with optional CFG guidance.
 
@@ -220,6 +222,9 @@ def mlx_generate_diffusion(
         cfg_interval_start: timestep ratio below which CFG is disabled.
         cfg_interval_end: timestep ratio above which CFG is disabled.
         audio_cover_strength: cover strength (0-1).
+        cover_noise_strength: Source retention for initialization (0 = pure noise).
+        src_latents_np: Source latents matching src_latents_shape, required when
+            cover_noise_strength is positive.
         encoder_hidden_states_non_cover_np: optional [B, enc_L, D] for non-cover.
         context_latents_non_cover_np: optional [B, T, C] for non-cover.
         compile_model: If True, compile the decoder step with ``mx.compile``.
@@ -235,6 +240,9 @@ def mlx_generate_diffusion(
 
     Returns:
         Dict with ``"target_latents"`` (numpy) and ``"time_costs"`` dict.
+
+    Raises:
+        ValueError: Positive cover strength has missing or mismatched source latents.
     """
     import mlx.core as mx
     from .dit_model import MLXCrossAttentionCache
@@ -317,6 +325,18 @@ def mlx_generate_diffusion(
 
     # ---- Timestep schedule ----
     t_schedule_list = get_timestep_schedule(shift, timesteps, infer_steps=infer_steps)
+    xt = noise
+    if cover_noise_strength > 0.0:
+        if src_latents_np is None:
+            raise ValueError("src_latents_np is required when cover_noise_strength > 0")
+        if src_latents_np.shape != tuple(src_latents_shape):
+            raise ValueError("src_latents_np must match src_latents_shape")
+        # Match PyTorch cover initialization after any retake noise mixing.
+        effective_noise_level = 1.0 - cover_noise_strength
+        nearest_t = min(t_schedule_list, key=lambda t: abs(t - effective_noise_level))
+        src = mx.array(src_latents_np, dtype=noise.dtype)
+        xt = nearest_t * noise + (1.0 - nearest_t) * src
+        t_schedule_list = t_schedule_list[t_schedule_list.index(nearest_t):]
     num_steps = len(t_schedule_list)
 
     cover_steps = int(num_steps * audio_cover_strength)
@@ -347,7 +367,6 @@ def mlx_generate_diffusion(
     else:
         cache = MLXCrossAttentionCache() if _compiled_step is None else None
 
-    xt = noise
     prev_vt = None  # for EMA smoothing
 
     def _model_eval(x_input, t_val, enc, ctx_in, step_cache):

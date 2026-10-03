@@ -245,6 +245,7 @@ class ServiceGenerateExecuteMixin:
                             cfg_interval_start=generate_kwargs.get("cfg_interval_start", 0.0),
                             cfg_interval_end=generate_kwargs.get("cfg_interval_end", 1.0),
                             audio_cover_strength=audio_cover_strength,
+                            cover_noise_strength=generate_kwargs.get("cover_noise_strength", 0.0),
                             encoder_hidden_states_non_cover=enc_hs_nc,
                             encoder_attention_mask_non_cover=enc_am_nc,
                             context_latents_non_cover=ctx_nc,

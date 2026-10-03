@@ -15,7 +15,7 @@ class CoverInitializationTests(unittest.TestCase):
     """Exercise the diffusion loop with fixed noise and a zero-velocity decoder."""
 
     def setUp(self) -> None:
-        """Replace MLX array operations and the decoder cache with small CPU mocks."""
+        """Replace MLX operations, decoder caching, and progress bars with CPU mocks."""
         self.noise = np.array([[[-2.0, -1.0], [1.0, 2.0]]], dtype=np.float32)
         self.source = np.arange(4, dtype=np.float32).reshape(1, 2, 2) + 10.0
         self.context = np.zeros((1, 2, 3), dtype=np.float32)
@@ -29,6 +29,11 @@ class CoverInitializationTests(unittest.TestCase):
         mlx.core = core
         model = types.ModuleType("acestep.models.mlx.dit_model")
         model.MLXCrossAttentionCache = MagicMock(return_value=None)
+        # Avoid multiprocessing locks while sys.modules is temporarily patched.
+        self.enterContext(patch(
+            "acestep.models.mlx.dit_generate.tqdm",
+            side_effect=lambda iterable, **_kwargs: iterable,
+        ))
         self.enterContext(patch.dict(sys.modules, {
             "mlx": mlx,
             "mlx.core": core,

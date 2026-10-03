@@ -3,6 +3,7 @@
 import ast
 import atexit
 import gc
+import threading
 import unittest
 import weakref
 from pathlib import Path
@@ -36,7 +37,8 @@ class RuntimeReleaseTests(unittest.TestCase):
         """Repeated close cannot retain GPU weights/cache or run worker shutdown twice."""
         runner = MagicMock()
         process = MagicMock()
-        engine = SimpleNamespace(model_runner=runner, ps=[process])
+        engine = SimpleNamespace(model_runner=runner, ps=[process],
+                                 _generate_lock=threading.RLock())
         engine.exit = MethodType(_engine_exit(), engine)
         with patch("atexit.unregister") as unregister:
             engine.exit()
@@ -51,6 +53,7 @@ class RuntimeReleaseTests(unittest.TestCase):
         engine = _EngineHost()
         engine.model_runner = MagicMock()
         engine.ps = []
+        engine._generate_lock = threading.RLock()
         engine.exit = MethodType(_engine_exit(), engine)
         engine_ref = weakref.ref(engine)
         runner_ref = weakref.ref(engine.model_runner)
@@ -72,7 +75,7 @@ class RuntimeReleaseTests(unittest.TestCase):
         """An exit failure cannot leave the worker attached to an atexit-held engine."""
         runner = MagicMock()
         runner.call.side_effect = RuntimeError("worker shutdown failed")
-        engine = SimpleNamespace(model_runner=runner, ps=[])
+        engine = SimpleNamespace(model_runner=runner, ps=[], _generate_lock=threading.RLock())
         engine.exit = MethodType(_engine_exit(), engine)
         with patch("atexit.unregister"), self.assertRaisesRegex(RuntimeError, "shutdown failed"):
             engine.exit()

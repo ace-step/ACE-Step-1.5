@@ -24,7 +24,7 @@ class LLMEngine:
         config = Config(model, **config_kwargs)
         self.ps = []
         self.events = []
-        # Thread-safety lock for generate().
+        # Reentrant because generation error recovery also calls reset().
         # The scheduler, block manager, model runner, and CUDA graph buffers are all
         # shared mutable state that is NOT thread-safe. In concurrent serving scenarios
         # (API server with ThreadPoolExecutor, multiple queue workers, Gradio with
@@ -32,7 +32,7 @@ class LLMEngine:
         # Without this lock, concurrent access corrupts scheduler state, block tables,
         # and CUDA graph input buffers, leading to intermittent CUDA device-side
         # assertion failures (illegal memory access in KV cache).
-        self._generate_lock = threading.Lock()
+        self._generate_lock = threading.RLock()
         ctx = mp.get_context("spawn")
         for i in range(1, config.tensor_parallel_size):
             event = ctx.Event()
@@ -51,17 +51,18 @@ class LLMEngine:
         atexit.register(self.exit)
 
     def exit(self) -> None:
-        """Release worker weights/caches and unregister shutdown; repeated calls are safe."""
-        runner = getattr(self, "model_runner", None)
-        if runner is None:
-            return
-        atexit.unregister(self.exit)
-        try:
-            runner.call("exit")
-        finally:
-            del self.model_runner
-            for p in self.ps:
-                p.join()
+        """Wait for generation, release the worker, and propagate shutdown failures."""
+        with self._generate_lock:
+            runner = getattr(self, "model_runner", None)
+            if runner is None:
+                return
+            atexit.unregister(self.exit)
+            try:
+                runner.call("exit")
+            finally:
+                del self.model_runner
+                for p in self.ps:
+                    p.join()
 
     def add_request(self, prompt: str | list[int], sampling_params: SamplingParams, unconditional_prompt: str | list[int] | None = None):
         if isinstance(prompt, str):
@@ -104,26 +105,27 @@ class LLMEngine:
     def is_finished(self):
         return self.scheduler.is_finished()
 
-    def reset(self):
+    def reset(self) -> None:
         """
         Reset the scheduler state and release all allocated blocks.
         This should be called when an exception occurs during generation to prevent
         KV cache block leaks that can cause 'deque index out of range' errors.
         """
-        # Deallocate all running sequences
-        while self.scheduler.running:
-            seq = self.scheduler.running.popleft()
-            if seq.block_table:  # Only deallocate if blocks are allocated
-                self.scheduler.block_manager.deallocate(seq)
+        with self._generate_lock:
+            # Deallocate all running sequences
+            while self.scheduler.running:
+                seq = self.scheduler.running.popleft()
+                if seq.block_table:  # Only deallocate if blocks are allocated
+                    self.scheduler.block_manager.deallocate(seq)
 
-        # Deallocate all waiting sequences (they might have blocks from preemption)
-        while self.scheduler.waiting:
-            seq = self.scheduler.waiting.popleft()
-            if seq.block_table:
-                self.scheduler.block_manager.deallocate(seq)
+            # Deallocate all waiting sequences (they might have blocks from preemption)
+            while self.scheduler.waiting:
+                seq = self.scheduler.waiting.popleft()
+                if seq.block_table:
+                    self.scheduler.block_manager.deallocate(seq)
 
-        # Clear prefix cache to prevent unbounded hash_to_block_id growth
-        self.scheduler.block_manager.reset()
+            # Clear prefix cache to prevent unbounded hash_to_block_id growth
+            self.scheduler.block_manager.reset()
 
     def generate(
         self,
@@ -132,11 +134,14 @@ class LLMEngine:
         use_tqdm: bool = True,
         unconditional_prompts: list[str] | list[list[int]] | None = None,
     ) -> list[str]:
+        """Generate completions for prompts; raise RuntimeError if already closed."""
         # Serialize access to the engine to prevent concurrent corruption of
         # scheduler state, block manager, CUDA graph buffers, and KV cache.
         # This is the primary defense against the intermittent CUDA device-side
         # assertion error that occurs in concurrent serving scenarios.
         with self._generate_lock:
+            if not hasattr(self, "model_runner"):
+                raise RuntimeError("nano-vLLM runtime is closed")
             return self._generate_impl(prompts, sampling_params, use_tqdm, unconditional_prompts)
 
     def _generate_impl(

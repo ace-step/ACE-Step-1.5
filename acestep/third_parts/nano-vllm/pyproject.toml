@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nano-vllm"
-version = "0.2.0"
+version = "0.2.1"
 authors = [{ name = "Xingkai Yu" }]
 license = {text = "MIT"}
 readme = "README.md"

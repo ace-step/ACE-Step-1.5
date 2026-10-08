@@ -1269,7 +1269,7 @@ wheels = [
 
 [[package]]
 name = "nano-vllm"
-version = "0.2.0"
+version = "0.2.1"
 source = { directory = "acestep/third_parts/nano-vllm" }
 dependencies = [
     { name = "flash-attn", version = "2.8.2", source = { url = "https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.2/flash_attn-2.8.2+cu128torch2.7.1cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl" }, marker = "python_full_version < '3.12' and platform_machine == 'AMD64' and sys_platform == 'win32'" },

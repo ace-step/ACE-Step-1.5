@@ -19,6 +19,7 @@ def _debug_log(msg: str):
         print(f"[nanovllm DEBUG] {msg}", flush=True)
 from nanovllm.engine.sequence import Sequence
 from nanovllm.models.qwen3 import Qwen3ForCausalLM
+from nanovllm.layers.fp16_range import maybe_apply_fp16_range
 from nanovllm.layers.sampler import Sampler
 from nanovllm.utils.context import set_context, get_context, reset_context
 from nanovllm.utils.loader import load_model
@@ -173,6 +174,7 @@ class ModelRunner:
         self.model = Qwen3ForCausalLM(hf_config)
         _t0 = debug_start("load_model", prefix="tensor.vllm")
         load_model(self.model, config.model)
+        maybe_apply_fp16_range(self.model, self.dtype)   # float16 only
         debug_end("load_model", _t0, prefix="tensor.vllm")
         self.sampler = Sampler()
         

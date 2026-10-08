@@ -109,11 +109,14 @@ class Qwen3MLP(nn.Module):
         )
         assert hidden_act == "silu"
         self.act_fn = SiluAndMul()
+        self.out_scale = 1.0          # set by layers/fp16_range.py for float16 models
 
     def forward(self, x):
         gate_up = self.gate_up_proj(x)
         x = self.act_fn(gate_up)
         x = self.down_proj(x)
+        if self.out_scale != 1.0:
+            x = x.float() * self.out_scale
         return x
 
 

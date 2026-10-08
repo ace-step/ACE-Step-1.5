@@ -33,9 +33,10 @@ class RMSNorm(nn.Module):
         x: torch.Tensor,
         residual: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        orig_dtype = x.dtype
+        orig_dtype = self.weight.dtype
         x = x.float().add_(residual.float())
-        residual = x.to(orig_dtype)
+        # float16 models carry the residual in float32: it can exceed float16 (see fp16_range.py)
+        residual = x.clone() if orig_dtype == torch.float16 else x.to(orig_dtype)
         var = x.pow(2).mean(dim=-1, keepdim=True)
         x.mul_(torch.rsqrt(var + self.eps))
         x = x.to(orig_dtype).mul_(self.weight)

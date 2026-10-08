@@ -53,6 +53,10 @@ def apply_fp16_mlp_scale(model: nn.Module, factor: float = MLP_SCALE) -> int:
 def maybe_apply_fp16_range(model: nn.Module, dtype: torch.dtype) -> int:
     """Apply the MLP scale to a freshly loaded model if (and only if) it runs in float16.
 
+    Args:
+        model: The loaded nano-vllm model (``Qwen3ForCausalLM``).
+        dtype: The dtype the model runs in (``ModelRunner.dtype``).
+
     Returns:
         How many MLPs were changed (0 for bfloat16 / float32 models).
     """

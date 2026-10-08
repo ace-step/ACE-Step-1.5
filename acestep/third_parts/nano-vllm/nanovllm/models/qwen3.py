@@ -112,6 +112,15 @@ class Qwen3MLP(nn.Module):
         self.out_scale = 1.0          # set by layers/fp16_range.py for float16 models
 
     def forward(self, x):
+        """SwiGLU MLP: down_proj(silu(gate) * up).
+
+        Args:
+            x: Hidden states, ``[tokens, hidden_size]``, in the model dtype.
+
+        Returns:
+            The MLP output in the model dtype; in float32 when ``out_scale`` is set (float16
+            models, see layers/fp16_range.py), so it can be added to the float32 residual.
+        """
         gate_up = self.gate_up_proj(x)
         x = self.act_fn(gate_up)
         x = self.down_proj(x)

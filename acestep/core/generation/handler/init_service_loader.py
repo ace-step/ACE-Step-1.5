@@ -8,6 +8,7 @@ import torch
 from loguru import logger
 
 from acestep import gpu_config
+from .fp16_lyric_encoder import apply_float16_lyric_encoder_fix
 from .init_service_loader_components import InitServiceLoaderComponentsMixin
 
 
@@ -202,6 +203,8 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
         else:
             self.model = self.model.to("cpu").to(self.dtype)
         self.model.eval()
+        if self.dtype == torch.float16:
+            apply_float16_lyric_encoder_fix(self.model)
 
         if compile_model:
             self._ensure_len_for_compile(self.model, "model")

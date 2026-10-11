@@ -1030,6 +1030,68 @@ class RocmDtypeTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(host.dtype, torch.float16)
 
+
+class PreAmpereDtypeTests(unittest.TestCase):
+    """Tests verifying the ACESTEP_DTYPE override on pre-Ampere CUDA GPUs."""
+
+    def test_pre_ampere_dtype_defaults_to_float16(self):
+        """It returns float16 when ACESTEP_DTYPE is not set."""
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("ACESTEP_DTYPE", None)
+            result = ORCHESTRATOR_MODULE._resolve_pre_ampere_dtype()
+        self.assertEqual(result, torch.float16)
+
+    def test_pre_ampere_dtype_respects_float32_override(self):
+        """It returns float32 when ACESTEP_DTYPE=float32."""
+        with patch.dict("os.environ", {"ACESTEP_DTYPE": "float32"}):
+            result = ORCHESTRATOR_MODULE._resolve_pre_ampere_dtype()
+        self.assertEqual(result, torch.float32)
+
+    def test_pre_ampere_dtype_unknown_value_falls_back_to_float16(self):
+        """It falls back to float16 for unrecognised ACESTEP_DTYPE values."""
+        with patch.dict("os.environ", {"ACESTEP_DTYPE": "int8"}):
+            result = ORCHESTRATOR_MODULE._resolve_pre_ampere_dtype()
+        self.assertEqual(result, torch.float16)
+
+    def test_initialize_service_honors_pre_ampere_dtype_override(self):
+        """It sets dtype=float32 on pre-Ampere CUDA when ACESTEP_DTYPE=float32."""
+        host = _Host(project_root="K:/fake_root", device="cuda")
+        host.dtype = torch.float32
+
+        def _fake_load_main_model(**_kwargs):
+            host.config = types.SimpleNamespace(_attn_implementation="sdpa")
+            host.model = object()
+
+        with patch.object(GPU_CONFIG_MODULE, "is_cuda_available", return_value=True), \
+                patch.object(GPU_CONFIG_MODULE, "is_rocm_available", return_value=False), \
+                patch.object(GPU_CONFIG_MODULE, "cuda_supports_bfloat16", return_value=False), \
+                patch.dict("os.environ", {"ACESTEP_DTYPE": "float32"}):
+            with patch.object(host, "_ensure_models_present", return_value=None):
+                with patch.object(host, "_sync_model_code_if_needed"):
+                    with patch.object(
+                        host,
+                        "_load_main_model_from_checkpoint",
+                        side_effect=_fake_load_main_model,
+                    ):
+                        with patch.object(host, "_load_vae_model", return_value="vae"):
+                            with patch.object(
+                                host,
+                                "_load_text_encoder_and_tokenizer",
+                                return_value="te",
+                            ):
+                                with patch.object(
+                                    host,
+                                    "_initialize_mlx_backends",
+                                    return_value=("Disabled", "Disabled"),
+                                ):
+                                    _, ok = host.initialize_service(
+                                        project_root="K:/fake_root",
+                                        config_path="acestep-v15-turbo",
+                                        device="cuda",
+                                    )
+        self.assertTrue(ok)
+        self.assertEqual(host.dtype, torch.float32)
+
     def test_get_vae_dtype_returns_self_dtype_on_rocm(self):
         """It defers to self.dtype for VAE when ROCm is active."""
         host = _VaeHost(project_root="K:/fake_root", device="cuda")

@@ -42,6 +42,25 @@ def _resolve_rocm_dtype() -> torch.dtype:
     return dtype
 
 
+def _resolve_pre_ampere_dtype() -> torch.dtype:
+    """Return a model dtype for pre-Ampere CUDA GPUs (no native bfloat16).
+
+    Defaults to ``float16``.  On some pre-Ampere GPUs (e.g. Turing) float16
+    diffusion accumulates overflows and produces NaN latents; the error hint
+    in ``generate_music_decode`` tells users to set ``ACESTEP_DTYPE=float32``
+    — this helper is what actually honors that variable.
+    """
+    raw = os.environ.get("ACESTEP_DTYPE", "float16").strip().lower()
+    dtype = _ROCM_DTYPE_MAP.get(raw)
+    if dtype is None:
+        logger.warning(
+            f"[initialize_service] Unknown ACESTEP_DTYPE={raw!r}; "
+            "falling back to float16."
+        )
+        dtype = torch.float16
+    return dtype
+
+
 class InitServiceOrchestratorMixin:
     """Public ``initialize_service`` orchestration entrypoint."""
 
@@ -92,10 +111,10 @@ class InitServiceOrchestratorMixin:
                 if gpu_config.cuda_supports_bfloat16():
                     self.dtype = torch.bfloat16
                 else:
-                    self.dtype = torch.float16
+                    self.dtype = _resolve_pre_ampere_dtype()
                     logger.info(
-                        "[initialize_service] Pre-Ampere CUDA detected: "
-                        "using float16 instead of bfloat16."
+                        f"[initialize_service] Pre-Ampere CUDA detected: "
+                        f"using {self.dtype} instead of bfloat16."
                     )
             else:
                 self.dtype = torch.bfloat16 if resolved_device == "xpu" else torch.float32

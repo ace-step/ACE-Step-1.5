@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import unittest
 from typing import Any, Optional
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from acestep.core.generation.handler.task_utils import TaskUtilsMixin
 from acestep.inference import GenerationConfig, GenerationParams, generate_music
 
 # Not a real path — the stub handler below never opens it. Named this way
@@ -19,7 +20,7 @@ from acestep.inference import GenerationConfig, GenerationParams, generate_music
 SOURCE_AUDIO = "source.wav"
 
 
-class RecordingDitHandler:
+class RecordingDitHandler(TaskUtilsMixin):
     """Minimal stand-in that captures the seed kwargs ``generate_music`` forwards."""
 
     def __init__(self) -> None:
@@ -28,15 +29,6 @@ class RecordingDitHandler:
         self.lora_loaded = False
         self.use_lora = False
         self.lora_scale = 1.0
-
-    def prepare_seeds(self, batch_size: int, seed: str, use_random_seed: bool) -> tuple[list[int], None]:
-        """Return a fixed seed list, ignoring inputs; the real handler parses ``seed``.
-
-        Returns:
-            ``(seeds, None)`` — a list of ``batch_size`` identical seeds, and the
-            padding info the real handler returns and ``generate_music`` discards.
-        """
-        return [1234] * batch_size, None
 
     def generate_music(
         self,
@@ -98,8 +90,9 @@ class SingularSeedFallbackTests(unittest.TestCase):
         self.assertEqual("42", dit_handler.generate_kwargs["seed"])
         self.assertFalse(dit_handler.generate_kwargs["use_random_seed"])
 
-    def test_missing_seed_still_uses_random_seed(self) -> None:
-        """Control: without an explicit params.seed, the random-seed path is unaffected."""
+    @patch("acestep.core.generation.handler.task_utils.random.randint", return_value=1234)
+    def test_missing_seed_still_uses_random_seed(self, _randint: MagicMock) -> None:
+        """Without params.seed, resolve randomness before forwarding the seed to DiT."""
         dit_handler = RecordingDitHandler()
         llm_handler = _make_llm_handler()
         params = GenerationParams(
@@ -113,8 +106,8 @@ class SingularSeedFallbackTests(unittest.TestCase):
         generate_music(dit_handler, llm_handler, params, config)
 
         self.assertIsNotNone(dit_handler.generate_kwargs, "DiT handler was never called")
-        self.assertEqual("", dit_handler.generate_kwargs["seed"])
-        self.assertTrue(dit_handler.generate_kwargs["use_random_seed"])
+        self.assertEqual("1234", dit_handler.generate_kwargs["seed"])
+        self.assertFalse(dit_handler.generate_kwargs["use_random_seed"])
 
 
 if __name__ == "__main__":

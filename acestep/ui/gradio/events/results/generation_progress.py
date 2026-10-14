@@ -15,7 +15,7 @@ import torch
 from loguru import logger
 
 from acestep.inference import generate_music, GenerationParams, GenerationConfig
-from acestep.audio_utils import save_audio
+from acestep.audio_utils import save_audio, AudioExportDegradedError
 from acestep.gpu_config import (
     get_global_gpu_config,
     check_duration_limit,
@@ -273,6 +273,7 @@ def generate_with_progress(
     )
     time_module.sleep(0.1)
 
+    export_warnings = []
     for i in range(8):
         if i >= len(audios):
             continue
@@ -291,11 +292,19 @@ def generate_with_progress(
         ext = "wav" if audio_format == "wav32" else audio_format
         audio_path = os.path.join(temp_dir, f"{key}.{ext}").replace("\\", "/")
 
-        saved_path = save_audio(
-            audio_data=audio_tensor, output_path=audio_path,
-            sample_rate=sample_rate, format=audio_format, channels_first=True,
-            mp3_bitrate=mp3_bitrate, mp3_sample_rate=mp3_sample_rate,
-        )
+        try:
+            saved_path = save_audio(
+                audio_data=audio_tensor, output_path=audio_path,
+                sample_rate=sample_rate, format=audio_format, channels_first=True,
+                mp3_bitrate=mp3_bitrate, mp3_sample_rate=mp3_sample_rate,
+            )
+        except AudioExportDegradedError as exc:
+            # Generation itself already succeeded (audio_tensor exists); only
+            # the requested export format failed. Use the WAV ACE-Step already
+            # saved instead of discarding a valid result as a hard error.
+            saved_path = exc.wav_fallback_path
+            logger.warning(f"[generate_with_progress] Sample {key}: {exc}")
+            export_warnings.append(f"{key}: {exc.requested_format} export unavailable ({exc}), saved as WAV")
         if saved_path:
             audio_path = saved_path.replace("\\", "/")
 
@@ -413,9 +422,14 @@ def generate_with_progress(
         {**result.extra_outputs, "lrcs": final_lrcs_list, "subtitles": final_subtitles_list}
     )
 
+    if export_warnings:
+        final_status = "Generation Complete (WAV). " + "; ".join(export_warnings)
+    else:
+        final_status = "Generation Complete"
+
     yield (
         *audio_playback_updates,
-        all_audio_paths, generation_info, "Generation Complete", seed_value_for_ui,
+        all_audio_paths, generation_info, final_status, seed_value_for_ui,
         *final_scores_list, *final_codes_display, *final_accordions, *final_lrcs_list,
         lm_generated_metadata, is_format_caption,
         extra_to_store,

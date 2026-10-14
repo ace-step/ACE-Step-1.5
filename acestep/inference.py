@@ -611,14 +611,15 @@ def generate_music(
         # Use dit_handler.prepare_seeds to handle seed list generation and padding
         # This will handle all the logic: padding with random seeds if needed, etc.
         actual_seed_list, _ = dit_handler.prepare_seeds(actual_batch_size, seed_for_generation, config.use_random_seed)
-        use_random_seed_for_dit = config.use_random_seed
         if cached_repaint_source is not None:
             actual_seed_list = _resample_matching_source_seeds(
                 actual_seed_list,
                 cached_repaint_source.source_seed,
             )
-            seed_for_generation = ",".join(str(seed) for seed in actual_seed_list)
-            use_random_seed_for_dit = False
+        # Reuse resolved seeds in DiT, including random/padded entries, so the
+        # generated audio and its saved metadata describe the same generation.
+        seed_for_generation = ",".join(str(seed) for seed in actual_seed_list)
+        use_random_seed_for_dit = False
 
         # LM-based Chain-of-Thought reasoning
         # Skip LM for the direct-conditioning tasks - these use reference/src audio
@@ -936,6 +937,8 @@ def generate_music(
 
         # Get base params dictionary
         base_params_dict = params.to_dict()
+        # The handler may reduce the requested batch size to fit available VRAM.
+        base_params_dict["batch_size"] = len(dit_audios)
 
         # Save audio files using AudioSaver (format from config)
         audio_format = str(config.audio_format).strip().lower() if config.audio_format else "flac"

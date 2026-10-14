@@ -20,7 +20,7 @@ import numpy as np
 import torch
 
 
-from acestep.audio_utils import AudioSaver, apply_fade, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
+from acestep.audio_utils import AudioSaver, AudioExportDegradedError, apply_fade, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
 from acestep.constants import BPM_MIN, BPM_MAX, DURATION_MAX, TASK_TYPES, VALID_TIME_SIGNATURES
 
 # HuggingFace Space environment detection
@@ -1052,6 +1052,9 @@ def generate_music(
                                                         channels_first=True,
                                                         mp3_bitrate=getattr(config, "mp3_bitrate", "128k"),
                                                         mp3_sample_rate=getattr(config, "mp3_sample_rate", 48000))
+                except AudioExportDegradedError as exc:
+                    logger.warning(f"[generate_music] Export to {audio_format} failed, using fallback: {exc.wav_fallback_path}")
+                    audio_path = exc.wav_fallback_path
                 except Exception as e:
                     logger.error(f"[generate_music] Failed to save audio file: {e}")
                     audio_path = ""  # Fallback to empty path

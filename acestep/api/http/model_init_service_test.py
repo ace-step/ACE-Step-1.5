@@ -290,6 +290,7 @@ class ModelInitServiceTests(unittest.TestCase):
         gpu_config = SimpleNamespace(
             gpu_memory_gb=12.0,
             offload_to_cpu_default=False,
+            offload_dit_to_cpu_default=False,
             recommended_backend="pt",
             lm_backend_restriction="pt_only",
         )

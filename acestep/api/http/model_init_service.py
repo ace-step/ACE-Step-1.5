@@ -102,7 +102,10 @@ def initialize_models_for_request(
     offload_to_cpu_env = os.getenv("ACESTEP_OFFLOAD_TO_CPU")
     offload_to_cpu = env_bool("ACESTEP_OFFLOAD_TO_CPU", False) if offload_to_cpu_env is not None else auto_offload
     use_flash_attention = env_bool("ACESTEP_USE_FLASH_ATTENTION", True)
-    offload_dit_to_cpu = env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
+    offload_dit_to_cpu = env_bool(
+        "ACESTEP_OFFLOAD_DIT_TO_CPU",
+        gpu_config.gpu_memory_gb > 0 and gpu_config.offload_dit_to_cpu_default,
+    )
     compile_model = env_bool("ACESTEP_COMPILE_MODEL", False)
     device = os.getenv("ACESTEP_DEVICE", "auto")
 

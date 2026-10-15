@@ -58,7 +58,10 @@ def do_model_initialization(
         if auto_offload:
             print("[API Server] Auto-setting offload_to_cpu=True based on GPU memory")
 
-    offload_dit_to_cpu = env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
+    offload_dit_to_cpu = env_bool(
+        "ACESTEP_OFFLOAD_DIT_TO_CPU",
+        gpu_config.gpu_memory_gb > 0 and gpu_config.offload_dit_to_cpu_default,
+    )
     compile_model = env_bool("ACESTEP_COMPILE_MODEL", False)
 
     checkpoint_dir = os.path.join(project_root, "checkpoints")

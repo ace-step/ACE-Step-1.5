@@ -676,7 +676,7 @@ APIサーバーは環境変数で設定できます：
 | `ACESTEP_DEVICE` | `auto` | モデルロードデバイス |
 | `ACESTEP_USE_FLASH_ATTENTION` | `true` | flash attentionを有効化 |
 | `ACESTEP_OFFLOAD_TO_CPU` | `false` | アイドル時にモデルをCPUにオフロード |
-| `ACESTEP_OFFLOAD_DIT_TO_CPU` | `false` | DiTを特にCPUにオフロード |
+| `ACESTEP_OFFLOAD_DIT_TO_CPU` | GPU ティア | DiT を CPU にオフロード（CPU と MPS ではデフォルトで無効） |
 
 ### LM設定
 

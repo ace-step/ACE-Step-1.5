@@ -747,7 +747,7 @@ The API server can be configured using environment variables:
 | `ACESTEP_DEVICE` | `auto` | Device for model loading |
 | `ACESTEP_USE_FLASH_ATTENTION` | `true` | Enable flash attention |
 | `ACESTEP_OFFLOAD_TO_CPU` | `false` | Offload models to CPU when idle |
-| `ACESTEP_OFFLOAD_DIT_TO_CPU` | `false` | Offload DiT specifically to CPU |
+| `ACESTEP_OFFLOAD_DIT_TO_CPU` | GPU tier | Offload DiT specifically to CPU; disabled by default on CPU and MPS |
 
 ### LM Configuration
 

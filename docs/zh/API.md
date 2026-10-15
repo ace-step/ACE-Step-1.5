@@ -680,7 +680,7 @@ API 服务器可以通过环境变量进行配置：
 | `ACESTEP_DEVICE` | `auto` | 模型加载设备 |
 | `ACESTEP_USE_FLASH_ATTENTION` | `true` | 启用 flash attention |
 | `ACESTEP_OFFLOAD_TO_CPU` | `false` | 空闲时将模型卸载到 CPU |
-| `ACESTEP_OFFLOAD_DIT_TO_CPU` | `false` | 专门将 DiT 卸载到 CPU |
+| `ACESTEP_OFFLOAD_DIT_TO_CPU` | 显存档位 | 专门将 DiT 卸载到 CPU；CPU 和 MPS 默认禁用 |
 
 ### LM 配置
 

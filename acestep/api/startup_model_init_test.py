@@ -15,6 +15,7 @@ def _gpu_config(init_lm_default: bool = True) -> SimpleNamespace:
 
     return SimpleNamespace(
         gpu_memory_gb=24.0,
+        offload_dit_to_cpu_default=False,
         tier="high",
         max_duration_with_lm=180,
         max_duration_without_lm=300,

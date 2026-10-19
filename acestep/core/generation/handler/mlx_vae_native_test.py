@@ -74,6 +74,9 @@ class _Host(MlxVaeDecodeNativeMixin, MlxVaeEncodeNativeMixin):
         self._mlx_compiled_encode_sample = self.mlx_vae.encode_and_sample
 
 
+_DEFAULT_FAKE_CACHE_LIMIT = 48 * 1024**3
+
+
 def _fake_mx_core_module():
     """Create a minimal fake ``mlx.core`` module backed by NumPy arrays."""
     fake_mx_core = types.ModuleType("mlx.core")
@@ -83,6 +86,17 @@ def _fake_mx_core_module():
     fake_mx_core.eval = lambda *_args, **_kwargs: None
     fake_mx_core.clear_cache = lambda *_args, **_kwargs: None
     fake_mx_core.concatenate = lambda values, axis=0: np.concatenate(values, axis=axis)
+    fake_mx_core.cache_limit = _DEFAULT_FAKE_CACHE_LIMIT
+    fake_mx_core.cache_limit_calls = []
+
+    def set_cache_limit(limit):
+        """Record the new cache limit and return the previous one, like MLX."""
+        fake_mx_core.cache_limit_calls.append(limit)
+        previous = fake_mx_core.cache_limit
+        fake_mx_core.cache_limit = limit
+        return previous
+
+    fake_mx_core.set_cache_limit = set_cache_limit
     return fake_mx_core
 
 
@@ -128,6 +142,83 @@ class MlxVaeNativeMixinTests(unittest.TestCase):
             out = host._mlx_vae_decode(latents)
         self.assertEqual(tuple(out.shape), (2, 1, 64))
         self.assertIsInstance(out, torch.Tensor)
+
+    def test_mlx_vae_decode_caps_cache_limit_during_decode_and_restores_it(self):
+        """It lowers the MLX cache limit while decoding and restores the previous limit."""
+        host = _Host()
+        fake_mx_core = _fake_mx_core_module()
+        fake_mlx_pkg = types.ModuleType("mlx")
+        fake_mlx_pkg.__path__ = []
+        limits_seen_by_decode = []
+
+        def decode(chunk):
+            """Record the active cache limit and expand latent time axis by two."""
+            limits_seen_by_decode.append(fake_mx_core.cache_limit)
+            return np.repeat(chunk, 2, axis=1)
+
+        host._mlx_compiled_decode = decode
+        latents = torch.ones(2, 1, 32, dtype=torch.float32)
+        with patch.dict(sys.modules, {"mlx": fake_mlx_pkg, "mlx.core": fake_mx_core}):
+            out = host._mlx_vae_decode(latents)
+        cap = MLX_VAE_DECODE_NATIVE_MODULE._MLX_VAE_DECODE_CACHE_LIMIT_BYTES
+        self.assertEqual(tuple(out.shape), (2, 1, 64))
+        self.assertEqual(limits_seen_by_decode, [cap, cap])
+        self.assertEqual(fake_mx_core.cache_limit_calls, [cap, _DEFAULT_FAKE_CACHE_LIMIT])
+        self.assertEqual(fake_mx_core.cache_limit, _DEFAULT_FAKE_CACHE_LIMIT)
+
+    def test_mlx_vae_decode_restores_cache_limit_when_decode_raises(self):
+        """It restores the previous MLX cache limit even if decoding fails."""
+        host = _Host()
+        fake_mx_core = _fake_mx_core_module()
+        fake_mlx_pkg = types.ModuleType("mlx")
+        fake_mlx_pkg.__path__ = []
+
+        def failing_decode(_chunk):
+            """Simulate a decode failure."""
+            raise RuntimeError("decode failed")
+
+        host._mlx_compiled_decode = failing_decode
+        latents = torch.ones(1, 1, 32, dtype=torch.float32)
+        with patch.dict(sys.modules, {"mlx": fake_mlx_pkg, "mlx.core": fake_mx_core}):
+            with self.assertRaises(RuntimeError):
+                host._mlx_vae_decode(latents)
+        cap = MLX_VAE_DECODE_NATIVE_MODULE._MLX_VAE_DECODE_CACHE_LIMIT_BYTES
+        self.assertEqual(fake_mx_core.cache_limit_calls, [cap, _DEFAULT_FAKE_CACHE_LIMIT])
+        self.assertEqual(fake_mx_core.cache_limit, _DEFAULT_FAKE_CACHE_LIMIT)
+
+    def test_mlx_cache_limit_context_restores_previous_limit_on_error(self):
+        """It applies the given limit inside the block and restores the old one on exit."""
+        fake_mx_core = _fake_mx_core_module()
+        limit_inside = []
+        with self.assertRaises(ValueError):
+            with MLX_VAE_DECODE_NATIVE_MODULE._mlx_cache_limit(fake_mx_core, 123):
+                limit_inside.append(fake_mx_core.cache_limit)
+                raise ValueError("boom")
+        self.assertEqual(limit_inside, [123])
+        self.assertEqual(fake_mx_core.cache_limit_calls, [123, _DEFAULT_FAKE_CACHE_LIMIT])
+        self.assertEqual(fake_mx_core.cache_limit, _DEFAULT_FAKE_CACHE_LIMIT)
+
+    def test_mlx_cache_limit_context_keeps_lower_previous_limit(self):
+        """It does not raise a cache limit the caller already set below the cap."""
+        fake_mx_core = _fake_mx_core_module()
+        fake_mx_core.cache_limit = 512 * 1024**2
+        cap = MLX_VAE_DECODE_NATIVE_MODULE._MLX_VAE_DECODE_CACHE_LIMIT_BYTES
+        with MLX_VAE_DECODE_NATIVE_MODULE._mlx_cache_limit(fake_mx_core, cap):
+            limit_inside = fake_mx_core.cache_limit
+        self.assertEqual(limit_inside, 512 * 1024**2)
+        self.assertEqual(fake_mx_core.cache_limit, 512 * 1024**2)
+
+    def test_mlx_cache_limit_context_holds_lock_until_exit(self):
+        """It serializes cache-limit scopes and releases the lock even on errors."""
+        fake_mx_core = _fake_mx_core_module()
+        lock = MLX_VAE_DECODE_NATIVE_MODULE._MLX_CACHE_LIMIT_LOCK
+        locked_inside = []
+        with self.assertRaises(ValueError):
+            with MLX_VAE_DECODE_NATIVE_MODULE._mlx_cache_limit(fake_mx_core, 123):
+                locked_inside.append(lock.locked())
+                raise ValueError("boom")
+        self.assertEqual(locked_inside, [True])
+        self.assertFalse(lock.locked())
 
     def test_mlx_encode_single_without_tiling_updates_progress(self):
         """It encodes short audio in one pass and updates progress once."""

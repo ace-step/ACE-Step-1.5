@@ -7,6 +7,8 @@ from collections import OrderedDict
 from typing import Any
 from urllib import error, parse, request
 
+from .external_lm_providers import MINIMAX_TEXT_MODELS, get_external_provider_profile
+
 
 class ExternalModelDiscoveryError(RuntimeError):
     """Raised when model discovery fails for all candidate endpoints."""
@@ -20,13 +22,19 @@ def discover_external_models(
     api_key: str,
     timeout_sec: int = 20,
 ) -> list[str]:
-    """Discover model identifiers from a provider's model-list endpoint."""
+    """Return MiniMax preset models, or discover models from a custom/provider endpoint."""
 
     parsed_base_url = parse.urlparse(base_url.strip())
     if parsed_base_url.scheme and parsed_base_url.scheme not in {"http", "https"}:
         raise ExternalModelDiscoveryError(
             f"Unsupported URL scheme for model discovery: {parsed_base_url.scheme}"
         )
+
+    provider_token = (provider or "").strip().lower()
+    if provider_token in {"minimax", "minimax_anthropic"}:
+        profile = get_external_provider_profile(provider_token)
+        if base_url.strip().rstrip("/") in {url for _, url in profile.base_url_presets}:
+            return list(MINIMAX_TEXT_MODELS)
 
     candidate_urls = _build_model_list_urls(
         provider=provider,

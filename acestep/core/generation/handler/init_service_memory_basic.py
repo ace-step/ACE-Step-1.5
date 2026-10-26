@@ -198,8 +198,15 @@ class InitServiceMemoryBasicMixin:
                         ("PeakPagefileUsage", ctypes.c_size_t),
                     ]
 
-                GetProcessMemoryInfo = ctypes.windll.psapi.GetProcessMemoryInfo
-                GetCurrentProcess = ctypes.windll.kernel32.GetCurrentProcess
+                # Untyped, ctypes passes the 64-bit pseudo-handle as a 32-bit int and the call
+                # fails. Private WinDLL handles keep these signatures out of ctypes.windll.
+                psapi = ctypes.WinDLL("psapi")
+                kernel32 = ctypes.WinDLL("kernel32")
+                GetProcessMemoryInfo = psapi.GetProcessMemoryInfo
+                GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+                GetProcessMemoryInfo.restype = wintypes.BOOL
+                GetCurrentProcess = kernel32.GetCurrentProcess
+                GetCurrentProcess.restype = wintypes.HANDLE
                 counters = PROCESS_MEMORY_COUNTERS()
                 counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
                 if GetProcessMemoryInfo(GetCurrentProcess(), ctypes.byref(counters), ctypes.sizeof(counters)):

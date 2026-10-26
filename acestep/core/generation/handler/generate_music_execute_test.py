@@ -1,7 +1,9 @@
 """Unit tests for ``generate_music`` execution helper mixin."""
 
 import unittest
+from unittest.mock import patch
 
+from acestep.core.generation.handler import generate_music_execute as execute_module
 from acestep.core.generation.handler.generate_music_execute import GenerateMusicExecuteMixin
 
 
@@ -85,6 +87,31 @@ class GenerateMusicExecuteMixinTests(unittest.TestCase):
         self.assertTrue(host.stopped)
         self.assertEqual(host.service_calls, 1)
         self.assertEqual(out["outputs"]["target_latents"], "ok")
+
+    def test_run_service_with_progress_raises_timeout_and_stops_estimator(self):
+        """A service call still running at the deadline raises TimeoutError and stops progress."""
+        host = _Host()
+        with patch.object(execute_module, "run_on_service_thread", return_value=False):
+            with self.assertRaises(TimeoutError):
+                host._run_generate_music_service_with_progress(
+                    progress=lambda *args, **kwargs: None,
+                    actual_batch_size=1,
+                    audio_duration=10.0,
+                    inference_steps=8,
+                    timesteps=None,
+                    service_inputs={},
+                    refer_audios=None,
+                    guidance_scale=7.0,
+                    actual_seed_list=[1],
+                    audio_cover_strength=1.0,
+                    cover_noise_strength=0.0,
+                    use_adg=False,
+                    cfg_interval_start=0.0,
+                    cfg_interval_end=1.0,
+                    shift=1.0,
+                    infer_method="ode",
+                )
+        self.assertTrue(host.stopped)
 
 
 if __name__ == "__main__":

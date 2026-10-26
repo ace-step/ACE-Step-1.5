@@ -1,10 +1,11 @@
 """Execution helper for ``generate_music`` service invocation with progress tracking."""
 
 import os
-import threading
 from typing import Any, Dict, List, Optional, Sequence
 
 from loguru import logger
+
+from acestep.core.generation.handler.service_thread import run_on_service_thread
 
 # Maximum wall-clock seconds to wait for service_generate before declaring a hang.
 # Generous default: most generations finish in 30-120s, but large batches on slow
@@ -67,7 +68,7 @@ class GenerateMusicExecuteMixin:
         progress_thread = None
 
         # --- Timeout-wrapped service_generate ---
-        # Run the actual CUDA work in a child thread so we can join() with a
+        # Run the actual CUDA work on a service thread and wait with a
         # deadline.  If it exceeds the timeout the calling thread unblocks and
         # raises TimeoutError, which propagates to generate_music()'s
         # try/except and becomes a clean error payload for the UI.
@@ -136,15 +137,11 @@ class GenerateMusicExecuteMixin:
                 desc=progress_desc,
             )
 
-            gen_thread = threading.Thread(
-                target=_service_target,
-                name="service-generate",
-                daemon=True,
-            )
-            gen_thread.start()
-            gen_thread.join(timeout=_DEFAULT_GENERATION_TIMEOUT)
+            # Reuse a long-lived thread: a fresh thread per generation leaks host RAM on
+            # Windows when the DiT is offloaded to the CPU (see service_thread.py).
+            finished = run_on_service_thread(_service_target, timeout=_DEFAULT_GENERATION_TIMEOUT)
 
-            if gen_thread.is_alive():
+            if not finished:
                 logger.error(
                     f"[generate_music] service_generate exceeded {_DEFAULT_GENERATION_TIMEOUT}s "
                     f"timeout (batch={actual_batch_size}, steps={inference_steps}, "

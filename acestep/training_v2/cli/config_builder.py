@@ -87,6 +87,12 @@ def build_configs(args: argparse.Namespace) -> Tuple[AdapterConfig, TrainingConf
         timestep_mu = defaults.get("timestep_mu", timestep_mu)
         timestep_sigma = defaults.get("timestep_sigma", timestep_sigma)
 
+    # -- Explicit override (e.g. focus training on low-noise detail) --------
+    timestep_mu_override = getattr(args, "timestep_mu", None)
+    if timestep_mu_override is not None:
+        logger.info("[Side-Step] timestep_mu overridden: %s -> %s", timestep_mu, timestep_mu_override)
+        timestep_mu = timestep_mu_override
+
     # -- GPU info -----------------------------------------------------------
     gpu_info = detect_gpu(
         requested_device=args.device,

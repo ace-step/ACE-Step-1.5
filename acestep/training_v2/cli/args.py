@@ -326,6 +326,15 @@ def _add_fixed_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments specific to the fixed subcommand."""
     g = parser.add_argument_group("Corrected training")
     g.add_argument("--cfg-ratio", type=float, default=0.15, help="CFG dropout probability (default: 0.15)")
+    g.add_argument(
+        "--timestep-mu",
+        type=float,
+        default=None,
+        help=(
+            "Override the logit-normal timestep mean (default: model config, -0.4 for base). "
+            "Lower values (e.g. -0.8) train more on low-noise steps, i.e. fine detail"
+        ),
+    )
 
 
 

@@ -171,7 +171,7 @@ class ServiceGenerateMixin:
                 payload=payload, generate_kwargs=generate_kwargs, seed_param=seed_param,
                 infer_method=infer_method, shift=shift, audio_cover_strength=audio_cover_strength,
                 retake_seed=retake_seed, retake_variance=retake_variance,
-                flow_edit_ctx=flow_edit_ctx,
+                flow_edit_ctx=flow_edit_ctx, task_type=task_type,
             )
         )
         return self._attach_service_generate_outputs(

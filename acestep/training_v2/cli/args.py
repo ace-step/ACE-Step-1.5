@@ -19,6 +19,10 @@ VARIANT_DIR_MAP = {
     "turbo": "acestep-v15-turbo",
     "base": "acestep-v15-base",
     "sft": "acestep-v15-sft",
+    # XL (4B DiT) variants -- same names as model_loader._VARIANT_DIR
+    "xl_turbo": "acestep-v15-xl-turbo",
+    "xl_base": "acestep-v15-xl-base",
+    "xl_sft": "acestep-v15-xl-sft",
 }
 
 

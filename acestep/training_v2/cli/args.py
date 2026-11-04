@@ -19,6 +19,10 @@ VARIANT_DIR_MAP = {
     "turbo": "acestep-v15-turbo",
     "base": "acestep-v15-base",
     "sft": "acestep-v15-sft",
+    # XL (4B DiT) variants -- same names as model_loader._VARIANT_DIR
+    "xl_turbo": "acestep-v15-xl-turbo",
+    "xl_base": "acestep-v15-xl-base",
+    "xl_sft": "acestep-v15-xl-sft",
 }
 
 
@@ -326,6 +330,15 @@ def _add_fixed_args(parser: argparse.ArgumentParser) -> None:
     """Add arguments specific to the fixed subcommand."""
     g = parser.add_argument_group("Corrected training")
     g.add_argument("--cfg-ratio", type=float, default=0.15, help="CFG dropout probability (default: 0.15)")
+    g.add_argument(
+        "--timestep-mu",
+        type=float,
+        default=None,
+        help=(
+            "Override the logit-normal timestep mean (default: model config, -0.4 for base). "
+            "Lower values (e.g. -0.8) train more on low-noise steps, i.e. fine detail"
+        ),
+    )
 
 
 

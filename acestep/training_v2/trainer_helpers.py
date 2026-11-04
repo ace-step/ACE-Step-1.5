@@ -24,6 +24,7 @@ from acestep.training.lokr_utils import (
     save_lokr_weights,
     load_lokr_weights,
 )
+from acestep.training_v2.adapter_resume import load_adapter_state_dict
 from acestep.training_v2.ui import TrainingUpdate
 
 logger = logging.getLogger(__name__)
@@ -395,11 +396,14 @@ def resume_checkpoint(
             decoder = module.model.decoder
             if hasattr(decoder, "_forward_module"):
                 decoder = decoder._forward_module
-            decoder.load_state_dict(state_dict, strict=False)
+            n_loaded = load_adapter_state_dict(decoder, state_dict)
 
             start_epoch = ckpt_info["epoch"]
             g_step = ckpt_info["global_step"]
-            parts = [f"[OK] Resumed from epoch {start_epoch}, step {g_step}"]
+            parts = [
+                f"[OK] Resumed from epoch {start_epoch}, step {g_step}",
+                f"adapter OK ({n_loaded} tensors)",
+            ]
             if ckpt_info["loaded_optimizer"]:
                 parts.append("optimizer OK")
             if ckpt_info["loaded_scheduler"]:

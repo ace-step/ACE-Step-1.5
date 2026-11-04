@@ -29,6 +29,7 @@ from acestep.training_v2.optim import build_optimizer, build_scheduler
 from acestep.training.data_module import PreprocessedDataModule
 
 # V2 modules
+from acestep.training_v2.adapter_resume import AdapterResumeError
 from acestep.training_v2.configs import TrainingConfigV2
 from acestep.training_v2.tensorboard_utils import TrainingLogger
 from acestep.training_v2.ui import TrainingUpdate
@@ -390,6 +391,10 @@ class FixedLoRATrainer:
                 )
                 if resumed is not None:
                     start_epoch, global_step = resumed
+            except AdapterResumeError:
+                # Optimizer/scheduler state may already be loaded: never
+                # silently continue with an untrained adapter.
+                raise
             except Exception as exc:
                 logger.exception("Failed to load checkpoint")
                 if is_main:

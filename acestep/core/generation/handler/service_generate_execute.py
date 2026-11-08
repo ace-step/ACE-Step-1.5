@@ -61,6 +61,24 @@ class ServiceGenerateExecuteMixin:
             return seed_list
         return random.randint(0, 2**32 - 1)
 
+    def _silence_latent_covering(self, length: int) -> torch.Tensor:
+        """Return ``self.silence_latent`` ([1, T, C]), tiled along time when it is shorter than ``length``.
+
+        各 modeling_acestep_v15_*.py 的 generate_audio 在 audio_cover_strength < 1 时用
+        silence_latent[:, :src_latents.shape[1], :] 造非 cover 条件。存的 silence_latent 只有
+        15000 帧(600 秒), 源音频超过 600 秒时这个切片会静默变短, 到 prepare_condition 里和
+        chunk_masks 拼接才炸:
+          Sizes of tensors must match except in dimension 2. Expected size 15000 but got size 15400
+        (2026-11-07 17:27 / 19:27 两单, 源音频 616 秒 / 693 秒, fp 71636051 / ad828fad)。
+        audio_cover_strength = 1 时不走这个切片, 同样长的源音频照常生成; 这里和
+        _get_silence_latent_slice 一样平铺补够长度。够长时原样返回同一个张量, 600 秒以内行为不变。
+        """
+        available = self.silence_latent.shape[1]
+        if available >= length:
+            return self.silence_latent
+        repeats = (length + available - 1) // available  # ceil division
+        return self.silence_latent.repeat(1, repeats, 1)
+
     def _build_service_generate_kwargs(
         self,
         payload: Dict[str, Any],
@@ -100,7 +118,7 @@ class ServiceGenerateExecuteMixin:
             "src_latents": payload["src_latents"],
             "chunk_masks": payload["chunk_mask"],
             "is_covers": payload["is_covers"],
-            "silence_latent": self.silence_latent,
+            "silence_latent": self._silence_latent_covering(payload["src_latents"].shape[1]),
             "seed": seed_param,
             "non_cover_text_hidden_states": payload["non_cover_text_hidden_states"],
             "non_cover_text_attention_mask": payload["non_cover_text_attention_masks"],
@@ -180,7 +198,9 @@ class ServiceGenerateExecuteMixin:
                         enc_hs_nc, enc_am_nc, ctx_nc = None, None, None
                         if audio_cover_strength < 1.0 and payload["non_cover_text_hidden_states"] is not None:
                             non_is_covers = torch.zeros_like(payload["is_covers"])
-                            sil_exp = self.silence_latent[:, :payload["src_latents"].shape[1], :].expand(
+                            sil_exp = self._silence_latent_covering(payload["src_latents"].shape[1])[
+                                :, :payload["src_latents"].shape[1], :
+                            ].expand(
                                 payload["src_latents"].shape[0], -1, -1
                             )
                             enc_hs_nc, enc_am_nc, ctx_nc = self.model.prepare_condition(

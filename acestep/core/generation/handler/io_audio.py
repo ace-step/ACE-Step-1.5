@@ -1,7 +1,11 @@
 """Audio IO and normalization helpers for handler decomposition."""
 
 import math
+import os
 import random
+import shutil
+import subprocess
+import tempfile
 from typing import Optional, Tuple
 
 import numpy as np
@@ -9,13 +13,74 @@ import torch
 import soundfile as sf
 from loguru import logger
 
+# ffmpeg 兜底至少要解出文件头声明时长的这么多，否则当作读不了（不拿几秒碎片去做翻唱）
+_FFMPEG_MIN_RECOVERED_RATIO = 0.9
+_FFMPEG_TIMEOUT_SECONDS = 120
+
+
+def _declared_duration(audio_file: str) -> Optional[float]:
+    """Duration the file header declares (MP3 Xing/Info frame count etc.), or None if unknown."""
+    try:
+        info = sf.info(audio_file)
+        if info.samplerate > 0 and info.frames > 0:
+            return info.frames / float(info.samplerate)
+    except Exception:
+        pass
+    return None
+
+
+def _read_audio_file_ffmpeg(audio_file: str) -> Tuple[np.ndarray, int, float, Optional[float]]:
+    """Last-resort decode with the ffmpeg CLI, which skips corrupt frames instead of giving up.
+
+    2026-11-09: an MP3 whose last frames were overwritten by text ("29,4...") made libmpg123 give up
+    resync, so soundfile raised "Unspecified internal error" and torchcodec "Failed to decode audio
+    samples"; the cover task failed with "Invalid source audio" although >99% of the audio was intact.
+
+    Returns:
+        (audio_np, sample_rate, recovered_seconds, declared_seconds or None).
+
+    Raises:
+        RuntimeError: ffmpeg is missing, fails, decodes nothing, or recovers less than
+        ``_FFMPEG_MIN_RECOVERED_RATIO`` of the declared duration.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError("ffmpeg executable not found")
+    fd, wav_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-err_detect", "ignore_err",
+             "-i", audio_file, "-vn", "-c:a", "pcm_f32le", "-f", "wav", "-y", wav_path],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=_FFMPEG_TIMEOUT_SECONDS,
+        )
+        if proc.returncode != 0:
+            tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+            raise RuntimeError(f"ffmpeg exit {proc.returncode}: {tail[0][:300]}")
+        audio_np, sr = sf.read(wav_path, dtype="float32")
+    finally:
+        try:
+            os.unlink(wav_path)
+        except OSError:
+            pass
+    if audio_np.size == 0 or sr <= 0:
+        raise RuntimeError("ffmpeg decoded no samples")
+    recovered = audio_np.shape[0] / float(sr)
+    declared = _declared_duration(audio_file)
+    if declared is not None and recovered < declared * _FFMPEG_MIN_RECOVERED_RATIO:
+        raise RuntimeError(
+            f"ffmpeg recovered only {recovered:.2f}s of the {declared:.2f}s the header declares"
+        )
+    return audio_np, sr, recovered, declared
+
 
 def _read_audio_file(audio_file: str) -> Tuple[np.ndarray, int]:
-    """Read an audio file, with torchaudio fallback for formats unsupported by soundfile.
+    """Read an audio file, with torchaudio and ffmpeg fallbacks.
 
     soundfile (libsndfile) supports WAV/FLAC/OGG/MP3 etc. but NOT AAC/M4A/MP4.
     When soundfile fails, we fall back to torchaudio.load() which uses torchcodec
-    and can handle virtually any format via FFmpeg.
+    and can handle virtually any format via FFmpeg. Both give up on a stream with
+    corrupt frames; the ffmpeg CLI skips them, so it is tried last.
 
     Args:
         audio_file: Path to the audio file.
@@ -25,7 +90,7 @@ def _read_audio_file(audio_file: str) -> Tuple[np.ndarray, int]:
         sample_rate).
 
     Raises:
-        RuntimeError: If both soundfile and torchaudio fail to read the file.
+        RuntimeError: If soundfile, torchaudio and ffmpeg all fail to read the file.
     """
     # Fast path: try soundfile directly (no torchcodec/FFmpeg overhead)
     sf_err = None
@@ -49,11 +114,24 @@ def _read_audio_file(audio_file: str) -> Tuple[np.ndarray, int]:
         if audio_np.shape[1] == 1:
             audio_np = audio_np.squeeze(1)  # -> [samples] for mono
         return audio_np.astype(np.float32), sr
-    except Exception as ta_err:
+    except Exception as exc:
+        ta_err = exc
+
+    # Last resort: ffmpeg CLI skips corrupt frames (e.g. text appended over the tail of an MP3)
+    try:
+        audio_np, sr, recovered, declared = _read_audio_file_ffmpeg(audio_file)
+    except Exception as ff_err:
         raise RuntimeError(
-            f"Cannot read '{audio_file}': soundfile ({sf_err}) "
-            f"and torchaudio ({ta_err}) both failed."
+            f"Cannot read '{audio_file}': soundfile ({sf_err}), "
+            f"torchaudio ({ta_err}) and ffmpeg ({ff_err}) all failed."
         ) from ta_err
+    logger.warning(
+        "[_read_audio_file] soundfile and torchaudio failed on '{}', ffmpeg recovered {:.2f}s "
+        "(header declares {}). soundfile: {} / torchaudio: {}",
+        audio_file, recovered, "%.2fs" % declared if declared is not None else "unknown",
+        sf_err, ta_err,
+    )
+    return audio_np, sr
 
 
 class IoAudioMixin:

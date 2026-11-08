@@ -1,6 +1,9 @@
 """Unit tests for audio IO mixin extraction."""
 
 import os
+import random
+import shutil
+import subprocess
 import tempfile
 import types
 import unittest
@@ -148,6 +151,121 @@ class ReadAudioFileIntegrationTest(unittest.TestCase):
         audio_np, sr = _read_audio_file("/tmp/test_aac.aac")
         self.assertGreater(sr, 0)
         self.assertGreater(audio_np.shape[0], 0)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not on PATH")
+class ReadAudioFileFfmpegFallbackTest(unittest.TestCase):
+    """MP3 whose tail frames were overwritten by text (2026-11-09: 6 LaaS cover tasks).
+
+    libmpg123 gives up resync, soundfile raises "Unspecified internal error" and torchcodec
+    "Failed to decode audio samples" (simulated here: the local torchaudio may be older).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = tempfile.mkdtemp(prefix="io_audio_ffmpeg_")
+        cls.ok_mp3 = os.path.join(cls.tmpdir, "ok.mp3")
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi",
+             "-i", "sine=frequency=440:duration=120:sample_rate=48000",
+             "-ac", "2", "-b:a", "320k", cls.ok_mp3],
+            check=True,
+        )
+        with open(cls.ok_mp3, "rb") as f:
+            cls.ok_bytes = f.read()
+        rng = random.Random(0)
+        cls.text = ",".join(str(rng.randint(0, 99)) for _ in range(4000)).encode()[:9256]
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+
+    def _write(self, name, data):
+        path = os.path.join(self.tmpdir, name)
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def _soundfile_fails(self, path):
+        import soundfile as sf
+
+        try:
+            sf.read(path, dtype="float32")
+        except Exception:
+            return True
+        return False
+
+    def test_salvages_mp3_with_text_over_tail(self):
+        """Same size as the original, last 9 KB replaced by '29,4,...' text: ffmpeg recovers it."""
+        path = self._write("tail.mp3", self.ok_bytes[:-len(self.text)] + self.text)
+        if not self._soundfile_fails(path):
+            self.skipTest("local libsndfile reads this file; nothing to fall back from")
+        with patch("torchaudio.load", side_effect=RuntimeError("Failed to decode audio samples")):
+            audio_np, sr = _read_audio_file(path)
+        self.assertEqual(sr, 48000)
+        self.assertEqual(audio_np.ndim, 2)
+        self.assertEqual(audio_np.shape[1], 2)
+        self.assertEqual(audio_np.dtype, np.float32)
+        self.assertGreater(audio_np.shape[0] / sr, 119.0)
+        self.assertGreater(np.abs(audio_np).max(), 0.05)  # lavfi sine peaks around 0.09, not silence
+
+    def test_process_src_audio_uses_salvaged_audio(self):
+        """The cover path no longer returns None ("Invalid source audio") for such a file."""
+        path = self._write("tail_src.mp3", self.ok_bytes[:-len(self.text)] + self.text)
+        with patch("torchaudio.load", side_effect=RuntimeError("Failed to decode audio samples")):
+            result = _Host().process_src_audio(path)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.shape[0], 2)
+        self.assertGreater(result.shape[1] / 48000, 119.0)
+
+    def test_rejects_fragment_far_shorter_than_header(self):
+        """Header says 120 s but only ~6 s of frames survive: still unreadable, not a 6 s cover."""
+        cut = len(self.ok_bytes) // 20
+        path = self._write("fragment.mp3", self.ok_bytes[:cut] + self.text)
+        if not self._soundfile_fails(path):
+            self.skipTest("local libsndfile reads this file; nothing to fall back from")
+        with patch("torchaudio.load", side_effect=RuntimeError("Failed to decode audio samples")):
+            with self.assertRaises(RuntimeError) as ctx:
+                _read_audio_file(path)
+        self.assertIn("header declares", str(ctx.exception))
+        self.assertIn("Failed to decode audio samples", str(ctx.exception))
+
+    def test_not_audio_at_all_still_raises(self):
+        """A text file named .mp3: all three fail, RuntimeError names each of them."""
+        path = self._write("text.mp3", self.text)
+        with patch("torchaudio.load", side_effect=RuntimeError("ta fail")):
+            with self.assertRaises(RuntimeError) as ctx:
+                _read_audio_file(path)
+        msg = str(ctx.exception)
+        self.assertIn("soundfile (", msg)
+        self.assertIn("ta fail", msg)
+        self.assertIn("ffmpeg (", msg)
+
+    def test_without_ffmpeg_behaves_as_before(self):
+        """No ffmpeg binary in the container: same RuntimeError as before, no crash."""
+        path = self._write("tail_noff.mp3", self.ok_bytes[:-len(self.text)] + self.text)
+        if not self._soundfile_fails(path):
+            self.skipTest("local libsndfile reads this file; nothing to fall back from")
+        with patch("acestep.core.generation.handler.io_audio.shutil.which", return_value=None):
+            with patch("torchaudio.load", side_effect=RuntimeError("ta fail")):
+                with self.assertRaises(RuntimeError) as ctx:
+                    _read_audio_file(path)
+        self.assertIn("ffmpeg executable not found", str(ctx.exception))
+
+    def test_leaves_no_temp_wav(self):
+        """The temporary WAV is removed on success and on failure."""
+        before = set(os.listdir(tempfile.gettempdir()))
+        good = self._write("tail_tmp.mp3", self.ok_bytes[:-len(self.text)] + self.text)
+        bad = self._write("text_tmp.mp3", self.text)
+        with patch("torchaudio.load", side_effect=RuntimeError("ta fail")):
+            try:
+                _read_audio_file(good)
+            except RuntimeError:
+                pass
+            with self.assertRaises(RuntimeError):
+                _read_audio_file(bad)
+        leaked = [n for n in set(os.listdir(tempfile.gettempdir())) - before if n.endswith(".wav")]
+        self.assertEqual(leaked, [])
 
 
 if __name__ == "__main__":

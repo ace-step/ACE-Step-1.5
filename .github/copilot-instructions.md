@@ -41,7 +41,7 @@ ACE-Step 1.5 is an open-source music foundation model combining a Language Model
 
 ### UI & Internationalization
 - `acestep/gradio_ui/` - Gradio interface components
-- `acestep/gradio_ui/i18n.py` - i18n system (50+ languages)
+- `acestep/ui/gradio/i18n/i18n.py` - i18n system (50+ languages)
 - All user-facing strings must use i18n translation keys
 
 ### Training

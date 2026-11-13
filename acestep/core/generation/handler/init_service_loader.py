@@ -75,6 +75,45 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
             model_module_name,
         )
 
+    def _keep_lyric_encoder_fp32(self) -> None:
+        """Run the lyric encoder's math in fp32 when the DiT runs in fp16 (pre-Ampere GPUs).
+
+        Local patch (2026-11-12): with certain lyric text the lyric encoder's
+        layers.7.mlp.down_proj activations exceed fp16's 65504 limit, which turns the
+        whole generation into NaN latents on Turing cards (no bf16).
+
+        Weights stay fp16 at rest: the CPU-offload code re-casts the whole model to
+        ``self.dtype`` every time it is moved to the GPU, so a permanently-fp32 encoder
+        would be silently reverted. Instead the encoder is upcast (fp16->fp32 is exact)
+        for the duration of its own forward call, then cast back. Costs ~0.8 GB of
+        transient VRAM. The output is returned in fp16 so the rest of the pipeline
+        is unchanged.
+        """
+        if self.dtype != torch.float16:
+            return
+        lyric_encoder = getattr(getattr(self.model, "encoder", None), "lyric_encoder", None)
+        if lyric_encoder is None or getattr(lyric_encoder, "_fp32_forward_patched", False):
+            return
+        original_forward = lyric_encoder.forward
+
+        def _to_fp32(x):
+            return x.float() if torch.is_tensor(x) and x.is_floating_point() else x
+
+        def forward_fp32(*args, **kwargs):
+            lyric_encoder.float()
+            try:
+                output = original_forward(
+                    *(_to_fp32(a) for a in args), **{k: _to_fp32(v) for k, v in kwargs.items()}
+                )
+            finally:
+                lyric_encoder.to(torch.float16)
+            output.last_hidden_state = output.last_hidden_state.to(torch.float16)
+            return output
+
+        lyric_encoder.forward = forward_fp32
+        lyric_encoder._fp32_forward_patched = True
+        logger.info("[initialize_service] fp16 DiT: lyric encoder computes in float32 to avoid fp16 overflow (NaN latents).")
+
     @staticmethod
     def _build_quantization_config(quantization: str):
         """Return a torchao quantization config object for the requested mode."""
@@ -202,6 +241,7 @@ class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
         else:
             self.model = self.model.to("cpu").to(self.dtype)
         self.model.eval()
+        self._keep_lyric_encoder_fp32()
 
         if compile_model:
             self._ensure_len_for_compile(self.model, "model")

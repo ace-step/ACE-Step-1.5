@@ -14,10 +14,10 @@ class _FakeParser:
 
         self._values = values
 
-    def get(self, key: str):
+    def get(self, key: str, default=None):
         """Return raw value for ``key`` from parser payload."""
 
-        return self._values.get(key)
+        return self._values.get(key, default)
 
     def str(self, key: str, default: str = "") -> str:
         """Return string value for ``key`` with default fallback."""
@@ -133,6 +133,25 @@ class ReleaseTaskRequestBuilderTests(unittest.TestCase):
 
         self.assertEqual("<|audio_code_7|>", request.audio_code_string)
         self.assertAlmostEqual(0.6, request.cover_noise_strength)
+
+    def test_build_request_forwards_custom_timesteps(self):
+        """Builder should forward custom timesteps, and leave them unset when absent."""
+
+        kwargs = dict(
+            request_model_cls=lambda **kwargs: SimpleNamespace(**kwargs),
+            default_dit_instruction="default-instruction",
+            lm_default_temperature=0.85,
+            lm_default_cfg_scale=2.5,
+            lm_default_top_p=0.9,
+        )
+        request = build_generate_music_request(
+            parser=_FakeParser({"timesteps": "0.97,0.5,0"}), **kwargs
+        )
+        self.assertEqual("0.97,0.5,0", request.timesteps)
+
+        for values in ({}, {"timesteps": ""}):
+            request = build_generate_music_request(parser=_FakeParser(values), **kwargs)
+            self.assertIsNone(request.timesteps)
 
 
 if __name__ == "__main__":

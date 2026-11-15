@@ -81,6 +81,7 @@ def build_generate_music_request(
         cfg_interval_end=parser.float("cfg_interval_end", 1.0),
         infer_method=parser.str("infer_method", "ode"),
         shift=parser.float("shift", 3.0),
+        timesteps=parser.str("timesteps") or None,
         audio_format=parser.str("audio_format", "mp3"),
         use_tiled_decode=parser.bool("use_tiled_decode", True),
         lm_model_path=parser.str("lm_model_path") or None,

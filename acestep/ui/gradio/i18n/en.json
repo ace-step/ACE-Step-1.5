@@ -309,6 +309,8 @@
     "save_failed": "❌ Failed to save: {error}",
     "no_file_selected": "⚠️ No file selected",
     "params_loaded": "✅ Parameters loaded from {filename}",
+    "metadata_model_not_found": "⚠️ Model '{model}' from the JSON file was not found in checkpoints.",
+    "metadata_models_differ": "⚠️ The JSON file uses different models ({models}). Model selectors updated: click 'Initialize Service' before generating.",
     "invalid_json": "❌ Invalid JSON file: {error}",
     "load_error": "❌ Error loading file: {error}",
     "example_loaded": "📁 Loaded example from {filename}",

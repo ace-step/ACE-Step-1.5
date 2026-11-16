@@ -36,6 +36,7 @@ from acestep.ui.gradio.events.results.audio_playback_updates import (
 )
 from acestep.ui.gradio.events.results.scoring import calculate_score_handler
 from acestep.ui.gradio.events.results.lrc_utils import lrc_to_vtt_file
+from acestep.ui.gradio.events.results.model_info import collect_model_info
 from acestep.ui.gradio.events.results.session_artifacts import persist_sample_session_artifacts
 
 
@@ -273,6 +274,7 @@ def generate_with_progress(
     )
     time_module.sleep(0.1)
 
+    model_info = collect_model_info(dit_handler, llm_handler)
     for i in range(8):
         if i >= len(audios):
             continue
@@ -281,6 +283,7 @@ def generate_with_progress(
         audio_tensor = audios[i]["tensor"]
         sample_rate = audios[i]["sample_rate"]
         audio_params = audios[i]["params"]
+        audio_params.update(model_info)
 
         timestamp = int(time_module.time())
         temp_dir = os.path.join(DEFAULT_RESULTS_DIR, f"batch_{timestamp}")

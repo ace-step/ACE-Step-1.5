@@ -9,6 +9,10 @@ from typing import Any
 import gradio as gr
 
 from .. import generation_handlers as gen_h
+from ..generation.metadata_model_restore import (
+    keep_loaded_values_after_init,
+    update_model_type_settings_keeping_loaded,
+)
 from ...i18n import get_i18n, reset_language_context, set_language_context
 from .context import (
     GenerationWiringContext,
@@ -58,8 +62,12 @@ def register_generation_service_handlers(
     )
 
     generation_section["config_path"].change(
-        fn=gen_h.update_model_type_settings,
-        inputs=[generation_section["config_path"], generation_section["generation_mode"]],
+        fn=update_model_type_settings_keeping_loaded,
+        inputs=[
+            generation_section["config_path"],
+            generation_section["generation_mode"],
+            results_section["keep_loaded_params_state"],
+        ],
         outputs=[
             generation_section["inference_steps"],
             generation_section["guidance_scale"],
@@ -71,6 +79,7 @@ def register_generation_service_handlers(
             generation_section["generation_mode"],
             generation_section["init_llm_checkbox"],
             generation_section["dcw_enabled"],
+            results_section["keep_loaded_params_state"],
         ],
     )
 
@@ -93,7 +102,9 @@ def register_generation_service_handlers(
     )
 
     init_event = generation_section["init_btn"].click(
-        fn=lambda *args: gen_h.init_service_wrapper(dit_handler, llm_handler, *args),
+        fn=lambda *args: keep_loaded_values_after_init(
+            gen_h.init_service_wrapper(dit_handler, llm_handler, *args[:-1]), args[-1]
+        ),
         inputs=[
             generation_section["checkpoint_dropdown"],
             generation_section["config_path"],
@@ -110,6 +121,7 @@ def register_generation_service_handlers(
             generation_section["generation_mode"],
             generation_section["batch_size_input"],
             generation_section["vae_checkpoint"],
+            results_section["keep_params_on_init_state"],
         ],
         outputs=[
             generation_section["init_status"],
@@ -128,6 +140,7 @@ def register_generation_service_handlers(
             generation_section["audio_duration"],
             generation_section["batch_size_input"],
             generation_section["think_checkbox"],
+            results_section["keep_params_on_init_state"],
         ],
     )
     init_event.then(

@@ -279,6 +279,8 @@
     "save_failed": "❌ 保存失败: {error}",
     "no_file_selected": "⚠️ 未选择文件",
     "params_loaded": "✅ 已从 {filename} 加载参数",
+    "metadata_model_not_found": "⚠️ 在 checkpoints 中未找到 JSON 文件中的模型 '{model}'。",
+    "metadata_models_differ": "⚠️ JSON 文件使用了不同的模型（{models}）。已更新模型选择，请在生成前点击“Initialize Service”。",
     "invalid_json": "❌ 无效的JSON文件: {error}",
     "load_error": "❌ 加载文件时出错: {error}",
     "example_loaded": "📁 已从 {filename} 加载示例",

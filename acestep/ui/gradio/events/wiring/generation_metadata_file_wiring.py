@@ -3,6 +3,7 @@
 from typing import Any, Sequence
 
 from .. import generation_handlers as gen_h
+from ..generation.metadata_model_restore import restore_models_from_metadata
 from .context import GenerationWiringContext
 
 
@@ -73,12 +74,31 @@ def register_generation_metadata_file_handlers(
     """Register metadata load-file upload and auto-checkbox sync handlers."""
 
     generation_section = context.generation_section
+    results_section = context.results_section
     llm_handler = context.llm_handler
 
+    def load_metadata_and_models(file_obj, current_dit):
+        """Load parameters, then model selectors, from one uploaded JSON.
+
+        Both run in the same handler: the UploadButton value is already
+        cleared when a chained ``.then`` step runs.
+        """
+        params = tuple(gen_h.load_metadata(file_obj, llm_handler))
+        models = restore_models_from_metadata(
+            file_obj, current_dit, context.dit_handler, llm_handler
+        )
+        return params + models
+
     generation_section["load_file"].upload(
-        fn=lambda file_obj: gen_h.load_metadata(file_obj, llm_handler),
-        inputs=[generation_section["load_file"]],
-        outputs=_build_load_metadata_outputs(context),
+        fn=load_metadata_and_models,
+        inputs=[generation_section["load_file"], generation_section["config_path"]],
+        outputs=_build_load_metadata_outputs(context) + [
+            generation_section["config_path"],
+            generation_section["lm_model_path"],
+            generation_section["vae_checkpoint"],
+            results_section["keep_loaded_params_state"],
+            results_section["keep_params_on_init_state"],
+        ],
     ).then(
         fn=gen_h.uncheck_auto_for_populated_fields,
         inputs=list(auto_checkbox_inputs),

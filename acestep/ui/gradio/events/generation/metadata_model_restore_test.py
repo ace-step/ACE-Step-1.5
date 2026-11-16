@@ -16,14 +16,14 @@ _LM_CHOICES = ["acestep-5Hz-lm-0.6B", "acestep-5Hz-lm-1.7B"]
 _VAE_CHOICES = ["official"]
 
 
-def _handlers(dit="acestep-v15-turbo", lm="acestep-5Hz-lm-0.6B"):
+def _handlers(dit="acestep-v15-turbo", lm="acestep-5Hz-lm-0.6B", lm_initialized=True):
     """Build fake DiT / LLM handlers with the given loaded models."""
     dit_handler = SimpleNamespace(
         last_init_params={"config_path": dit, "vae_checkpoint": "official"},
         get_available_acestep_v15_models=lambda: list(_DIT_CHOICES),
     )
     llm_handler = SimpleNamespace(
-        llm_initialized=True,
+        llm_initialized=lm_initialized,
         _last_initialize_config={"lm_model_path": lm},
         _lm_full_model_path=None,
         get_available_5hz_lm_models=lambda: list(_LM_CHOICES),
@@ -63,7 +63,7 @@ class RestoreModelsFromMetadataTests(unittest.TestCase):
         """Old metadata files leave every selector untouched."""
         result = self._restore({"caption": "x", "bpm": 120})
         skip = gr.skip()
-        self.assertEqual(result, (skip, skip, skip, False))
+        self.assertEqual(result, (skip, skip, skip, False, False))
         self.warning.assert_not_called()
 
     def test_same_models_are_selected_without_warning(self):
@@ -71,7 +71,9 @@ class RestoreModelsFromMetadataTests(unittest.TestCase):
         data = {"dit_model": "acestep-v15-turbo", "lm_model": "acestep-5Hz-lm-0.6B",
                 "vae_checkpoint": "official"}
         result = self._restore(data)
-        self.assertEqual(result, ("acestep-v15-turbo", "acestep-5Hz-lm-0.6B", "official", False))
+        self.assertEqual(
+            result, ("acestep-v15-turbo", "acestep-5Hz-lm-0.6B", "official", False, False)
+        )
         self.warning.assert_not_called()
 
     def test_different_dit_sets_keep_flag_and_warns(self):
@@ -79,6 +81,14 @@ class RestoreModelsFromMetadataTests(unittest.TestCase):
         result = self._restore({"dit_model": "acestep-v15-base"})
         self.assertEqual(result[0], "acestep-v15-base")
         self.assertTrue(result[3])
+        self.assertTrue(result[4])
+        self.warning.assert_called_once()
+
+    def test_lm_not_initialized_warns(self):
+        """A JSON LM is reported when no LM is initialized."""
+        result = self._restore({"lm_model": "acestep-5Hz-lm-0.6B"}, lm_initialized=False)
+        self.assertEqual(result[1], "acestep-5Hz-lm-0.6B")
+        self.assertTrue(result[4])
         self.warning.assert_called_once()
 
     def test_missing_model_is_skipped_with_warning(self):
@@ -111,6 +121,33 @@ class UpdateModelTypeSettingsKeepingLoadedTests(unittest.TestCase):
         self.assertNotIn("value", result[0])
         self.assertIn("maximum", result[0])
         self.assertNotIn("value", result[3])
+        self.assertFalse(result[-1])
+
+
+def _init_result():
+    """Build a fake init_service_wrapper result for a turbo model."""
+    settings = restore.update_model_type_settings("acestep-v15-turbo", None)
+    return ("status", gr.update(), gr.update(), *settings, "duration", "batch", "think")
+
+
+class KeepLoadedValuesAfterInitTests(unittest.TestCase):
+    """Verify Initialize Service keeps steps and shift loaded from JSON."""
+
+    def test_without_flag_result_is_unchanged(self):
+        """A normal initialization applies the model defaults as before."""
+        result = restore.keep_loaded_values_after_init(_init_result(), False)
+        self.assertEqual(result[:-1], _init_result())
+        self.assertFalse(result[-1])
+
+    def test_after_json_load_keeps_steps_and_shift(self):
+        """With the flag, steps and shift keep their value; the flag resets."""
+        expected = _init_result()
+        result = restore.keep_loaded_values_after_init(expected, True)
+        self.assertNotIn("value", result[3])
+        self.assertIn("maximum", result[3])
+        self.assertNotIn("value", result[6])
+        self.assertEqual(result[4], expected[4])
+        self.assertEqual(result[0], "status")
         self.assertFalse(result[-1])
 
 

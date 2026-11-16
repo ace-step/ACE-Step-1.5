@@ -17,6 +17,9 @@ from acestep.ui.gradio.i18n import t
 # Indexes of update_model_type_settings() outputs that carry a value which is
 # also restored from the JSON (inference_steps, shift).
 _LOADED_VALUE_INDEXES = (0, 3)
+# init_service_wrapper() returns status, button and accordion before the
+# model-type settings.
+_INIT_SETTINGS_OFFSET = 3
 
 
 def read_metadata_dict(file_obj: Any) -> dict | None:
@@ -77,9 +80,10 @@ def restore_models_from_metadata(
         llm_handler: LLM handler, may be ``None``.
 
     Returns:
-        Updates for (config_path, lm_model_path, vae_checkpoint) followed by a
-        bool that is ``True`` when the DiT selector changes value, so the
-        model-type defaults must not overwrite the values loaded from the JSON.
+        Updates for (config_path, lm_model_path, vae_checkpoint), then two
+        bools: ``True`` when the DiT selector changes value, and ``True`` when
+        the JSON models differ from the loaded ones. Both tell the model-type
+        defaults not to overwrite the values loaded from the JSON.
     """
     metadata = read_metadata_dict(file_obj) or {}
     loaded = collect_model_info(dit_handler, llm_handler)
@@ -90,7 +94,7 @@ def restore_models_from_metadata(
             updates.append(gr.skip())
         elif name in _available(list_choices):
             updates.append(name)
-            if loaded.get(key) and name != loaded[key]:
+            if name != loaded.get(key):
                 differs.append(name)
         else:
             updates.append(gr.skip())
@@ -98,7 +102,7 @@ def restore_models_from_metadata(
     if differs:
         gr.Warning(t("messages.metadata_models_differ", models=", ".join(differs)))
     dit_changes = isinstance(updates[0], str) and updates[0] != current_dit
-    return (*updates, dit_changes)
+    return (*updates, dit_changes, bool(differs))
 
 
 def update_model_type_settings_keeping_loaded(
@@ -116,10 +120,35 @@ def update_model_type_settings_keeping_loaded(
         The ``update_model_type_settings`` updates followed by ``False`` to
         reset the keep-loaded flag.
     """
-    updates = list(update_model_type_settings(config_path, current_mode))
+    updates = update_model_type_settings(config_path, current_mode)
     if keep_loaded_values:
-        for index in _LOADED_VALUE_INDEXES:
-            update = dict(updates[index])
-            update.pop("value", None)
-            updates[index] = update
+        updates = _without_values(updates, _LOADED_VALUE_INDEXES)
     return (*updates, False)
+
+
+def keep_loaded_values_after_init(init_result: tuple, keep_loaded_values: bool) -> tuple:
+    """Keep steps and shift from a loaded JSON in the Initialize Service result.
+
+    Args:
+        init_result: Return value of ``init_service_wrapper``.
+        keep_loaded_values: ``True`` when the last JSON load selected models
+            different from the loaded ones.
+
+    Returns:
+        ``init_result`` (without the steps/shift values when the flag is set)
+        followed by ``False`` to reset the flag.
+    """
+    if keep_loaded_values:
+        indexes = [_INIT_SETTINGS_OFFSET + index for index in _LOADED_VALUE_INDEXES]
+        init_result = _without_values(init_result, indexes)
+    return (*init_result, False)
+
+
+def _without_values(updates: tuple, indexes: list[int] | tuple[int, ...]) -> list:
+    """Return a copy of ``updates`` where the given updates do not set a value."""
+    updates = list(updates)
+    for index in indexes:
+        update = dict(updates[index])
+        update.pop("value", None)
+        updates[index] = update
+    return updates

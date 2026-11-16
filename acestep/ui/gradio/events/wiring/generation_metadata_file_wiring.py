@@ -97,6 +97,7 @@ def register_generation_metadata_file_handlers(
             generation_section["lm_model_path"],
             generation_section["vae_checkpoint"],
             results_section["keep_loaded_params_state"],
+            results_section["keep_params_on_init_state"],
         ],
     ).then(
         fn=gen_h.uncheck_auto_for_populated_fields,

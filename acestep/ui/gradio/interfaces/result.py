@@ -112,6 +112,8 @@ def create_results_section(dit_handler) -> dict:
         is_generating_background = gr.State(value=False)
         # True right after a JSON load changed the DiT selector (keep loaded values)
         keep_loaded_params_state = gr.State(value=False)
+        # True after a JSON load selected other models (keep values on init)
+        keep_params_on_init_state = gr.State(value=False)
 
         # Row 1: samples 1-4
         with gr.Row():
@@ -171,6 +173,7 @@ def create_results_section(dit_handler) -> dict:
         "batch_queue": batch_queue,
         "generation_params_state": generation_params_state,
         "keep_loaded_params_state": keep_loaded_params_state,
+        "keep_params_on_init_state": keep_params_on_init_state,
         "is_generating_background": is_generating_background,
         "status_output": status_output,
         "prev_batch_btn": prev_batch_btn,

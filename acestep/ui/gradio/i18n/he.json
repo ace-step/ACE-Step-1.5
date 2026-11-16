@@ -284,6 +284,8 @@
     "save_failed": "❌ שמירה נכשלה: {error}",
     "no_file_selected": "⚠️ לא נבחר קובץ",
     "params_loaded": "✅ פרמטרים נטענו מ-{filename}",
+    "metadata_model_not_found": "⚠️ המודל '{model}' מקובץ ה-JSON לא נמצא בתיקיית checkpoints.",
+    "metadata_models_differ": "⚠️ קובץ ה-JSON משתמש במודלים אחרים ({models}). בוחרי המודלים עודכנו: לחץ על 'Initialize Service' לפני היצירה.",
     "invalid_json": "❌ קובץ JSON לא תקין: {error}",
     "load_error": "❌ שגיאה בטעינת קובץ: {error}",
     "example_loaded": "📁 נטענה דוגמה מ-{filename}",

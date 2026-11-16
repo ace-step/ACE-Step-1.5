@@ -112,6 +112,13 @@ class GenerationMetadataFileWiringTests(unittest.TestCase):
         self.assertIn("load_metadata", attrs)
         self.assertIn("uncheck_auto_for_populated_fields", attrs)
 
+    def test_register_function_restores_models_in_upload_handler(self):
+        """Model selectors are restored by the upload handler itself."""
+
+        module = load_module_ast(_WIRING_PATH)
+        names = {node.id for node in ast.walk(module) if isinstance(node, ast.Name)}
+        self.assertIn("restore_models_from_metadata", names)
+
 
 if __name__ == "__main__":
     unittest.main()

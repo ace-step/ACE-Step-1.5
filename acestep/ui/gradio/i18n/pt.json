@@ -296,6 +296,8 @@
     "save_failed": "❌ Falha ao salvar: {error}",
     "no_file_selected": "⚠️ Nenhum arquivo selecionado",
     "params_loaded": "✅ Parâmetros carregados de {filename}",
+    "metadata_model_not_found": "⚠️ O modelo '{model}' do arquivo JSON não foi encontrado em checkpoints.",
+    "metadata_models_differ": "⚠️ O arquivo JSON usa modelos diferentes ({models}). Seletores de modelo atualizados: clique em 'Initialize Service' antes de gerar.",
     "invalid_json": "❌ Arquivo JSON inválido: {error}",
     "load_error": "❌ Erro ao carregar arquivo: {error}",
     "example_loaded": "📁 Exemplo carregado de {filename}",

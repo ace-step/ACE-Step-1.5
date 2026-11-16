@@ -9,6 +9,7 @@ from typing import Any
 import gradio as gr
 
 from .. import generation_handlers as gen_h
+from ..generation.metadata_model_restore import update_model_type_settings_keeping_loaded
 from ...i18n import get_i18n, reset_language_context, set_language_context
 from .context import (
     GenerationWiringContext,
@@ -58,8 +59,12 @@ def register_generation_service_handlers(
     )
 
     generation_section["config_path"].change(
-        fn=gen_h.update_model_type_settings,
-        inputs=[generation_section["config_path"], generation_section["generation_mode"]],
+        fn=update_model_type_settings_keeping_loaded,
+        inputs=[
+            generation_section["config_path"],
+            generation_section["generation_mode"],
+            results_section["keep_loaded_params_state"],
+        ],
         outputs=[
             generation_section["inference_steps"],
             generation_section["guidance_scale"],
@@ -71,6 +76,7 @@ def register_generation_service_handlers(
             generation_section["generation_mode"],
             generation_section["init_llm_checkbox"],
             generation_section["dcw_enabled"],
+            results_section["keep_loaded_params_state"],
         ],
     )
 

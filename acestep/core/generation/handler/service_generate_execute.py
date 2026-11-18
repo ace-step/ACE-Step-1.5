@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from loguru import logger
 
+from .mlx_dit_task_routing import should_use_mlx_dit
+
 
 class ServiceGenerateExecuteMixin:
     """Run diffusion execution for normalized service-generation requests."""
@@ -154,8 +156,13 @@ class ServiceGenerateExecuteMixin:
         retake_seed: Any = None,
         retake_variance: float = 0.0,
         flow_edit_ctx: Optional[Dict[str, Any]] = None,
+        task_type: str = "",
     ) -> Tuple[Dict[str, Any], torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Execute condition preparation and diffusion using MLX or PyTorch backend."""
+        """Execute condition preparation and diffusion using MLX or PyTorch backend.
+
+        ``task_type`` routes tasks without MLX parity (extract/lego/complete)
+        to the PyTorch DiT; see ``mlx_dit_task_routing``.
+        """
         generate_kwargs = {
             **generate_kwargs,
             "dcw_enabled": self._resolve_service_dcw_enabled(generate_kwargs),
@@ -167,9 +174,10 @@ class ServiceGenerateExecuteMixin:
                 self, payload=payload, generate_kwargs=generate_kwargs,
                 seed_param=seed_param, flow_edit_ctx=flow_edit_ctx,
             )
-        dit_backend = (
-            "MLX (native)" if (self.use_mlx_dit and self.mlx_decoder is not None) else f"PyTorch ({self.device})"
+        use_mlx = should_use_mlx_dit(
+            bool(self.use_mlx_dit and self.mlx_decoder is not None), task_type
         )
+        dit_backend = "MLX (native)" if use_mlx else f"PyTorch ({self.device})"
         logger.info(f"[service_generate] Generating audio... (DiT backend: {dit_backend})")
         with torch.inference_mode():
             with self._load_model_context("model"):
@@ -194,7 +202,7 @@ class ServiceGenerateExecuteMixin:
                     precomputed_lm_hints_25Hz=payload["precomputed_lm_hints_25Hz"],
                 )
 
-                if self.use_mlx_dit and self.mlx_decoder is not None:
+                if use_mlx:
                     dcw_enabled = generate_kwargs["dcw_enabled"]
                     if dcw_enabled and generate_kwargs.get("dcw_wavelet", "haar") != "haar":
                         logger.info(

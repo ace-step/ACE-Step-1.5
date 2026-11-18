@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACE-Step Studio</title>
+  <style>
+    :root {
+      --bg: #14120f;
+      --panel: #1e1b16;
+      --line: #3a342b;
+      --text: #f4efe6;
+      --muted: #b3a894;
+      --accent: #e0a15a;
+      --accent-ink: #2a1c0c;
+      --ok: #8fbf8a;
+      --danger: #e07a68;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(900px 420px at 10% -10%, #3a2a18 0%, transparent 55%),
+        var(--bg);
+      color: var(--text);
+      font: 16px/1.5 "Segoe UI", Candara, sans-serif;
+    }
+    main {
+      width: min(920px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 40px 0 64px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-family: Georgia, "Palatino Linotype", serif;
+      font-weight: 500;
+      font-size: 40px;
+      letter-spacing: -0.03em;
+    }
+    .lede { margin: 0 0 28px; color: var(--muted); }
+    form, .status, .track {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+    }
+    form { padding: 22px; }
+    label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 14px; }
+    textarea, input, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #12100d;
+      color: var(--text);
+      font: inherit;
+      padding: 12px 14px;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 160px 1fr; gap: 16px; margin-top: 16px; }
+    button {
+      margin-top: 18px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font: 600 16px/1 "Segoe UI", sans-serif;
+      padding: 14px 22px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .status { margin-top: 18px; padding: 18px 20px; }
+    .status[hidden] { display: none; }
+    .bar {
+      height: 10px;
+      border-radius: 999px;
+      background: #2b261f;
+      overflow: hidden;
+    }
+    .bar > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #c4843a, var(--accent));
+      transition: width 0.3s ease;
+    }
+    .bar.working > span { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 50% { filter: brightness(1.35); } }
+    .meta { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--muted); font-size: 14px; }
+    .detail { margin: 10px 0 0; }
+    .error { color: var(--danger); }
+    .tracks { display: grid; gap: 14px; margin-top: 18px; }
+    .track { padding: 16px 18px; }
+    .track h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+    audio { width: 100%; margin: 8px 0; }
+    .links { display: flex; gap: 14px; }
+    .links a { color: var(--accent); }
+    .model { margin-top: 22px; color: var(--muted); font-size: 14px; }
+    @media (max-width: 700px) {
+      .row { grid-template-columns: 1fr; }
+      h1 { font-size: 32px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ACE-Step Studio</h1>
+    <p class="lede">Describe the instrumental. Each run saves a high-quality WAV and a matching MP3.</p>
+    <form id="form">
+      <label for="prompt">Music prompt</label>
+      <textarea id="prompt" name="prompt" placeholder="Warm analog jazz trio, brushed drums, upright bass, late-night club" required></textarea>
+      <div class="row">
+        <div>
+          <label for="count">Tracks</label>
+          <input id="count" name="count" type="number" min="1" max="10" value="2">
+        </div>
+        <div>
+          <label for="quality">Audio quality</label>
+          <select id="quality" name="quality"></select>
+        </div>
+      </div>
+      <button id="go" type="submit">Generate</button>
+    </form>
+    <section class="status" id="status" hidden>
+      <div class="meta"><span id="status-text">Preparing</span><span id="status-pct">0%</span></div>
+      <div class="bar" id="bar"><span id="fill"></span></div>
+      <p class="detail" id="detail"></p>
+    </section>
+    <section class="tracks" id="tracks"></section>
+    <p class="model" id="model">Checking the model…</p>
+  </main>
+  <script>
+    const form = document.querySelector("#form");
+    const quality = document.querySelector("#quality");
+    const statusBox = document.querySelector("#status");
+    const statusText = document.querySelector("#status-text");
+    const statusPct = document.querySelector("#status-pct");
+    const fill = document.querySelector("#fill");
+    const bar = document.querySelector("#bar");
+    const detail = document.querySelector("#detail");
+    const tracks = document.querySelector("#tracks");
+    const model = document.querySelector("#model");
+    const go = document.querySelector("#go");
+
+    async function loadStatus() {
+      const data = await (await fetch("/api/status")).json();
+      const options = data.qualities || [];
+      if (!quality.options.length) {
+        for (const item of options) {
+          const option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.label;
+          if (item.id === data.default_quality) option.selected = true;
+          quality.appendChild(option);
+        }
+      }
+      model.textContent = data.message;
+      if (!form.dataset.busy) go.disabled = !data.ready;
+      if (!data.ready) setTimeout(loadStatus, 2000);
+    }
+
+    function renderTracks(items) {
+      tracks.innerHTML = "";
+      for (const track of items) {
+        const card = document.createElement("article");
+        card.className = "track";
+        card.innerHTML = `
+          <h2>Track ${track.index}</h2>
+          <audio controls src="${track.mp3}"></audio>
+          <div class="links">
+            <a href="${track.wav}" download>WAV master</a>
+            <a href="${track.mp3}" download>MP3</a>
+          </div>`;
+        tracks.appendChild(card);
+      }
+    }
+
+    async function poll(jobId) {
+      const data = await (await fetch("/api/jobs/" + jobId)).json();
+      statusBox.hidden = false;
+      const pct = Math.round((data.progress || 0) * 100);
+      statusText.textContent = data.message || "Working";
+      statusPct.textContent = pct + "%";
+      fill.style.width = pct + "%";
+      bar.classList.toggle("working", data.state === "running");
+      detail.textContent = data.detail || "";
+      detail.className = data.state === "error" ? "detail error" : "detail";
+      renderTracks(data.tracks || []);
+      if (data.state === "running") {
+        setTimeout(() => poll(jobId), 1500);
+      } else {
+        delete form.dataset.busy;
+        go.disabled = false;
+      }
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      form.dataset.busy = "1";
+      go.disabled = true;
+      tracks.innerHTML = "";
+      detail.className = "detail";
+      const body = {
+        prompt: document.querySelector("#prompt").value,
+        count: Number(document.querySelector("#count").value),
+        quality: quality.value,
+      };
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        statusBox.hidden = false;
+        statusText.textContent = "Could not start";
+        detail.textContent = data.error || "Request failed";
+        detail.className = "detail error";
+        delete form.dataset.busy;
+        go.disabled = false;
+        return;
+      }
+      poll(data.job_id);
+    });
+
+    loadStatus().catch(() => {
+      model.textContent = "The studio server is not responding.";
+    });
+  </script>
+</body>
+</html>

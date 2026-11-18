@@ -98,17 +98,23 @@ def get_timestep_schedule(
     return t_schedule_list
 
 
+APG_MOMENTUM = -0.75  # Matches ``acestep.models.common.apg_guidance.MomentumBuffer``.
+
+
 def _mlx_apg_forward(
     pred_cond,
     pred_uncond,
     guidance_scale: float,
     momentum_state: Optional[Dict] = None,
     norm_threshold: float = 2.5,
+    momentum: float = APG_MOMENTUM,
 ):
     """APG (Adaptive Projected Guidance) in pure MLX — mirrors the PyTorch ``apg_forward``.
 
     Projection is performed along axis 1 (the time/sequence dimension) to match
     the PyTorch implementation which calls ``apg_forward(..., dims=[1])``.
+    The momentum update matches ``MomentumBuffer.update``:
+    ``running = diff + momentum * running`` (default momentum ``-0.75``).
     """
     import mlx.core as mx
 
@@ -116,7 +122,7 @@ def _mlx_apg_forward(
 
     diff = pred_cond - pred_uncond
     if momentum_state is not None:
-        diff = diff + momentum_state.get("running", 0)
+        diff = diff + momentum * momentum_state.get("running", 0)
         momentum_state["running"] = diff
 
     if norm_threshold > 0:

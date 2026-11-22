@@ -24,6 +24,7 @@ from transformers.generation.logits_process import (
 )
 from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
+from acestep.llm_generation_lock import create_lm_generation_lock, serialize_lm_generation
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
 
@@ -72,6 +73,8 @@ class LLMHandler:
 
         # Shared constrained decoding processor
         self.constrained_processor: Optional[MetadataConstrainedLogitsProcessor] = None
+        # Guards the shared processor across concurrent API workers
+        self._lm_generation_lock = create_lm_generation_lock()
 
         # Shared HuggingFace model for perplexity calculation
         self._hf_model_for_scoring = None
@@ -871,6 +874,7 @@ class LLMHandler:
                 return status_msg
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
 
+    @serialize_lm_generation
     def _run_vllm(
         self,
         formatted_prompts: Union[str, List[str]],
@@ -1142,6 +1146,7 @@ class LLMHandler:
         output_text = self.llm_tokenizer.decode(generated_ids, skip_special_tokens=False)
         return output_text
 
+    @serialize_lm_generation
     def _run_pt(
         self,
         formatted_prompts: Union[str, List[str]],
@@ -3957,6 +3962,7 @@ class LLMHandler:
         output_text = self.llm_tokenizer.decode(new_tokens, skip_special_tokens=False)
         return output_text
 
+    @serialize_lm_generation
     def _run_mlx(
         self,
         formatted_prompts: Union[str, List[str]],

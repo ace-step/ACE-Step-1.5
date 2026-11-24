@@ -19,12 +19,25 @@ USER_AGENT = "acestep-thumbnail/1.0"
 
 
 def _json_request(
-    request: urllib.request.Request, *, transient_retries: int = 0
+    request: urllib.request.Request,
+    *,
+    transient_retries: int = 0,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
-    """Send JSON, retrying only transient GET failures when requested."""
+    """Send JSON, retrying only transient GET failures when requested.
+
+    When ``deadline`` (a ``time.monotonic()`` value) is given, no attempt, request
+    timeout or retry backoff may run past it.
+    """
     for attempt in range(transient_retries + 1):
+        request_timeout = 60.0
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Atlas request deadline reached")
+            request_timeout = min(request_timeout, remaining)
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=request_timeout) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             if attempt >= transient_retries or exc.code not in {429, 500, 502, 503, 504}:
@@ -32,7 +45,10 @@ def _json_request(
         except urllib.error.URLError:
             if attempt >= transient_retries:
                 raise
-        time.sleep(2**attempt)
+        backoff = 2**attempt
+        if deadline is not None:
+            backoff = min(backoff, max(deadline - time.monotonic(), 0))
+        time.sleep(backoff)
     raise RuntimeError("request retry loop exhausted")
 
 
@@ -75,7 +91,7 @@ def poll(key: str, prediction_id: str, timeout: int, interval: float) -> str:
             f"{API_ROOT}/api/v1/model/prediction/{prediction_id}",
             headers={"Authorization": f"Bearer {key}", "User-Agent": USER_AGENT},
         )
-        data = _json_request(request, transient_retries=3)
+        data = _json_request(request, transient_retries=3, deadline=deadline)
         body = data.get("data", data)
         status = str(body.get("status", "")).lower()
         outputs = body.get("outputs") or []

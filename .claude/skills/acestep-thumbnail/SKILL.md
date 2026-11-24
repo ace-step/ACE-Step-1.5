@@ -40,10 +40,12 @@ Use `AskUserQuestion` to ask the user to provide their API key, with the followi
 2. Provide the matching setup instructions:
    - **Google AI Studio**: Get a API key at https://aistudio.google.com/apikey — requires a Google account.
    - **Atlas Cloud**: Create a key at https://www.atlascloud.ai/console/api-keys and export it as `ATLASCLOUD_API_KEY`.
-3. Once the user provides the key, configure it using:
-   ```bash
-   cd "{project_root}/{.claude or .codex}/skills/acestep-thumbnail/" && bash ./scripts/acestep-thumbnail.sh config --set api_key <KEY>
-   ```
+3. Once the user provides the key:
+   - **Google AI Studio**: configure it using:
+     ```bash
+     cd "{project_root}/{.claude or .codex}/skills/acestep-thumbnail/" && bash ./scripts/acestep-thumbnail.sh config --set api_key <KEY>
+     ```
+   - **Atlas Cloud**: do not use `config --set api_key` (that stores a Gemini key). The Atlas workflow reads only `ATLASCLOUD_API_KEY` (or `ATLAS_CLOUD_API_KEY`) from the environment, so ask the user to export it in the shell that runs the skill.
 4. After configuring Gemini, re-run `config --check-key`. For Atlas, repeat the safe environment check above.
 
 **If the API key is already configured**, proceed directly to generation without asking.

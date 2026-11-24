@@ -54,8 +54,47 @@ class AtlasThumbnailTest(unittest.TestCase):
             output = atlas.poll("secret", "prediction-1", timeout=10, interval=0)
         self.assertEqual(output, "https://image.test/a.png")
         self.assertTrue(
-            all(call.kwargs == {"transient_retries": 3} for call in request_json.call_args_list)
+            all(
+                call.kwargs["transient_retries"] == 3 and "deadline" in call.kwargs
+                for call in request_json.call_args_list
+            )
         )
+
+    def test_request_never_runs_past_the_deadline(self) -> None:
+        clock = [0.0]
+        timeouts: list[float] = []
+        sleeps: list[float] = []
+
+        def fake_urlopen(_request: object, timeout: float) -> object:
+            timeouts.append(timeout)
+            clock[0] += timeout
+            raise atlas.urllib.error.URLError("unreachable")
+
+        def fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        request = atlas.urllib.request.Request("https://api.atlascloud.ai/x")
+        with patch.object(atlas.urllib.request, "urlopen", fake_urlopen), patch.object(
+            atlas.time, "sleep", fake_sleep
+        ), patch.object(atlas.time, "monotonic", lambda: clock[0]):
+            with self.assertRaises((atlas.urllib.error.URLError, TimeoutError)):
+                atlas._json_request(request, transient_retries=3, deadline=2.0)
+        self.assertLessEqual(clock[0], 2.0)
+        self.assertTrue(all(value <= 2.0 for value in timeouts))
+        self.assertLessEqual(len(timeouts), 4)
+
+    def test_request_without_deadline_keeps_the_default_timeout(self) -> None:
+        seen: list[float] = []
+
+        def fake_urlopen(_request: object, timeout: float) -> Response:
+            seen.append(timeout)
+            return Response({"ok": True})
+
+        request = atlas.urllib.request.Request("https://api.atlascloud.ai/x")
+        with patch.object(atlas.urllib.request, "urlopen", fake_urlopen):
+            self.assertEqual(atlas._json_request(request), {"ok": True})
+        self.assertEqual(seen, [60.0])
 
     def test_download_writes_recognized_image_atomically(self) -> None:
         image = b"\x89PNG\r\n\x1a\n" + b"content"

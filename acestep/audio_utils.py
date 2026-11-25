@@ -21,6 +21,8 @@ import numpy as np
 import torchaudio
 from loguru import logger
 
+from acestep.audio_ffmpeg_export import encode_with_ffmpeg
+
 
 def apply_fade(
     audio_data: Union[torch.Tensor, np.ndarray],
@@ -273,14 +275,7 @@ class AudioSaver:
                 )
                 return str(output_path)
             elif format in ["opus", "aac"]:
-                # Opus and AAC use ffmpeg backend
-                torchaudio.save(
-                    str(output_path),
-                    audio_tensor,
-                    sample_rate,
-                    channels_first=True,
-                    backend='ffmpeg',
-                )
+                encode_with_ffmpeg(audio_tensor, output_path, sample_rate, format)
             elif format in ["flac", "wav", "wav32"]:
                 # FLAC and WAV use soundfile backend (fastest)
                 # handle 32-bit float wav
@@ -320,8 +315,9 @@ class AudioSaver:
             return str(output_path)
             
         except Exception as e:
-            if format == "mp3":
-                logger.error(f"[AudioSaver] MP3 export failed without fallback: {e}")
+            if format in ("mp3", "opus", "aac"):
+                # soundfile cannot write these formats, so a fallback would only mask the error.
+                logger.error(f"[AudioSaver] {format} export failed without fallback: {e}")
                 raise
             try:
                 import soundfile as sf

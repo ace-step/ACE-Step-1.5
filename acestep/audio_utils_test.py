@@ -51,8 +51,8 @@ class AudioSaverFormatTests(unittest.TestCase):
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test_opus"
         
-        # Mock torchaudio.save to avoid actual file writing
-        with patch('acestep.audio_utils.torchaudio.save') as mock_save:
+        # Mock the ffmpeg encoder to avoid actual file writing
+        with patch('acestep.audio_utils.encode_with_ffmpeg') as mock_save:
             result = saver.save_audio(
                 self.sample_audio,
                 output_path,
@@ -60,10 +60,7 @@ class AudioSaverFormatTests(unittest.TestCase):
                 format="opus"
             )
             
-            # Verify torchaudio.save was called with ffmpeg backend
             mock_save.assert_called_once()
-            call_kwargs = mock_save.call_args[1]
-            self.assertEqual(call_kwargs.get('backend'), 'ffmpeg')
             self.assertTrue(result.endswith('.opus'))
 
     def test_save_audio_validates_aac_format(self):
@@ -71,8 +68,8 @@ class AudioSaverFormatTests(unittest.TestCase):
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test_aac"
         
-        # Mock torchaudio.save to avoid actual file writing
-        with patch('acestep.audio_utils.torchaudio.save') as mock_save:
+        # Mock the ffmpeg encoder to avoid actual file writing
+        with patch('acestep.audio_utils.encode_with_ffmpeg') as mock_save:
             result = saver.save_audio(
                 self.sample_audio,
                 output_path,
@@ -80,10 +77,7 @@ class AudioSaverFormatTests(unittest.TestCase):
                 format="aac"
             )
             
-            # Verify torchaudio.save was called with ffmpeg backend
             mock_save.assert_called_once()
-            call_kwargs = mock_save.call_args[1]
-            self.assertEqual(call_kwargs.get('backend'), 'ffmpeg')
             self.assertTrue(result.endswith('.aac'))
 
 
@@ -176,12 +170,12 @@ class AudioSaverFormatTests(unittest.TestCase):
             self.assertIn('320k', cmd)
             self.assertIn('44100', cmd)
 
-    def test_save_audio_opus_uses_ffmpeg_backend(self):
-        """Opus format should use ffmpeg backend like MP3."""
+    def test_save_audio_opus_uses_ffmpeg_encoder(self):
+        """Opus format should be encoded through the ffmpeg CLI helper."""
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test.opus"
         
-        with patch('acestep.audio_utils.torchaudio.save') as mock_save:
+        with patch('acestep.audio_utils.encode_with_ffmpeg') as mock_save:
             saver.save_audio(
                 self.sample_audio,
                 output_path,
@@ -189,16 +183,16 @@ class AudioSaverFormatTests(unittest.TestCase):
                 format="opus"
             )
             
-            # Check that ffmpeg backend was used
-            call_kwargs = mock_save.call_args[1]
-            self.assertEqual(call_kwargs['backend'], 'ffmpeg')
+            # Encoder receives the tensor, path, rate and format name
+            mock_save.assert_called_once()
+            self.assertEqual(mock_save.call_args[0][2:], (self.sample_rate, 'opus'))
 
-    def test_save_audio_aac_uses_ffmpeg_backend(self):
-        """AAC format should use ffmpeg backend like MP3."""
+    def test_save_audio_aac_uses_ffmpeg_encoder(self):
+        """AAC format should be encoded through the ffmpeg CLI helper."""
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test.aac"
         
-        with patch('acestep.audio_utils.torchaudio.save') as mock_save:
+        with patch('acestep.audio_utils.encode_with_ffmpeg') as mock_save:
             saver.save_audio(
                 self.sample_audio,
                 output_path,
@@ -206,16 +200,16 @@ class AudioSaverFormatTests(unittest.TestCase):
                 format="aac"
             )
             
-            # Check that ffmpeg backend was used
-            call_kwargs = mock_save.call_args[1]
-            self.assertEqual(call_kwargs['backend'], 'ffmpeg')
+            # Encoder receives the tensor, path, rate and format name
+            mock_save.assert_called_once()
+            self.assertEqual(mock_save.call_args[0][2:], (self.sample_rate, 'aac'))
 
     def test_extension_handling_for_opus(self):
         """Test that .opus extension is correctly added."""
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test_file"
         
-        with patch('acestep.audio_utils.torchaudio.save'):
+        with patch('acestep.audio_utils.encode_with_ffmpeg'):
             result = saver.save_audio(
                 self.sample_audio,
                 output_path,
@@ -231,7 +225,7 @@ class AudioSaverFormatTests(unittest.TestCase):
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test_file"
         
-        with patch('acestep.audio_utils.torchaudio.save'):
+        with patch('acestep.audio_utils.encode_with_ffmpeg'):
             result = saver.save_audio(
                 self.sample_audio,
                 output_path,
@@ -247,7 +241,7 @@ class AudioSaverFormatTests(unittest.TestCase):
         saver = AudioSaver()
         output_path = Path(self.temp_dir) / "test_file.m4a"
         
-        with patch('acestep.audio_utils.torchaudio.save'):
+        with patch('acestep.audio_utils.encode_with_ffmpeg'):
             result = saver.save_audio(
                 self.sample_audio,
                 output_path,
@@ -279,7 +273,7 @@ class AudioSaverFormatTests(unittest.TestCase):
         output_path = Path(self.temp_dir) / "test_numpy.opus"
         audio_np = np.random.randn(2, 48000).astype(np.float32)
         
-        with patch('acestep.audio_utils.torchaudio.save') as mock_save:
+        with patch('acestep.audio_utils.encode_with_ffmpeg') as mock_save:
             result = saver.save_audio(
                 audio_np,
                 output_path,
@@ -295,7 +289,7 @@ class AudioSaverFormatTests(unittest.TestCase):
         """Test that the convenience save_audio function supports Opus."""
         output_path = Path(self.temp_dir) / "convenience_test.opus"
         
-        with patch('acestep.audio_utils.torchaudio.save'):
+        with patch('acestep.audio_utils.encode_with_ffmpeg'):
             result = save_audio(
                 self.sample_audio,
                 output_path,
@@ -309,7 +303,7 @@ class AudioSaverFormatTests(unittest.TestCase):
         """Test that the convenience save_audio function supports AAC."""
         output_path = Path(self.temp_dir) / "convenience_test.aac"
 
-        with patch('acestep.audio_utils.torchaudio.save'):
+        with patch('acestep.audio_utils.encode_with_ffmpeg'):
             result = save_audio(
                 self.sample_audio,
                 output_path,
@@ -320,6 +314,59 @@ class AudioSaverFormatTests(unittest.TestCase):
             self.assertTrue(result.endswith('.aac'))
 
 
+
+    def test_save_audio_opus_does_not_call_torchaudio_save(self):
+        """Opus export must not route through torchaudio.save (requires torchcodec)."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.opus"
+
+        with (
+            patch('acestep.audio_utils.encode_with_ffmpeg'),
+            patch('acestep.audio_utils.torchaudio.save') as mock_torchaudio_save,
+        ):
+            saver.save_audio(
+                self.sample_audio, output_path, sample_rate=self.sample_rate, format="opus"
+            )
+
+        mock_torchaudio_save.assert_not_called()
+
+    def test_save_audio_opus_and_aac_raise_without_soundfile_fallback(self):
+        """Opus/AAC encoder failures must surface instead of a misleading soundfile error."""
+        saver = AudioSaver()
+
+        for fmt in ("opus", "aac"):
+            with self.subTest(fmt=fmt):
+                with (
+                    patch(
+                        'acestep.audio_utils.encode_with_ffmpeg',
+                        side_effect=RuntimeError('ffmpeg missing'),
+                    ),
+                    patch('soundfile.write') as mock_soundfile_write,
+                ):
+                    with self.assertRaisesRegex(RuntimeError, 'ffmpeg missing'):
+                        saver.save_audio(
+                            self.sample_audio,
+                            Path(self.temp_dir) / f"test.{fmt}",
+                            sample_rate=self.sample_rate,
+                            format=fmt,
+                        )
+                    mock_soundfile_write.assert_not_called()
+
+    def test_save_audio_flac_still_falls_back_to_soundfile(self):
+        """Non-target formats keep their soundfile fallback when torchaudio.save fails."""
+        saver = AudioSaver()
+        output_path = Path(self.temp_dir) / "test.flac"
+
+        with (
+            patch('acestep.audio_utils.torchaudio.save', side_effect=ImportError('torchcodec')),
+            patch('soundfile.write') as mock_soundfile_write,
+        ):
+            result = saver.save_audio(
+                self.sample_audio, output_path, sample_rate=self.sample_rate, format="flac"
+            )
+
+        mock_soundfile_write.assert_called_once()
+        self.assertTrue(result.endswith('.flac'))
 
     def test_save_audio_mp3_does_not_fallback_to_soundfile_on_failure(self):
         """MP3 export must fail loudly instead of silently falling back to soundfile."""

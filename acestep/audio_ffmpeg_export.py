@@ -80,13 +80,19 @@ def encode_with_ffmpeg(
 def _run_ffmpeg(input_path: Path, output_path: Path, codec: str, audio_format: str) -> None:
     """Run ffmpeg to transcode ``input_path`` with ``codec``, mapping failures to RuntimeError."""
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "ffmpeg", "-nostdin", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
         "-codec:a", codec,
         str(output_path),
     ]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=FFMPEG_TIMEOUT_SECONDS)
+        subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
     except FileNotFoundError as e:
         raise RuntimeError(
             f"ffmpeg executable not found. Install ffmpeg or add it to PATH "

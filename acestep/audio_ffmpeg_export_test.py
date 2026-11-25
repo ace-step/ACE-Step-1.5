@@ -110,16 +110,36 @@ class EncodeWithFfmpegTests(unittest.TestCase):
         self.assertEqual(len(created), 1)
         self.assertFalse(created[0].exists())
 
-    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not installed")
-    def test_real_ffmpeg_produces_files(self):
-        """With ffmpeg available, Opus and AAC files are actually written."""
-        audio = torch.sin(torch.linspace(0, 2000, 48000)).repeat(2, 1) * 0.1
-        for audio_format, name in (("opus", "real.opus"), ("aac", "real.aac")):
-            with self.subTest(audio_format=audio_format):
-                output_path = self.temp_dir / name
-                encode_with_ffmpeg(audio, output_path, 48000, audio_format)
-                self.assertGreater(output_path.stat().st_size, 0)
+    def test_ffmpeg_does_not_read_stdin(self):
+        """ffmpeg must not consume or block on the parent's stdin (background servers)."""
+        _, mock_run = self._encode_with_mocks("opus", "out.opus")
 
+        self.assertIn("-nostdin", mock_run.call_args[0][0])
+        self.assertIs(mock_run.call_args[1]["stdin"], subprocess.DEVNULL)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg not installed")
+    def test_real_ffmpeg_produces_expected_streams(self):
+        """With ffmpeg available, real files decode with the expected codec and channels."""
+        cases = (
+            ("opus", "real.opus", 48000, "opus"),
+            ("opus", "real_44k.opus", 44100, "opus"),
+            ("aac", "real.aac", 48000, "aac"),
+            ("aac", "real.m4a", 48000, "aac"),
+        )
+        for audio_format, name, sample_rate, expected_codec in cases:
+            with self.subTest(name=name):
+                audio = torch.sin(torch.linspace(0, 2000, sample_rate)).repeat(2, 1) * 0.1
+                output_path = self.temp_dir / name
+                encode_with_ffmpeg(audio, output_path, sample_rate, audio_format)
+                probe = subprocess.run(
+                    [
+                        "ffprobe", "-v", "error", "-select_streams", "a:0",
+                        "-show_entries", "stream=codec_name,channels",
+                        "-of", "csv=p=0", str(output_path),
+                    ],
+                    check=True, capture_output=True, text=True,
+                )
+                self.assertEqual(probe.stdout.strip(), f"{expected_codec},2")
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,10 +38,10 @@ If the user needs a simple music video, use the **acestep-simplemv** skill to re
 - **acestep-songwriting** — for writing lyrics and planning song structure
 - **acestep-lyrics-transcription** — for transcribing audio to timestamped lyrics (LRC)
 - **acestep-simplemv** — for rendering the final music video
-- **acestep-thumbnail** (optional) — for generating cover art / MV background images via Gemini API
+- **acestep-thumbnail** (optional) — for generating cover art / MV background images via Gemini API or Atlas Cloud
 
 **MV Background Image**: When the user requests MV production, ask whether they want a background image for the video:
-1. **Generate via Gemini** — use the **acestep-thumbnail** skill (requires Gemini API key configuration)
+1. **Generate via Gemini or Atlas Cloud** — use the **acestep-thumbnail** skill (requires the selected provider's API key)
 2. **Provide an existing image** — user supplies a local image path
 3. **Skip** — use the default animated gradient background (no image needed)
 

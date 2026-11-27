@@ -23,6 +23,13 @@ class RepairFrenchLostNTests(unittest.TestCase):
         # after a tag, after a blank line, after punctuation, before a consonant: no change
         self.assertEqual(repair_lm_lyrics(text, "fr"), text)
 
+    def test_a_quoted_phrase_at_a_line_start_is_kept(self):
+        self.assertEqual(repair_lm_lyrics("Il dit\n'au revoir'", "fr"), "Il dit\n'au revoir'")
+        self.assertEqual(repair_lm_lyrics("Elle crie\n'ici', puis s'en va", "fr"), "Elle crie\n'ici', puis s'en va")
+        # an elision later in the line is not a closing quote: the lost n is still put back
+        self.assertEqual(repair_lm_lyrics("elle ferait\n'importe quoi pour l'autre", "fr"),
+                         "elle ferait n'importe quoi pour l'autre")
+
     def test_missing_n_before_a_vowel_is_not_guessed(self):
         self.assertEqual(repair_lm_lyrics("Les\néons qui brillent", "fr"), "Les\néons qui brillent")
 

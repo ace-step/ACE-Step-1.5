@@ -24,6 +24,7 @@ from transformers.generation.logits_process import (
 )
 from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
+from acestep.lyrics_repair import repair_lm_lyrics
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
 
@@ -1935,7 +1936,7 @@ class LLMHandler:
         metadata, _ = self.parse_lm_output(output_text)
 
         # Extract lyrics section (everything after </think>)
-        lyrics = self._extract_lyrics_from_output(output_text)
+        lyrics = repair_lm_lyrics(self._extract_lyrics_from_output(output_text), metadata.get('language'))
         if lyrics:
             metadata['lyrics'] = lyrics
 
@@ -2143,7 +2144,10 @@ class LLMHandler:
         metadata, _ = self.parse_lm_output(output_text)
 
         # Extract lyrics section (everything after </think>)
-        lyrics = self._extract_lyrics_from_output(output_text)
+        lyrics = repair_lm_lyrics(
+            self._extract_lyrics_from_output(output_text),
+            metadata.get('language') or (user_metadata or {}).get('language'),
+        )
         if lyrics:
             metadata['lyrics'] = lyrics
         elif instrumental:
@@ -2344,7 +2348,10 @@ class LLMHandler:
         metadata, _ = self.parse_lm_output(output_text)
 
         # Extract formatted lyrics section (everything after </think>)
-        formatted_lyrics = self._extract_lyrics_from_output(output_text)
+        formatted_lyrics = repair_lm_lyrics(
+            self._extract_lyrics_from_output(output_text),
+            metadata.get('language') or (constrained_metadata or {}).get('language'),
+        )
         if formatted_lyrics:
             metadata['lyrics'] = formatted_lyrics
         else:

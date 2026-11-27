@@ -27,6 +27,20 @@ class AlignCaptionLanguageTests(unittest.TestCase):
         text = "Spanish guitar, a French horn, Latin percussion and a Brazilian groove, Japanese city pop."
         self.assertEqual(align_caption_language(text, "fr"), text)
 
+    def test_review_cases(self):
+        # a rap named before its language
+        self.assertEqual(align_caption_language("A rap in Spanish over a sparse beat.", "fr"),
+                         "A rap in French over a sparse beat.")
+        # "lead" alone is an instrument here
+        text = "Spanish lead guitar accompanies the singer."
+        self.assertEqual(align_caption_language(text, "fr"), text)
+        self.assertEqual(align_caption_language("A Spanish lead vocal.", "fr"), "A French lead vocal.")
+        # a style after an unrelated verb is not a singing language
+        text = "Vocals are arranged in Japanese city pop style."
+        self.assertEqual(align_caption_language(text, "fr"), text)
+        self.assertEqual(align_caption_language("vocals entirely in Japanese", "fr"), "vocals entirely in French")
+        self.assertEqual(align_caption_language("Vocals are sung in Polish.", "fr"), "Vocals are sung in French.")
+
     def test_same_language_or_no_choice_changes_nothing(self):
         text = "A female vocal, sung in Finnish."
         self.assertEqual(align_caption_language("A vocal sung in French.", "fr"), "A vocal sung in French.")

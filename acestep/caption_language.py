@@ -26,12 +26,16 @@ _EXTRA_NAMES = ["Mandarin", "Farsi", "Filipino", "Creole", "Brazilian Portuguese
 
 _NAMES = sorted(set(LANGUAGE_NAMES.values()) | set(_EXTRA_NAMES), key=len, reverse=True)
 _LANG = r"(?:" + "|".join(re.escape(n) for n in _NAMES) + r")"
-_SINGING_VERBS = r"(?:sung|sings|sing|singing|sang|performed|delivered|rapped|raps|rapping|vocals?|lyrics)"
-_SINGING_NOUNS = r"(?:vocals?|vocalists?|lyrics|singing|singer|lead|rap|rapping|verses?|chorus|hook|language)"
+_SINGING_VERBS = r"(?:sung|sings|sing|singing|sang|performed|delivered|rap|rapped|raps|rapping|vocals?|lyrics)"
+# No bare "lead": "Spanish lead guitar" is an instrument; "Spanish lead vocal" still matches through the modifiers.
+_SINGING_NOUNS = r"(?:vocals?|vocalists?|lyrics|singing|singer|rap|rapping|verses?|chorus|hook|language)"
+# Only these words may stand between the singing word and "in": "vocals entirely in Japanese", "lyrics delivered in
+# Mandarin". An arbitrary bridge let "Vocals are arranged in Japanese city pop style" turn into "French city pop".
+_BRIDGE = r"(?:\s+(?:are|is|entirely|mostly|mainly|partly|partially|primarily|fully|exclusively|completely|all|sung|performed|delivered|rapped|written))*"
 
 # "sung in Polish", "vocals in the Czech language", "lyrics entirely in Spanish"
 _IN_LANG = re.compile(
-    r"\b(" + _SINGING_VERBS + r"\b[^.,;]{0,30}?\bin\s+(?:the\s+)?)(" + _LANG + r")\b", re.IGNORECASE)
+    r"\b(" + _SINGING_VERBS + _BRIDGE + r"\s+in\s+(?:the\s+)?)(" + _LANG + r")\b", re.IGNORECASE)
 # "a Czech vocal", "Spanish lyrics", "Portuguese-language vocals", "Polish female vocal"
 _LANG_NOUN = re.compile(
     r"\b(" + _LANG + r")((?:-language)?(?:\s+(?:female|male|lead|emotive|clear|soft|breathy))*\s+" + _SINGING_NOUNS + r")\b",

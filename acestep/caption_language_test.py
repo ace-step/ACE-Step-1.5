@@ -40,6 +40,8 @@ class AlignCaptionLanguageTests(unittest.TestCase):
         self.assertEqual(align_caption_language(text, "fr"), text)
         self.assertEqual(align_caption_language("vocals entirely in Japanese", "fr"), "vocals entirely in French")
         self.assertEqual(align_caption_language("Vocals are sung in Polish.", "fr"), "Vocals are sung in French.")
+        self.assertEqual(align_caption_language("Vocals are predominantly in Spanish.", "fr"),
+                         "Vocals are predominantly in French.")
 
     def test_same_language_or_no_choice_changes_nothing(self):
         text = "A female vocal, sung in Finnish."

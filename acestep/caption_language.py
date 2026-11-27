@@ -31,7 +31,7 @@ _SINGING_VERBS = r"(?:sung|sings|sing|singing|sang|performed|delivered|rap|rappe
 _SINGING_NOUNS = r"(?:vocals?|vocalists?|lyrics|singing|singer|rap|rapping|verses?|chorus|hook|language)"
 # Only these words may stand between the singing word and "in": "vocals entirely in Japanese", "lyrics delivered in
 # Mandarin". An arbitrary bridge let "Vocals are arranged in Japanese city pop style" turn into "French city pop".
-_BRIDGE = r"(?:\s+(?:are|is|entirely|mostly|mainly|partly|partially|primarily|fully|exclusively|completely|all|sung|performed|delivered|rapped|written))*"
+_BRIDGE = r"(?:\s+(?:are|is|entirely|mostly|mainly|largely|chiefly|predominantly|partly|partially|primarily|fully|exclusively|solely|completely|all|sung|performed|delivered|rapped|written))*"
 
 # "sung in Polish", "vocals in the Czech language", "lyrics entirely in Spanish"
 _IN_LANG = re.compile(

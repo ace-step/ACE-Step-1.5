@@ -18,14 +18,28 @@ def is_french(language) -> bool:
     return isinstance(language, str) and language.strip().lower().split("-")[0] == "fr"
 
 
-# A closing quote: an apostrophe followed by a space, punctuation or the end of the line (an elision is followed by a letter).
-_CLOSING_QUOTE = re.compile(r"'(?=[\s.,;:!?)\]»]|$)")
+# Apostrophes in the rest of the line: a closing quote is followed by a space, punctuation or the end of the line;
+# an opening quote follows a space or the line start and comes before a letter; anything else is an elision.
+_QUOTE_MARK = re.compile(r"'")
+_CLOSING_AFTER = re.compile(r"[\s.,;:!?)\]»]")
+
+
+def _opens_a_quoted_phrase(rest: str) -> bool:
+    """True when the apostrophe just before ``rest`` opens a quote that ``rest`` closes ("'au revoir'")."""
+    for mark in _QUOTE_MARK.finditer(rest):
+        i = mark.start()
+        after = rest[i + 1:i + 2]
+        if not after or _CLOSING_AFTER.match(after):
+            return True                      # the first quote mark closes ours
+        if i == 0 or rest[i - 1].isspace():
+            return False                     # another quote opens first ("pour entendre 'oui'"): ours was a lost n
+    return False
 
 
 def _repair_match(match: "re.Match") -> str:
     # "Il dit\n'au revoir'" opens a quoted phrase on the new line: it is not a lost n.
     rest = match.string[match.end():].split("\n", 1)[0]
-    return match.group(0) if _CLOSING_QUOTE.search(rest) else " n'"
+    return match.group(0) if _opens_a_quoted_phrase(rest) else " n'"
 
 
 def repair_lm_lyrics(lyrics: str, language) -> str:

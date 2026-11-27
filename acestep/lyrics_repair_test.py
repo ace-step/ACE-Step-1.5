@@ -29,6 +29,9 @@ class RepairFrenchLostNTests(unittest.TestCase):
         # an elision later in the line is not a closing quote: the lost n is still put back
         self.assertEqual(repair_lm_lyrics("elle ferait\n'importe quoi pour l'autre", "fr"),
                          "elle ferait n'importe quoi pour l'autre")
+        # a quotation opened later in the line does not close ours
+        self.assertEqual(repair_lm_lyrics("Elle ferait\n'importe quoi pour entendre 'oui'.", "fr"),
+                         "Elle ferait n'importe quoi pour entendre 'oui'.")
 
     def test_missing_n_before_a_vowel_is_not_guessed(self):
         self.assertEqual(repair_lm_lyrics("Les\néons qui brillent", "fr"), "Les\néons qui brillent")

@@ -308,7 +308,7 @@ This is where I belong
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| **LM Codes Strength** | 1.0 | How strongly LM codes influence generation (0.0-1.0) |
+| **Audio Codes Strength** | 1.0 | How closely generation follows supplied or LM-generated audio codes (0.0–1.0). Uploading reference audio alone does not activate this setting. |
 | **Auto Score** | ✗ | Automatically calculate quality scores |
 | **Auto LRC** | ✗ | Automatically generate lyrics timestamps |
 | **LM Batch Chunk Size** | 8 | Max items per LM batch (GPU memory) |
